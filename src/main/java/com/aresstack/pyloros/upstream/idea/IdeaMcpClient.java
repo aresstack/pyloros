@@ -63,6 +63,7 @@ public final class IdeaMcpClient {
 
         Future<JsonObject> initFuture;
         if (!initialized) {
+            log.info("IdeaMcpClient: sending initialize to IDEA");
             initFuture = jsonRpcClient.postJsonRpc("initialize", new JsonObject());
         } else {
             initFuture = Future.succeededFuture(new JsonObject());
@@ -99,6 +100,7 @@ public final class IdeaMcpClient {
                         }
                     }
                     cachedTools.set(tools);
+                    log.info("IdeaMcpClient: tools/list returned {} tools", tools.size());
                     promise.complete(tools);
                     return;
                 }

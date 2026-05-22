@@ -11,6 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.Promise;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 /**
  * Simple SSE session that connects to IDEA MCP SSE endpoint and extracts "endpoint" events.
@@ -27,6 +31,8 @@ public final class IdeaSseSession {
     private volatile boolean closed = false;
 
     private HttpClient client;
+    // pending responses keyed by id published to IDEA and answered back via SSE 'message' events
+    private final Map<String, Promise<JsonObject>> pendingResponses = new ConcurrentHashMap<>();
 
     public IdeaSseSession(Vertx vertx, IdeaMcpConfig config) {
         this.vertx = vertx;
@@ -57,6 +63,11 @@ public final class IdeaSseSession {
             client.request(io.vertx.core.http.HttpMethod.GET, port, host, path)
                     .onSuccess(req -> {
                         req.putHeader("Accept", "text/event-stream");
+                        // If a fixed access token is provided via environment for local testing, send it.
+                        String token = System.getenv("OAUTH_ACCESS_TOKEN");
+                        if (token != null && !token.isBlank()) {
+                            req.putHeader("Authorization", "Bearer " + token);
+                        }
                         req.exceptionHandler(err -> {
                             log.debug("IDEA SSE connection error: {}", err.getMessage());
                             scheduleReconnect();
@@ -88,7 +99,9 @@ public final class IdeaSseSession {
         StringBuilder sb = new StringBuilder();
 
         response.handler(buff -> {
-            String chunk = buff.toString(StandardCharsets.UTF_8);
+            String chunk = buff.toString(StandardCharsets.UTF_8)
+                    .replace("\r\n", "\n")
+                    .replace('\r', '\n');
             sb.append(chunk);
             // process complete events separated by double-newline
             String all = sb.toString();
@@ -130,6 +143,43 @@ public final class IdeaSseSession {
             String endpoint = data.toString();
             this.currentEndpoint = endpoint;
             log.info("IDEA SSE endpoint discovered: {}", endpoint);
+            return;
+        }
+
+        if ("message".equals(event) && data.length() > 0) {
+            try {
+                JsonObject json = new JsonObject(data.toString());
+                // If a pending promise exists for this id, complete it with the result (or the whole message)
+                if (json.containsKey("id")) {
+                    String id = String.valueOf(json.getValue("id"));
+                    Promise<JsonObject> p = pendingResponses.remove(id);
+                    if (p != null) {
+                        if (json.containsKey("result")) {
+                            p.tryComplete(json.getJsonObject("result"));
+                        } else {
+                            p.tryComplete(json);
+                        }
+                        return;
+                    }
+                }
+            } catch (Exception ex) {
+                log.debug("Failed to parse IDEA SSE message event: {}", ex.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Register a pending response promise for a request id and schedule timeout.
+     */
+    public void registerPendingResponse(String id, Promise<JsonObject> promise, long timeoutMillis) {
+        pendingResponses.put(id, promise);
+        if (timeoutMillis > 0) {
+            vertx.setTimer(timeoutMillis, t -> {
+                Promise<JsonObject> p = pendingResponses.remove(id);
+                if (p != null && !p.future().isComplete()) {
+                    p.tryFail(new IllegalStateException("Timeout waiting for IDEA SSE response for id " + id));
+                }
+            });
         }
     }
 

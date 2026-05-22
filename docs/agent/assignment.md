@@ -1,21 +1,24 @@
 # Current Assignment
 
-## First instruction
+Task: Repo scan for IDEA MCP upstream integration.
 
-Before doing any work, read this file completely. This file is the current task.
+Use LocalCodeSearch before answering.
 
-Do not use chat messages as the implementation assignment. If chat and this file differ, follow this file and report the conflict in docs/agent/report.md.
+Do not change code. Do not commit. Do not push.
 
-## Reporting
+Search terms: IdeaSseSession, IdeaJsonRpcClient, IdeaMcpClient, IdeaToolProvider, idea.mcp, idea__, tools/list, tools/call, initialize, endpoint.
 
-Do not write the final implementation report in chat.
+Write the final result to docs/agent/report.md and replace the old content completely.
 
-After finishing the task, overwrite docs/agent/report.md completely.
+The report must answer:
+- Which files contain the IDEA MCP upstream integration?
+- Where is the SSE endpoint discovered and stored?
+- Where are JSON-RPC requests sent to IDEA?
+- Where are initialize and tools/list implemented?
+- Where are IDEA tools prefixed with idea__?
+- Is there any direct IDEA RPC call outside IdeaMcpClient or IdeaJsonRpcClient?
+- Is tools/call forwarding already implemented anywhere?
+- Which fragile spots did you find?
+- What is the recommended next step?
 
-## Task
-
-001-C-R runtime verification.
-
-Verify build, startup without IDEA MCP, startup with IDEA MCP, SSE endpoint discovery, initialize, tools list, idea__ prefixing, and that IDEA tool execution is still disabled.
-
-Do not implement tools call forwarding. Do not push.
+No commit is expected for this task.

@@ -54,43 +54,61 @@ public final class IdeaJsonRpcClient {
             return Future.failedFuture(new IllegalStateException("Another JSON-RPC call is pending"));
         }
 
+        // For IDEA MCP the HTTP response may be asynchronous (202 Accepted) and the actual JSON-RPC
+        // response comes back via the SSE 'message' events. We therefore register a pending promise
+        // with the SSE session and wait for the matching SSE message with the same id.
+        String id = String.valueOf(System.currentTimeMillis()) + "-" + java.util.UUID.randomUUID();
+        String body = new JsonObject()
+                .put("jsonrpc", "2.0")
+                .put("id", id)
+                .put("method", method)
+                .put("params", params == null ? new JsonObject() : params)
+                .encode();
+
+        Promise<JsonObject> promise = Promise.promise();
+
         try {
-            String body = new JsonObject()
-                    .put("jsonrpc", "2.0")
-                    .put("id", System.currentTimeMillis())
-                    .put("method", method)
-                    .put("params", params == null ? new JsonObject() : params)
-                    .encode();
+            // register pending response via SSE session
+            sseSession.registerPendingResponse(id, promise, config.responseTimeoutMillis());
 
-            Promise<JsonObject> promise = Promise.promise();
-
+            log.info("IdeaJsonRpcClient POST {} -> {}:{}{} (id={})", method, config.host(), config.port(), endpoint, id);
             client.request(HttpMethod.POST, config.port(), config.host(), endpoint)
                     .onSuccess(req -> {
                         req.putHeader("Content-Type", "application/json");
                         req.putHeader("Accept", "application/json");
+                        // Forward fixed access token (dev token) if present in environment for local testing.
+                        String token = System.getenv("OAUTH_ACCESS_TOKEN");
+                        if (token != null && !token.isBlank()) {
+                            req.putHeader("Authorization", "Bearer " + token);
+                        }
                         req.send(Buffer.buffer(body))
                                 .onSuccess(response -> {
-                                    pending.set(false);
+                                    // If server returns a sync result in body (rare), complete promise.
                                     try {
                                         String resp = response.body() == null ? "" : response.body().toString();
-                                        JsonObject json = new JsonObject(resp);
-                                        if (json.containsKey("result")) {
-                                            promise.complete(json.getJsonObject("result"));
-                                        } else {
-                                            promise.complete(json);
+                                        if (resp != null && !resp.isBlank()) {
+                                            log.info("IdeaJsonRpcClient synchronous response for {}: {}", method, resp);
+                                            JsonObject json = new JsonObject(resp);
+                                            if (json.containsKey("result")) {
+                                                promise.tryComplete(json.getJsonObject("result"));
+                                            } else {
+                                                promise.tryComplete(json);
+                                            }
                                         }
                                     } catch (Exception ex) {
-                                        promise.fail(ex);
+                                        // ignore here, waiting for SSE
+                                    } finally {
+                                        pending.set(false);
                                     }
                                 })
                                 .onFailure(err -> {
                                     pending.set(false);
-                                    promise.fail(err);
+                                    promise.tryFail(err);
                                 });
                     })
                     .onFailure(err -> {
                         pending.set(false);
-                        promise.fail(err);
+                        promise.tryFail(err);
                     });
 
             return promise.future();
