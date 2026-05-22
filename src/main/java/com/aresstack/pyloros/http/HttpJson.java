@@ -25,6 +25,7 @@ public final class HttpJson {
                     .setStatusCode(statusCode)
                     .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                     .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .putHeader("Pragma", "no-cache")
                     .end(MAPPER.writeValueAsString(body));
         } catch (JsonProcessingException exception) {
             context.fail(exception);

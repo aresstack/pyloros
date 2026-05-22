@@ -38,6 +38,9 @@ public final class OAuthService {
     private final Map<String, AuthorizationCode> authorizationCodes = new LinkedHashMap<>();
     private final Map<String, AccessToken> accessTokens = new LinkedHashMap<>();
     private final Map<String, RefreshTokenState> refreshTokens = new LinkedHashMap<>();
+    private final Map<String, ReplayCacheEntry> replayCache = new LinkedHashMap<>();
+
+    private static final int REPLAY_CACHE_TTL_SECONDS = 10;
 
     public OAuthService(PylorosConfig config) {
         this(config, Clock.systemUTC());
@@ -122,10 +125,11 @@ public final class OAuthService {
                                                         String code,
                                                         String redirectUri,
                                                         String codeVerifier) {
+        cleanupExpiredReplayCache();
 
         AuthorizationCode authorizationCode = authorizationCodes.remove(code);
         if (authorizationCode == null) {
-            throw new OAuthException(400, "invalid_grant");
+            return tryReplayAuthorization(credentials, code, redirectUri, codeVerifier);
         }
 
         if (authorizationCode.expiresAt().isBefore(Instant.now(clock))) {
@@ -157,7 +161,57 @@ public final class OAuthService {
         ));
         saveRefreshTokensToStore();
 
-        return new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, authorizationCode.scope());
+        TokenResponse tokenResponse = new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, authorizationCode.scope());
+
+        // Store in replay cache to tolerate duplicate parallel requests within a short window
+        replayCache.put(code, new ReplayCacheEntry(
+                tokenResponse,
+                credentials.clientId(),
+                redirectUri,
+                codeVerifier,
+                now.plusSeconds(REPLAY_CACHE_TTL_SECONDS)
+        ));
+
+        return tokenResponse;
+    }
+
+    private TokenResponse tryReplayAuthorization(ClientCredentials credentials,
+                                                 String code,
+                                                 String redirectUri,
+                                                 String codeVerifier) {
+        ReplayCacheEntry entry = replayCache.get(code);
+        if (entry == null || entry.expiresAt().isBefore(Instant.now(clock))) {
+            log.info("[OAUTH] authorization_code replay miss code={}", shortValue(code));
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        if (!Objects.equals(entry.clientId(), credentials.clientId())) {
+            log.warn("[OAUTH] authorization_code replay rejected - client_id mismatch code={}", shortValue(code));
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        if (redirectUri != null && !Objects.equals(redirectUri, entry.redirectUri())) {
+            log.warn("[OAUTH] authorization_code replay rejected - redirect_uri mismatch code={}", shortValue(code));
+            throw new OAuthException(400, "invalid_grant", "redirect_uri mismatch");
+        }
+
+        if (!Objects.equals(codeVerifier, entry.codeVerifier())) {
+            log.warn("[OAUTH] authorization_code replay rejected - code_verifier mismatch code={}", shortValue(code));
+            throw new OAuthException(400, "invalid_grant", "PKCE verification failed");
+        }
+
+        log.info("[OAUTH] authorization_code replay hit code={} clientId={}", shortValue(code), credentials.clientId());
+        return entry.tokenResponse();
+    }
+
+    private void cleanupExpiredReplayCache() {
+        Instant now = Instant.now(clock);
+        replayCache.entrySet().removeIf(e -> e.getValue().expiresAt().isBefore(now));
+    }
+
+    private static String shortValue(String value) {
+        if (value == null) return "null";
+        return value.length() > 8 ? value.substring(0, 8) + "..." : value;
     }
 
     private TokenResponse exchangeFromRefreshToken(ClientCredentials credentials, String refreshToken) {
@@ -376,6 +430,13 @@ public final class OAuthService {
     }
 
     private record RefreshTokenState(String clientId, String scope, Instant expiresAt) {
+    }
+
+    private record ReplayCacheEntry(TokenResponse tokenResponse,
+                                    String clientId,
+                                    String redirectUri,
+                                    String codeVerifier,
+                                    Instant expiresAt) {
     }
 
     private record RefreshTokenStoreDocument(int version, List<RefreshTokenEntry> tokens) {
