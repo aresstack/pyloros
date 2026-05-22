@@ -1,152 +1,71 @@
-# Task 002-H Report - Auth Failure Signalling (RFC 6750)
+# Task 002-I Report - Refresh Token Rotation Replay Tolerance
 
-**Date:** 2026-05-22  
-**Assignee:** GitHub Copilot  
-**Status:** ✅ **SUCCESSFUL - COMMITTED AND PUSHED**
+## What was verified, changed, or implemented
 
----
+Implemented refresh-token replay tolerance in `OAuthService` for rotation mode:
 
-## Was wurde verifiziert, geändert oder implementiert?
+- Added a dedicated short-lived replay cache for successful `grant_type=refresh_token` exchanges.
+- Replay cache entries are keyed by consumed refresh token and store:
+  - `TokenResponse`
+  - `clientId`
+  - replay expiry (`now + 10s`)
+- On refresh requests where the token is no longer present in active refresh-token storage, the service now checks replay cache before returning `invalid_grant`.
+- Implemented behavior:
+  - same old refresh token + same client + within 10s => returns same successful `TokenResponse`
+  - cache miss / expired => unchanged `400 invalid_grant`
+  - client mismatch on replay entry => unchanged `400 invalid_grant`
+- Added required log lines:
+  - `[OAUTH] refresh_token replay hit token=... clientId=...`
+  - `[OAUTH] refresh_token replay miss token=... clientId=...`
+  - `[OAUTH] refresh_token replay rejected reason=client_mismatch ...`
+- Kept authorization-code replay logic intact.
+- Kept token logging safe by using `shortValue(...)` only.
 
-### Ziel
-ChatGPT den bestmöglichen RFC-konformen Signal geben, dass ein Access Token ungültig ist —
-damit der Connector in den Reconnect-Pfad geht statt stillzuschweigen.
+Also added focused tests for rotation disabled and enabled replay behavior.
 
-### Änderung 1: `BearerAuthResult` Enum (neues Domain-Objekt)
+## Files changed or created
 
-```java
-// domain/oauth/BearerAuthResult.java
-public enum BearerAuthResult {
-    OK,             // Token gültig
-    MISSING_TOKEN,  // Kein Authorization-Header / kein Bearer
-    INVALID_TOKEN,  // Unbekannter Token
-    EXPIRED_TOKEN   // Token abgelaufen
-}
-```
+- `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
+- `src/test/java/com/aresstack/pyloros/oauth/OAuthServiceRefreshReplayTest.java` (new)
+- `build.gradle` (add JUnit Platform launcher runtime dependency for Gradle 9 test execution)
 
-### Änderung 2: `OAuthService.checkBearerAuth()` (neue Methode)
+## Architecture decision touched
 
-Unterscheidet jetzt alle 4 Fälle statt nur `true/false`.  
-`isBearerAuthorized()` bleibt als Delegation erhalten (rückwärtskompatibel).
+- OAuth replay tolerance stays in OAuth service layer.
+- `OAuthService` remains owner of grant validation and replay handling.
+- Authorization-code replay remains unchanged.
+- Refresh-token replay tolerance is isolated as a separate cache path.
 
-### Änderung 3: `McpRoutes` — RFC 6750 401 Response
+## Tests, builds, and runtime checks executed
 
-**Vorher:**
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: application/json
-Cache-Control: no-store
+Build/test command (Java 21):
 
-{"error":"Unauthorized"}
-```
+- `./gradlew clean build` with `JAVA_HOME=C:\Program Files\Zulu\zulu-21`
+- Result: **BUILD SUCCESSFUL**
 
-**Nachher (RFC 6750, Section 3.1):**
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: application/json
-Cache-Control: no-store
-Pragma: no-cache
-WWW-Authenticate: Bearer error="invalid_token", error_description="The access token is invalid or expired"
+Runtime verification (service-level, via JUnit during build):
 
-{"error":"invalid_token"}
-```
+- rotation=false:
+  - repeated refresh requests with same refresh token remain valid
+- rotation=true:
+  - first refresh rotates token
+  - duplicate refresh with old token within 10s returns same `TokenResponse`
+  - duplicate refresh with old token after 10s returns `invalid_grant`
 
-**Gilt für:** GET /sse, POST /sse — alle Fälle (missing, invalid, expired)
+## Result
 
-### Logging in McpRoutes (ohne Tokenwerte)
-```
-[MCP] auth rejected reason=missing_token
-[MCP] auth rejected reason=invalid_token
-[MCP] auth rejected reason=expired_token
-```
+Successful
 
----
+## If failed: exact error and recommended next step
 
-## Welche Dateien wurden geändert oder neu erstellt?
+No final failure.
 
-**Neu erstellt:**
-1. `src/main/java/com/aresstack/pyloros/domain/oauth/BearerAuthResult.java`
-
-**Modified:**
-2. `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-   - Import BearerAuthResult hinzugefügt
-   - `checkBearerAuth()` neue Public-Methode
-   - `isBearerAuthorized()` delegiert auf `checkBearerAuth()`
-3. `src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
-   - Import BearerAuthResult und Logger hinzugefügt
-   - `WWW_AUTHENTICATE_INVALID_TOKEN` Konstante
-   - `mcpSse()` und `mcpPost()` nutzen `checkBearerAuth()` statt `isBearerAuthorized()`
-   - `unauthorized(context, BearerAuthResult)` mit RFC-6750-konformer Response
-4. `docs/agent/assignment.md` - Task 002-H Assignment
-5. `docs/agent/report.md` - Dieser Report
-
----
-
-## Welche Architekturentscheidung wurde berührt?
-
-- **`domain/oauth/`** — neues Domain-Objekt `BearerAuthResult` (enum)
-- **`OAuthService`** — `checkBearerAuth()` als neue präzise API
-- **`McpRoutes`** — HTTP-Layer nutzt BearerAuthResult-Enum → separation of concerns bleibt
-- **`/oauth/token`** bleibt unverändert → `400 invalid_grant` für Refresh-Token-Fehler (RFC 6749 korrekt)
-
----
-
-## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
-
-### Build (JDK Zulu 21)
-```
-> Task :compileJava ✅
-> Task :processResources UP-TO-DATE
-> Task :classes ✅
-> Task :jar ✅
-> Task :startScripts ✅
-> Task :distTar ✅
-> Task :distZip ✅
-> Task :assemble ✅
-> Task :build ✅
-
-BUILD SUCCESSFUL in 1s
-6 actionable tasks: 5 executed, 1 up-to-date
-```
-
-### Conformance Check
-```
-✅ HTTP 401 bei ungültigem/fehlendem/abgelaufenem Access Token
-✅ WWW-Authenticate: Bearer error="invalid_token", error_description="..."
-✅ Content-Type: application/json
-✅ Cache-Control: no-store
-✅ Pragma: no-cache
-✅ Body: {"error":"invalid_token"}
-✅ /oauth/token bleibt 400 invalid_grant (unverändert)
-✅ [MCP] auth rejected reason=... im Log (kein Tokenwert)
-```
-
----
-
-## Ergebnis: ✅ erfolgreich
-
----
-
-## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
-
-Kein Fehler.
-
----
+Note: local-code-search subagent invocation failed in this environment due missing model `qwen2.5-coder:14b`; workspace analysis then proceeded with direct repository search/read tools.
 
 ## Exact commit hash
 
-**Commit:** `2ea1233`  
-**Message:** "feat(auth): RFC 6750 WWW-Authenticate on 401 and BearerAuthResult enum (002-H)"  
-**Remote:** `origin/main` (d7aabc7..2ea1233)
+Code commit: `c46c083`
 
----
+## Push status
 
-## Was ChatGPT jetzt sieht
-
-Nach abgelaufenem Refresh Token:
-1. `POST /oauth/token` → `400 {"error":"invalid_grant"}` ← OAuth-korrekt
-2. Nächster Toolcall mit altem Access Token → `401 {"error":"invalid_token"}` + `WWW-Authenticate` ← RFC 6750
-
-ChatGPT hat jetzt beide RFC-konformen Signale:
-- Token-Endpunkt: `invalid_grant` → Refresh nicht möglich
-- Ressourcen-Endpunkt: `invalid_token` + `WWW-Authenticate` → Token abgelaufen/ungültig
+Code commit push: performed (`main -> origin/main`)
