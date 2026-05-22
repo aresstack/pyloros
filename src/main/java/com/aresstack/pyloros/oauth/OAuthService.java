@@ -40,6 +40,7 @@ public final class OAuthService {
     private final Map<String, AccessToken> accessTokens = new LinkedHashMap<>();
     private final Map<String, RefreshTokenState> refreshTokens = new LinkedHashMap<>();
     private final Map<String, ReplayCacheEntry> replayCache = new LinkedHashMap<>();
+    private final Map<String, RefreshReplayCacheEntry> refreshReplayCache = new LinkedHashMap<>();
 
     private static final int REPLAY_CACHE_TTL_SECONDS = 10;
 
@@ -52,6 +53,7 @@ public final class OAuthService {
         this.clock = clock;
         loadRefreshTokensFromStore();
         cleanupExpiredRefreshTokens();
+        cleanupExpiredRefreshReplayCache();
     }
 
     public String authorize(String responseType,
@@ -111,6 +113,8 @@ public final class OAuthService {
         }
 
         cleanupExpiredRefreshTokens();
+        cleanupExpiredReplayCache();
+        cleanupExpiredRefreshReplayCache();
 
         if ("authorization_code".equals(grantType)) {
             return exchangeFromAuthorizationCode(credentials, code, redirectUri, codeVerifier);
@@ -216,6 +220,8 @@ public final class OAuthService {
     }
 
     private TokenResponse exchangeFromRefreshToken(ClientCredentials credentials, String refreshToken) {
+        cleanupExpiredRefreshReplayCache();
+
         if (refreshToken == null || refreshToken.isBlank()) {
             log.info("[OAUTH] refresh rejected reason=missing_refresh_token clientId={}", credentials.clientId());
             throw new OAuthException(400, "invalid_grant");
@@ -223,8 +229,7 @@ public final class OAuthService {
 
         RefreshTokenState state = refreshTokens.get(refreshToken);
         if (state == null) {
-            log.info("[OAUTH] refresh rejected reason=unknown_refresh_token clientId={} token={}", credentials.clientId(), shortValue(refreshToken));
-            throw new OAuthException(400, "invalid_grant");
+            return tryReplayRefreshToken(credentials, refreshToken);
         }
 
         Instant now = Instant.now(clock);
@@ -247,6 +252,7 @@ public final class OAuthService {
         accessTokens.put(accessToken, new AccessToken(state.scope(), now.plusSeconds(expiresIn)));
 
         String nextRefreshToken = refreshToken;
+        TokenResponse tokenResponse;
         if (config.oauthRefreshTokenRotationEnabled()) {
             refreshTokens.remove(refreshToken);
             nextRefreshToken = createOpaqueValue();
@@ -256,9 +262,41 @@ public final class OAuthService {
                     now.plusSeconds(config.oauthRefreshTokenTtlSeconds())
             ));
             saveRefreshTokensToStore();
+
+            tokenResponse = new TokenResponse(accessToken, "Bearer", expiresIn, nextRefreshToken, state.scope());
+            refreshReplayCache.put(refreshToken, new RefreshReplayCacheEntry(
+                    tokenResponse,
+                    credentials.clientId(),
+                    now.plusSeconds(REPLAY_CACHE_TTL_SECONDS)
+            ));
+            return tokenResponse;
         }
 
         return new TokenResponse(accessToken, "Bearer", expiresIn, nextRefreshToken, state.scope());
+    }
+
+    private TokenResponse tryReplayRefreshToken(ClientCredentials credentials, String refreshToken) {
+        RefreshReplayCacheEntry entry = refreshReplayCache.get(refreshToken);
+        if (entry == null || entry.expiresAt().isBefore(Instant.now(clock))) {
+            log.info("[OAUTH] refresh_token replay miss token={} clientId={}", shortValue(refreshToken), credentials.clientId());
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        if (!Objects.equals(entry.clientId(), credentials.clientId())) {
+            log.warn("[OAUTH] refresh_token replay rejected reason=client_mismatch token={} expectedClientId={} actualClientId={}",
+                    shortValue(refreshToken),
+                    entry.clientId(),
+                    credentials.clientId());
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        log.info("[OAUTH] refresh_token replay hit token={} clientId={}", shortValue(refreshToken), credentials.clientId());
+        return entry.tokenResponse();
+    }
+
+    private void cleanupExpiredRefreshReplayCache() {
+        Instant now = Instant.now(clock);
+        refreshReplayCache.entrySet().removeIf(e -> e.getValue().expiresAt().isBefore(now));
     }
 
     public BearerAuthResult checkBearerAuth(String authorizationHeader) {
@@ -463,6 +501,11 @@ public final class OAuthService {
                                     String redirectUri,
                                     String codeVerifier,
                                     Instant expiresAt) {
+    }
+
+    private record RefreshReplayCacheEntry(TokenResponse tokenResponse,
+                                           String clientId,
+                                           Instant expiresAt) {
     }
 
     private record RefreshTokenStoreDocument(int version, List<RefreshTokenEntry> tokens) {

@@ -20,6 +20,7 @@ def vertxVersion = '5.0.5'
 def jacksonVersion = '2.18.2'
 def logbackVersion = '1.5.12'
 def junitVersion = '5.11.4'
+def junitPlatformVersion = '1.11.4'
 
 dependencies {
     implementation "io.vertx:vertx-core:${vertxVersion}"
@@ -35,6 +36,7 @@ dependencies {
 
     testImplementation "org.junit.jupiter:junit-jupiter-api:${junitVersion}"
     testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${junitVersion}"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:${junitPlatformVersion}"
 }
 
 application {
