@@ -18,3 +18,9 @@ $env:OAUTH_CLIENT_SECRET = '<dein aktuelles Connector Secret>'
 
 .\gradlew.bat --no-daemon run --stacktrace
 ```
+
+Optional fuer Tests TTLs kurz setzen:
+```ps1
+$env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="30"
+$env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="300"
+```
