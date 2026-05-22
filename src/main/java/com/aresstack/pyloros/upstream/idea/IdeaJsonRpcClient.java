@@ -26,6 +26,7 @@ public final class IdeaJsonRpcClient {
     private final IdeaSseSession sseSession;
 
     private HttpClient client;
+    private final java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public IdeaJsonRpcClient(Vertx vertx, IdeaMcpConfig config, IdeaSseSession sseSession) {
         this.vertx = vertx;
@@ -48,10 +49,55 @@ public final class IdeaJsonRpcClient {
             return Future.failedFuture(new IllegalStateException("No IDEA endpoint available"));
         }
 
-        // For 001-B we will not perform a real JSON-RPC call; return a successful placeholder future.
-        log.debug("Would POST JSON-RPC to {} with method {}", endpoint, method);
-        JsonObject placeholder = new JsonObject().put("status", "ok").put("method", method);
-        return Future.succeededFuture(placeholder);
+        // Ensure only one pending call at a time (001-C requirement)
+        if (!pending.compareAndSet(false, true)) {
+            return Future.failedFuture(new IllegalStateException("Another JSON-RPC call is pending"));
+        }
+
+        try {
+            String body = new JsonObject()
+                    .put("jsonrpc", "2.0")
+                    .put("id", System.currentTimeMillis())
+                    .put("method", method)
+                    .put("params", params == null ? new JsonObject() : params)
+                    .encode();
+
+            Promise<JsonObject> promise = Promise.promise();
+
+            client.request(HttpMethod.POST, config.port(), config.host(), endpoint)
+                    .onSuccess(req -> {
+                        req.putHeader("Content-Type", "application/json");
+                        req.putHeader("Accept", "application/json");
+                        req.send(Buffer.buffer(body))
+                                .onSuccess(response -> {
+                                    pending.set(false);
+                                    try {
+                                        String resp = response.body() == null ? "" : response.body().toString();
+                                        JsonObject json = new JsonObject(resp);
+                                        if (json.containsKey("result")) {
+                                            promise.complete(json.getJsonObject("result"));
+                                        } else {
+                                            promise.complete(json);
+                                        }
+                                    } catch (Exception ex) {
+                                        promise.fail(ex);
+                                    }
+                                })
+                                .onFailure(err -> {
+                                    pending.set(false);
+                                    promise.fail(err);
+                                });
+                    })
+                    .onFailure(err -> {
+                        pending.set(false);
+                        promise.fail(err);
+                    });
+
+            return promise.future();
+        } catch (Exception ex) {
+            pending.set(false);
+            return Future.failedFuture(ex);
+        }
     }
 }
 

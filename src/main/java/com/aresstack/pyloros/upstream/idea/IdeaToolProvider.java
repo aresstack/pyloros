@@ -24,11 +24,19 @@ public final class IdeaToolProvider implements ToolProvider {
 
     @Override
     public Future<List<Map<String, Object>>> listTools() {
-        // 001-A: no connection yet; if disabled return empty list, otherwise also empty for now
         if (!config.enabled()) {
             return Future.succeededFuture(List.of());
         }
-        return Future.succeededFuture(List.of());
+
+        if (client == null) {
+            return Future.succeededFuture(List.of());
+        }
+
+        try {
+            return client.listTools();
+        } catch (Exception ex) {
+            return Future.succeededFuture(List.of());
+        }
     }
 
     @Override
