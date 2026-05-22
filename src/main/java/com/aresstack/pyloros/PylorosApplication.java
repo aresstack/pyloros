@@ -7,6 +7,7 @@ import com.aresstack.pyloros.http.OAuthRoutes;
 import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolRegistry;
+import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
@@ -32,7 +33,10 @@ public final class PylorosApplication extends AbstractVerticle {
     public void start() {
         PylorosConfig config = PylorosConfig.load();
         OAuthService oauthService = new OAuthService(config);
-        ToolRegistry toolRegistry = new ToolRegistry(List.of(new PylorosPingToolProvider()));
+        ToolRegistry toolRegistry = new ToolRegistry(List.of(
+                new PylorosPingToolProvider(),
+                new IdeaToolProvider(config.ideaMcpConfig())
+        ));
 
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());

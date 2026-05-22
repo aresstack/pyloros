@@ -1,6 +1,7 @@
 package com.aresstack.pyloros.config;
 
 import com.aresstack.pyloros.PylorosApplication;
+import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
 
 import java.io.InputStream;
 import java.util.Properties;
@@ -34,6 +35,30 @@ public record PylorosConfig(
                 value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),
                 value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, "")
         );
+    }
+
+    /**
+     * Build IdeaMcpConfig from the same application.properties / environment variables source.
+     */
+    public IdeaMcpConfig ideaMcpConfig() {
+        Properties properties = new Properties();
+        try (InputStream inputStream = PylorosApplication.class.getClassLoader().getResourceAsStream("application.properties")) {
+            if (inputStream != null) {
+                properties.load(inputStream);
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not load application.properties", exception);
+        }
+
+        boolean enabled = Boolean.parseBoolean(value("idea.mcp.enabled", "IDEA_MCP_ENABLED", properties, "true"));
+        String host = value("idea.mcp.host", "IDEA_MCP_HOST", properties, "127.0.0.1");
+        int port = intValue("idea.mcp.port", "IDEA_MCP_PORT", properties, 64343);
+        String ssePath = value("idea.mcp.sse.path", "IDEA_MCP_SSE_PATH", properties, "/sse");
+        int connectTimeout = intValue("idea.mcp.connect.timeout.ms", "IDEA_MCP_CONNECT_TIMEOUT_MS", properties, 3000);
+        int responseTimeout = intValue("idea.mcp.response.timeout.ms", "IDEA_MCP_RESPONSE_TIMEOUT_MS", properties, 60000);
+        String toolPrefix = value("idea.mcp.tool.prefix", "IDEA_MCP_TOOL_PREFIX", properties, "idea__");
+
+        return new IdeaMcpConfig(enabled, host, port, ssePath, connectTimeout, responseTimeout, toolPrefix);
     }
 
     private static int intValue(String propertyName, String environmentName, Properties properties, int defaultValue) {
