@@ -6,6 +6,7 @@ import io.vertx.core.Future;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class PylorosPingToolProvider implements ToolProvider {
 
@@ -23,6 +24,14 @@ public final class PylorosPingToolProvider implements ToolProvider {
 
     @Override
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
+        // Defensive: ensure toolCall is not null
+        if (toolCall == null) {
+            return Future.succeededFuture(Map.of(
+                    "content", new Object[]{Map.of("type", "text", "text", "Invalid tool call: null")},
+                    "isError", true
+            ));
+        }
+
         return Future.succeededFuture(Map.of(
                 "content", new Object[]{Map.of("type", "text", "text", "Pyloros Java gateway is alive.")},
                 "isError", false
