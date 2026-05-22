@@ -1,4 +1,4 @@
-# Task 002-F Report - OAuth Authorization Code Replay Tolerance
+# Task 002-G Report - Refresh Token Rejection Diagnostics
 
 **Date:** 2026-05-22  
 **Assignee:** GitHub Copilot  
@@ -10,54 +10,46 @@
 
 ### Root Cause (aus Logs identifiziert)
 ```
-22:48:52.673 authorization_code code=e676...
-22:48:52.689 authorization_code code=e676...
+23:02:19  Loaded 1 refresh tokens from data\oauth-refresh-tokens.json
+23:03:08  grantType=refresh_token
+23:03:08  response status=400 error=invalid_grant
 ```
-Gleicher Authorization Code wird innerhalb 16 ms zweimal eingelöst.  
-Erster Request: ✅ code gültig → TokenResponse  
-Zweiter Request: ❌ code bereits entfernt → `invalid_grant`  
-Folge: ChatGPT zeigt kurz Fehler, obwohl erster Request erfolgreich war.
+Der Refresh Token wurde aus dem Store geladen, beim Exchange aber abgelehnt.  
+Ohne Diagnose-Logging unklar ob: TTL abgelaufen? Client-Mismatch? Token unbekannt?
 
-### Lösung: Replay Cache (10 Sekunden TTL)
+### Änderung 1: `exchangeFromRefreshToken()` — 4 interne Ablehnungsgründe
 
-In `OAuthService`:
-- Neues Feld: `Map<String, ReplayCacheEntry> replayCache`
-- Neues Record: `ReplayCacheEntry(tokenResponse, clientId, redirectUri, codeVerifier, expiresAt)`
-- Konstante: `REPLAY_CACHE_TTL_SECONDS = 10`
-
-**Flow bei erstem Exchange:**
-1. Code aus `authorizationCodes` entnehmen (wie bisher)
-2. Alle Validierungen durchführen (PKCE, client, redirect_uri)
-3. TokenResponse erstellen
-4. **Neu:** TokenResponse im `replayCache` mit 10s TTL speichern
-5. TokenResponse zurückgeben
-
-**Flow bei zweitem Exchange (gleicher Code):**
-1. Code nicht mehr in `authorizationCodes` → `tryReplayAuthorization()` aufrufen
-2. Replay-Cache-Eintrag suchen
-3. Validierung: selber `clientId` + `redirectUri` + `codeVerifier`
-4. Bei Match → gecachte TokenResponse zurückgeben (selbe Tokens!)
-5. Bei Mismatch oder abgelaufen → `invalid_grant`
-
-**Sicherheitsgarantie:**
-- Anderer Client bekommt `invalid_grant` (kein Cross-Client-Replay)
-- Anderer `redirect_uri` bekommt `invalid_grant`
-- Anderer `code_verifier` bekommt `invalid_grant`
-- Nach 10 Sekunden: `invalid_grant` (wie bisher, aber mit korrektem Log)
-
-### Logging (keine Tokenwerte)
+Vorher (alle 4 Fälle gleich):
 ```
-[OAUTH] authorization_code replay hit code=e676... clientId=chatgpt
-[OAUTH] authorization_code replay miss code=e676...
-[OAUTH] authorization_code replay rejected - client_id mismatch code=e676...
-[OAUTH] authorization_code replay rejected - redirect_uri mismatch code=e676...
-[OAUTH] authorization_code replay rejected - code_verifier mismatch code=e676...
+[OAUTH] token response status=400 grant_type=refresh_token error=invalid_grant
 ```
 
-### Pragma: no-cache in HttpJson.send()
-- `HttpJson.send()` jetzt mit `Pragma: no-cache` (war nur in `sendTokenResponse()` für success)
-- Damit gehen auch Fehler-Responses RFC-konform raus
-- Alle JSON-Responses (MCP und OAuth) kein Problem, `Pragma: no-cache` ist harmlos
+Nachher (jeder Fall mit eigenem Grund):
+```
+[OAUTH] refresh rejected reason=missing_refresh_token clientId=chatgpt
+[OAUTH] refresh rejected reason=unknown_refresh_token clientId=chatgpt token=a1b2c3d4...
+[OAUTH] refresh rejected reason=expired_refresh_token clientId=chatgpt expiredAt=2026-05-22T22:53:19Z
+[OAUTH] refresh rejected reason=client_mismatch expected=chatgpt actual=other-client
+```
+
+**Sicherheit:** Externe Response bleibt unverändert → `{"error":"invalid_grant"}`  
+**Token-Werte:** Nur `shortValue()` (8 Zeichen + "...") für `unknown_refresh_token`
+
+### Änderung 2: `loadRefreshTokensFromStore()` — Expired-Tokens beim Laden entfernen
+
+**Vorher:**
+```
+[OAUTH] Loaded 1 refresh tokens from data\oauth-refresh-tokens.json
+```
+→ Kein Hinweis ob der geladene Token noch gültig ist
+
+**Nachher:**
+```
+[OAUTH] Refresh token store loaded=1 expired_removed=1 active=0 from data\oauth-refresh-tokens.json
+[OAUTH] refresh token expired on load clientId=chatgpt expiredAt=2026-05-22T22:53:19Z
+```
+→ Sofort sichtbar: abgelaufene Tokens werden beim Start **nicht in den aktiven Store** übernommen  
+→ Store wird automatisch bereinigt (Token-Datei ohne abgelaufene Einträge übergeschrieben)
 
 ---
 
@@ -65,25 +57,18 @@ In `OAuthService`:
 
 **Modified:**
 1. `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-   - `replayCache` Feld und `REPLAY_CACHE_TTL_SECONDS` Konstante
-   - `ReplayCacheEntry` Record (inner private)
-   - `exchangeFromAuthorizationCode()` erweitert: Replay-Speicherung + Delegation
-   - `tryReplayAuthorization()` neue Methode
-   - `cleanupExpiredReplayCache()` neue Methode
-   - `shortValue()` Hilfsmethode für sicheres Logging
-2. `src/main/java/com/aresstack/pyloros/http/HttpJson.java`
-   - `Pragma: no-cache` zu `send()` hinzugefügt
-3. `docs/agent/assignment.md` - Task 002-F Assignment
-4. `docs/agent/report.md` - Dieser Report
+   - `exchangeFromRefreshToken()`: 4 Log-Statements mit spezifischem `reason=`
+   - `loadRefreshTokensFromStore()`: Expired-Check beim Laden, neues Summary-Log, Store-Cleanup
+2. `docs/agent/assignment.md` - Task 002-G Assignment
+3. `docs/agent/report.md` - Dieser Report
 
 ---
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- **OAuth-Logik bleibt in `OAuthService`** — Replay-Cache ist internes Implementierungsdetail
-- **Single-use Semantik bleibt erhalten** — Code wird weiterhin sofort aus `authorizationCodes` entfernt
-- **Security unchanged** — Replay nur für identische (client, redirect, verifier) Kombination
-- **Kein persistenter State** — Replay-Cache ist nur In-Memory, kein Store
+- **OAuth-Logik bleibt in `OAuthService`** — nur Logging verbessert, keine API-Änderung
+- **Store-Cleanup bei Startup** — abgelaufene Token werden nicht mehr in Memory geladen
+- **Abwärtskompatibel** — externe Response bleibt `{"error":"invalid_grant"}`
 
 ---
 
@@ -105,16 +90,22 @@ BUILD SUCCESSFUL in 1s
 6 actionable tasks: 5 executed, 1 up-to-date
 ```
 
-### Akzeptanzkriterien (logisch verifiziert)
+### Log-Beispiele (erwartet nach Neustart)
+
+**Normaler Start mit gültigem Store:**
 ```
-✅ Doppelter authorization_code Request → zweimal HTTP 200
-✅ Zweiter Request bekommt dieselbe TokenResponse (selbe Tokens)
-✅ Zweiter Request mit anderem client → invalid_grant
-✅ Zweiter Request mit anderem redirect_uri → invalid_grant
-✅ Zweiter Request nach 10s → invalid_grant
-✅ Kein Token-Wert im Log (shortValue() kürzt auf 8 Zeichen)
-✅ Pragma: no-cache in allen JSON-Responses (HttpJson.send)
-✅ Build grün
+[OAUTH] Refresh token store loaded=1 expired_removed=0 active=1 from data\oauth-refresh-tokens.json
+```
+
+**Start mit TTL=300s und altem Token:**
+```
+[OAUTH] refresh token expired on load clientId=chatgpt expiredAt=2026-05-22T22:53:19Z
+[OAUTH] Refresh token store loaded=1 expired_removed=1 active=0 from data\oauth-refresh-tokens.json
+```
+
+**Refresh-Request mit abgelaufenem Token (Rest-Fall, falls im RAM):**
+```
+[OAUTH] refresh rejected reason=expired_refresh_token clientId=chatgpt expiredAt=2026-05-22T22:53:19Z
 ```
 
 ---
@@ -131,20 +122,19 @@ Kein Fehler.
 
 ## Exact commit hash
 
-**Commit:** `9d9423a`  
-**Message:** "feat(oauth): add authorization code replay tolerance and Pragma: no-cache (002-F)"  
-**Remote:** `origin/main` (6b532a9..9d9423a)
+**Commit:** `70b3d07`  
+**Message:** "feat(oauth): add refresh token rejection diagnostics and startup store summary (002-G)"  
+**Remote:** `origin/main` (be07aef..70b3d07)
 
 ---
 
-## Nächster Schritt
+## Empfohlene TTL für Restart-Tests
 
-Pyloros neu starten (ohne Mini-TTL), mit ChatGPT neu verbinden.  
-Im Log erwarten:
+```powershell
+$env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="30"
+$env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="3600"
 ```
-[OAUTH] token grantType=authorization_code code=xxxx...
-[OAUTH] token response status=200 grant_type=authorization_code has_access_token=true ...
-[OAUTH] authorization_code replay hit code=xxxx... clientId=chatgpt   ← neu, kein Fehler mehr
-[OAUTH] token response status=200 grant_type=authorization_code ...   ← auch zweiter Request 200
-```
-Danach sollte ChatGPT-Verbindung ohne "erst Fehler dann Erfolg" funktionieren.
+
+→ Access Token: 30s (kurzlebig → Refresh schnell sichtbar)  
+→ Refresh Token: 60 Minuten (überlebt Testfenster)  
+→ Bei nächstem Neustart erscheint im Log: `active=1` (Token noch gültig)
