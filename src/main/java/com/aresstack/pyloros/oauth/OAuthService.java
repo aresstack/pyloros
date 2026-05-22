@@ -3,6 +3,7 @@ package com.aresstack.pyloros.oauth;
 import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.domain.oauth.AccessToken;
 import com.aresstack.pyloros.domain.oauth.AuthorizationCode;
+import com.aresstack.pyloros.domain.oauth.BearerAuthResult;
 import com.aresstack.pyloros.domain.oauth.ClientCredentials;
 import com.aresstack.pyloros.domain.oauth.OAuthException;
 import com.aresstack.pyloros.domain.oauth.TokenResponse;
@@ -260,27 +261,31 @@ public final class OAuthService {
         return new TokenResponse(accessToken, "Bearer", expiresIn, nextRefreshToken, state.scope());
     }
 
-    public boolean isBearerAuthorized(String authorizationHeader) {
+    public BearerAuthResult checkBearerAuth(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-            return false;
+            return BearerAuthResult.MISSING_TOKEN;
         }
 
         String token = authorizationHeader.substring("Bearer ".length()).trim();
         if (!config.fixedAccessToken().isBlank() && Objects.equals(token, config.fixedAccessToken())) {
-            return true;
+            return BearerAuthResult.OK;
         }
 
         AccessToken accessToken = accessTokens.get(token);
         if (accessToken == null) {
-            return false;
+            return BearerAuthResult.INVALID_TOKEN;
         }
 
         if (accessToken.expiresAt().isBefore(Instant.now(clock))) {
             accessTokens.remove(token);
-            return false;
+            return BearerAuthResult.EXPIRED_TOKEN;
         }
 
-        return true;
+        return BearerAuthResult.OK;
+    }
+
+    public boolean isBearerAuthorized(String authorizationHeader) {
+        return checkBearerAuth(authorizationHeader) == BearerAuthResult.OK;
     }
 
     private boolean isKnownOAuthClient(ClientCredentials credentials) {

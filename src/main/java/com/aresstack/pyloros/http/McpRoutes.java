@@ -1,6 +1,7 @@
 package com.aresstack.pyloros.http;
 
 import com.aresstack.pyloros.config.PylorosConfig;
+import com.aresstack.pyloros.domain.oauth.BearerAuthResult;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.tool.ToolRegistry;
@@ -9,10 +10,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
 public final class McpRoutes {
+
+    private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
+
+    private static final String WWW_AUTHENTICATE_INVALID_TOKEN =
+            "Bearer error=\"invalid_token\", error_description=\"The access token is invalid or expired\"";
 
     private final PylorosConfig config;
     private final OAuthService oauthService;
@@ -30,8 +38,9 @@ public final class McpRoutes {
     }
 
     private void mcpSse(RoutingContext context) {
-        if (!isAuthorized(context)) {
-            unauthorized(context);
+        BearerAuthResult authResult = oauthService.checkBearerAuth(context.request().getHeader(HttpHeaders.AUTHORIZATION));
+        if (authResult != BearerAuthResult.OK) {
+            unauthorized(context, authResult);
             return;
         }
 
@@ -44,8 +53,9 @@ public final class McpRoutes {
     }
 
     private void mcpPost(RoutingContext context) {
-        if (!isAuthorized(context)) {
-            unauthorized(context);
+        BearerAuthResult authResult = oauthService.checkBearerAuth(context.request().getHeader(HttpHeaders.AUTHORIZATION));
+        if (authResult != BearerAuthResult.OK) {
+            unauthorized(context, authResult);
             return;
         }
 
@@ -106,15 +116,24 @@ public final class McpRoutes {
         return new McpToolCall(name, arguments);
     }
 
-    private boolean isAuthorized(RoutingContext context) {
-        return oauthService.isBearerAuthorized(context.request().getHeader(HttpHeaders.AUTHORIZATION));
-    }
-
-    private void unauthorized(RoutingContext context) {
-        context.response()
-                .setStatusCode(401)
-                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
-                .end("{\"error\":\"Unauthorized\"}");
+    private void unauthorized(RoutingContext context, BearerAuthResult reason) {
+        String reasonStr = switch (reason) {
+            case MISSING_TOKEN -> "missing_token";
+            case INVALID_TOKEN -> "invalid_token";
+            case EXPIRED_TOKEN -> "expired_token";
+            default -> "unknown";
+        };
+        log.info("[MCP] auth rejected reason={}", reasonStr);
+        try {
+            context.response()
+                    .setStatusCode(401)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .putHeader("Pragma", "no-cache")
+                    .putHeader("WWW-Authenticate", WWW_AUTHENTICATE_INVALID_TOKEN)
+                    .end("{\"error\":\"invalid_token\"}");
+        } catch (Exception ex) {
+            context.fail(ex);
+        }
     }
 }
