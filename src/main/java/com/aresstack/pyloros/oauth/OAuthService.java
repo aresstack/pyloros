@@ -6,17 +6,23 @@ import com.aresstack.pyloros.domain.oauth.AuthorizationCode;
 import com.aresstack.pyloros.domain.oauth.ClientCredentials;
 import com.aresstack.pyloros.domain.oauth.OAuthException;
 import com.aresstack.pyloros.domain.oauth.TokenResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,6 +30,8 @@ import java.util.UUID;
 public final class OAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(OAuthService.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int REFRESH_STORE_VERSION = 1;
 
     private final PylorosConfig config;
     private final Clock clock;
@@ -38,6 +46,8 @@ public final class OAuthService {
     OAuthService(PylorosConfig config, Clock clock) {
         this.config = config;
         this.clock = clock;
+        loadRefreshTokensFromStore();
+        cleanupExpiredRefreshTokens();
     }
 
     public String authorize(String responseType,
@@ -145,6 +155,7 @@ public final class OAuthService {
                 authorizationCode.scope(),
                 now.plusSeconds(refreshExpiresIn)
         ));
+        saveRefreshTokensToStore();
 
         return new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, authorizationCode.scope());
     }
@@ -162,11 +173,13 @@ public final class OAuthService {
         Instant now = Instant.now(clock);
         if (state.expiresAt().isBefore(now)) {
             refreshTokens.remove(refreshToken);
+            saveRefreshTokensToStore();
             throw new OAuthException(400, "invalid_grant");
         }
 
         if (!Objects.equals(state.clientId(), credentials.clientId())) {
             refreshTokens.remove(refreshToken);
+            saveRefreshTokensToStore();
             throw new OAuthException(400, "invalid_grant");
         }
 
@@ -183,6 +196,7 @@ public final class OAuthService {
                     state.scope(),
                     now.plusSeconds(config.oauthRefreshTokenTtlSeconds())
             ));
+            saveRefreshTokensToStore();
         }
 
         return new TokenResponse(accessToken, "Bearer", expiresIn, nextRefreshToken, state.scope());
@@ -274,12 +288,99 @@ public final class OAuthService {
 
     private void cleanupExpiredRefreshTokens() {
         Instant now = Instant.now(clock);
-        refreshTokens.entrySet().removeIf(entry -> {
+        boolean changed = refreshTokens.entrySet().removeIf(entry -> {
             RefreshTokenState state = entry.getValue();
             return state == null || state.expiresAt().isBefore(now);
         });
+        if (changed) {
+            saveRefreshTokensToStore();
+        }
+    }
+
+    private void loadRefreshTokensFromStore() {
+        try {
+            Path storePath = Path.of(config.oauthRefreshTokenStorePath());
+            if (!Files.exists(storePath)) {
+                return;
+            }
+
+            RefreshTokenStoreDocument document = JSON.readValue(storePath.toFile(), RefreshTokenStoreDocument.class);
+            if (document == null || document.tokens() == null) {
+                return;
+            }
+
+            for (RefreshTokenEntry entry : document.tokens()) {
+                if (entry == null || entry.token() == null || entry.token().isBlank()) {
+                    continue;
+                }
+                if (entry.clientId() == null || entry.clientId().isBlank()) {
+                    continue;
+                }
+                if (entry.scope() == null || entry.scope().isBlank()) {
+                    continue;
+                }
+                if (entry.expiresAt() == null || entry.expiresAt().isBlank()) {
+                    continue;
+                }
+
+                Instant expiresAt;
+                try {
+                    expiresAt = Instant.parse(entry.expiresAt());
+                } catch (Exception parseEx) {
+                    continue;
+                }
+
+                refreshTokens.put(entry.token(), new RefreshTokenState(entry.clientId(), entry.scope(), expiresAt));
+            }
+
+            log.info("[OAUTH] Loaded {} refresh tokens from {}", refreshTokens.size(), storePath);
+        } catch (Exception ex) {
+            log.warn("[OAUTH] Failed to load refresh token store: {}", ex.getMessage());
+        }
+    }
+
+    private void saveRefreshTokensToStore() {
+        try {
+            Path storePath = Path.of(config.oauthRefreshTokenStorePath());
+            Path parent = storePath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+
+            List<RefreshTokenEntry> entries = new ArrayList<>();
+            for (Map.Entry<String, RefreshTokenState> mapEntry : refreshTokens.entrySet()) {
+                RefreshTokenState state = mapEntry.getValue();
+                if (state == null) {
+                    continue;
+                }
+                entries.add(new RefreshTokenEntry(
+                        mapEntry.getKey(),
+                        state.clientId(),
+                        state.scope(),
+                        state.expiresAt().toString()
+                ));
+            }
+
+            RefreshTokenStoreDocument doc = new RefreshTokenStoreDocument(REFRESH_STORE_VERSION, entries);
+
+            Path tempPath = storePath.resolveSibling(storePath.getFileName() + ".tmp");
+            JSON.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), doc);
+            try {
+                Files.move(tempPath, storePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception moveEx) {
+                Files.move(tempPath, storePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception ex) {
+            log.warn("[OAUTH] Failed to save refresh token store: {}", ex.getMessage());
+        }
     }
 
     private record RefreshTokenState(String clientId, String scope, Instant expiresAt) {
+    }
+
+    private record RefreshTokenStoreDocument(int version, List<RefreshTokenEntry> tokens) {
+    }
+
+    private record RefreshTokenEntry(String token, String clientId, String scope, String expiresAt) {
     }
 }

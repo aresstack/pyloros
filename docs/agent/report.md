@@ -2,47 +2,47 @@
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-`002-C - Refresh response compatibility` wurde umgesetzt.
+`002-D - Persistent refresh token store` wurde umgesetzt.
 
 Implementiert:
 
-- `oauth.refresh-token.rotation.enabled` als Konfiguration ergänzt (Property + Env).
-- Default für Rotation ist `false`.
-- Bei `grant_type=refresh_token` wird jetzt **immer** ein `refresh_token` im Token-Response zurückgegeben.
-- Verhalten nach Modus:
-  - `rotation=false`: derselbe Refresh Token wird erneut zurückgegeben.
-  - `rotation=true`: neuer Refresh Token wird erzeugt, alter wird entfernt/invalidiert.
+- Refresh Tokens werden nicht mehr nur in-memory gehalten, sondern zusätzlich in einer JSON-Datei persistiert.
+- Store-Pfad ist konfigurierbar:
+  - Property: `oauth.refresh-token.store.path`
+  - Env: `OAUTH_REFRESH_TOKEN_STORE_PATH`
+  - Default: `data/oauth-refresh-tokens.json`
+- Beim Start lädt `OAuthService` vorhandene Refresh Tokens aus der Datei.
+- Bei allen relevanten Änderungen wird der Store aktualisiert:
+  - neuer Refresh Token (authorization_code)
+  - rotierter Refresh Token
+  - entfernte/ungültige/abgelaufene Refresh Tokens
+- Abgelaufene Refresh Tokens werden beim Laden/Runtime-Cleanup entfernt und der Store wird bereinigt.
+- Access Tokens bleiben weiterhin nur in-memory.
 
-Scope eingehalten:
+Nicht implementiert (wie gefordert):
 
-- keine Persistenz
-- kein Device Flow
-- keine UI
-- kein Push
+- Keine Datenbank
+- Kein Device Flow
+- Keine UI
+- Kein Push
 
 ## Welche Dateien wurden geändert oder neu erstellt?
 
 - `src/main/java/com/aresstack/pyloros/config/PylorosConfig.java`
-  - neues Feld: `oauthRefreshTokenRotationEnabled`
-  - neue Konfig-Auflösung:
-    - Property: `oauth.refresh-token.rotation.enabled`
-    - Env: `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED`
-    - Default: `false`
+  - neues Feld `oauthRefreshTokenStorePath`
+  - Laden von Property/Env für Store-Pfad
 - `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-  - harte Konstante `REFRESH_TOKEN_ROTATION_ENABLED` entfernt
-  - Refresh-Grant liefert immer `refresh_token`
-  - Rotationslogik an Config gebunden (`rotation=false` reuse, `rotation=true` rotate+invalidate)
+  - Laden/Speichern des Refresh-Token-Stores (JSON)
+  - persistente Struktur (`RefreshTokenStoreDocument`, `RefreshTokenEntry`)
+  - Save-on-change bei add/rotate/remove/cleanup
 - `src/main/resources/application.properties`
-  - `oauth.refresh-token.rotation.enabled=false` ergänzt
-- `README.md`
-  - Test/Start-Doku um `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED` ergänzt
+  - `oauth.refresh-token.store.path=data/oauth-refresh-tokens.json`
 - `docs/agent/report.md` (überschrieben)
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- OAuth Refresh Response wurde auf client-kompatibles Verhalten normiert:
-  - Refresh-Response enthält immer `refresh_token`
-  - Rotation bleibt optional und zur Laufzeit konfigurierbar.
+- Refresh Tokens sind jetzt prozessübergreifend persistent (Datei-Store), während Access Tokens bewusst flüchtig bleiben.
+- Persistenz bleibt minimal (JSON-Datei), ohne Einführung externer Infrastruktur.
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
@@ -50,41 +50,46 @@ Scope eingehalten:
    - `./gradlew --no-daemon clean build --stacktrace`
    - Ergebnis: **BUILD SUCCESSFUL**
 
-2. **Runtime-Test Rotation=false**
-   - Start auf `8087` mit:
-     - `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED=false`
+2. **Persistenztest (Neustart ohne Verlust)**
+   - Start auf `8089` mit `OAUTH_REFRESH_TOKEN_STORE_PATH=data/oauth-refresh-tokens-002d.json`
+   - OAuth Login durchgeführt (`authorization_code`)
    - Verifiziert:
-     - `authorization_code` Response enthält `refresh_token`
-     - `refresh_token` Response enthält `refresh_token`
-     - `rotation_false_same_token=True`
-     - MCP Regression: `tools/list` mit refreshed access token funktioniert (`mcp_tools_count=23`)
+     - Store-Datei existiert
+     - Store-Datei enthält den erzeugten `refresh_token`
+   - Pyloros neu gestartet mit gleicher Konfiguration
+   - Log zeigt Laden des Stores: `[OAUTH] Loaded 1 refresh tokens ...`
+   - Mit gespeichertem Refresh Token nach Neustart neuer Access Token erfolgreich erhalten
+   - MCP Regression: `POST /sse tools/list` mit refreshed Access Token funktioniert (`mcp_tools_count=23`)
 
-3. **Runtime-Test Rotation=true**
-   - Start auf `8088` mit:
-     - `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED=true`
-   - Verifiziert:
-     - `refresh_token` Response enthält `refresh_token`
-     - neuer Refresh Token wird ausgegeben (`rotation_true_rotated=True`)
-     - alter Refresh Token liefert `{"error":"invalid_grant"}`
-     - neuer Refresh Token ist weiter nutzbar (`refresh2_access_present=True`)
+3. **Ablauf-/Cleanup-Test (kurze TTL)**
+   - Start auf `8091` mit:
+     - `OAUTH_REFRESH_TOKEN_STORE_PATH=data/oauth-refresh-exp-002d.json`
+     - `OAUTH_REFRESH_TOKEN_TTL_SECONDS=2`
+   - Refresh Token erzeugt und in Datei bestätigt
+   - Nach Ablauf und Neustart:
+     - Log zeigt Laden aus Store
+     - Store ist bereinigt (`tokens_before_call=0`)
+     - Refresh mit altem Token liefert `{"error":"invalid_grant"}`
+     - Store bleibt bereinigt (`tokens_after_call=0`)
 
 ## Ergebnis: erfolgreich
 
 - Build grün
-- Refresh Response enthält immer `refresh_token`
-- `rotation=false`: gleicher Refresh Token
-- `rotation=true`: neuer Refresh Token + alter invalid
-- bestehender OAuth-/MCP-Flow weiterhin funktionsfähig
+- OAuth Login schreibt Refresh Token in Store-Datei
+- Neustart verliert Refresh Token nicht
+- Refresh nach Neustart funktioniert
+- Abgelaufene Refresh Tokens werden entfernt und liefern `invalid_grant`
+- MCP tools/list funktioniert nach Refresh weiter
 
 ## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-- Kein offener Fehler im Scope 002-C.
+- Kein offener Fehler im Scope 002-D.
 
 ## Konflikte / Hinweise
 
 - `docs/agent/assignment.md` steht weiterhin auf älterem Task (001-D).
-- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-C`.
+- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-D`.
 
 ## Exact commit hash, or No commit created
 
-- Commit wird nach dieser Verifikation erstellt.
+- Commit wird nach erfolgreicher Verifikation erstellt.

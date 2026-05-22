@@ -16,7 +16,8 @@ public record PylorosConfig(
         String fixedAccessToken,
         int oauthAccessTokenTtlSeconds,
         int oauthRefreshTokenTtlSeconds,
-        boolean oauthRefreshTokenRotationEnabled
+        boolean oauthRefreshTokenRotationEnabled,
+        String oauthRefreshTokenStorePath
 ) {
 
     public static PylorosConfig load() {
@@ -39,7 +40,8 @@ public record PylorosConfig(
                 value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, ""),
                 intValue("oauth.access-token.ttl.seconds", "OAUTH_ACCESS_TOKEN_TTL_SECONDS", properties, 3600),
                 intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000),
-                Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false"))
+                Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false")),
+                value("oauth.refresh-token.store.path", "OAUTH_REFRESH_TOKEN_STORE_PATH", properties, "data/oauth-refresh-tokens.json")
         );
     }
 
