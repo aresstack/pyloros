@@ -26,7 +26,6 @@ public final class IdeaJsonRpcClient {
     private final IdeaSseSession sseSession;
 
     private HttpClient client;
-    private final java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public IdeaJsonRpcClient(Vertx vertx, IdeaMcpConfig config, IdeaSseSession sseSession) {
         this.vertx = vertx;
@@ -47,11 +46,6 @@ public final class IdeaJsonRpcClient {
         String endpoint = sseSession.getEndpoint();
         if (endpoint == null) {
             return Future.failedFuture(new IllegalStateException("No IDEA endpoint available"));
-        }
-
-        // Ensure only one pending call at a time (001-C requirement)
-        if (!pending.compareAndSet(false, true)) {
-            return Future.failedFuture(new IllegalStateException("Another JSON-RPC call is pending"));
         }
 
         // For IDEA MCP the HTTP response may be asynchronous (202 Accepted) and the actual JSON-RPC
@@ -97,23 +91,14 @@ public final class IdeaJsonRpcClient {
                                         }
                                     } catch (Exception ex) {
                                         // ignore here, waiting for SSE
-                                    } finally {
-                                        pending.set(false);
                                     }
                                 })
-                                .onFailure(err -> {
-                                    pending.set(false);
-                                    promise.tryFail(err);
-                                });
+                                .onFailure(promise::tryFail);
                     })
-                    .onFailure(err -> {
-                        pending.set(false);
-                        promise.tryFail(err);
-                    });
+                    .onFailure(promise::tryFail);
 
             return promise.future();
         } catch (Exception ex) {
-            pending.set(false);
             return Future.failedFuture(ex);
         }
     }

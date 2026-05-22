@@ -3,12 +3,18 @@ package com.aresstack.pyloros.upstream.idea;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.domain.tool.ToolProvider;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 
 public final class IdeaToolProvider implements ToolProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(IdeaToolProvider.class);
 
     private final IdeaMcpConfig config;
     private final IdeaMcpClient client;
@@ -49,19 +55,71 @@ public final class IdeaToolProvider implements ToolProvider {
 
     @Override
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
-        // 001-B: if client not provided or not ready, return a clear not-connected error
         if (client == null || !client.isReady()) {
-            return Future.succeededFuture(Map.of(
-                    "content", new Object[]{Map.of("type", "text", "text", "IDEA MCP provider is not connected yet.")},
-                    "isError", true
-            ));
+            return Future.succeededFuture(errorResult("IDEA MCP provider is not connected yet."));
         }
 
-        // For 001-B we still do not forward calls to IDEA; indicate not implemented yet
-        return Future.succeededFuture(Map.of(
-                "content", new Object[]{Map.of("type", "text", "text", "IDEA MCP provider call not implemented yet.")},
+        // Strip the public idea__ prefix to get the original IDEA tool name
+        String publicName = toolCall.name() == null ? "" : toolCall.name();
+        String prefix = config.toolPrefix();
+        String originalName = publicName.startsWith(prefix) ? publicName.substring(prefix.length()) : publicName;
+
+        // Convert Jackson JsonNode arguments to Vert.x JsonObject
+        JsonObject arguments;
+        try {
+            String argStr = toolCall.arguments() == null ? "{}" : toolCall.arguments().toString();
+            arguments = new JsonObject(argStr);
+        } catch (Exception ex) {
+            log.debug("IdeaToolProvider: could not parse arguments for {}: {}", originalName, ex.getMessage());
+            arguments = new JsonObject();
+        }
+
+        JsonObject params = new JsonObject()
+                .put("name", originalName)
+                .put("arguments", arguments);
+
+        log.info("IdeaToolProvider: forwarding tools/call {} -> {}", publicName, originalName);
+
+        return client.call("tools/call", params)
+                .map(response -> {
+                    if (response == null) {
+                        return errorResult("IDEA returned empty response for " + originalName);
+                    }
+                    // If IDEA returned isError=true, forward it
+                    boolean ideaError = response.getBoolean("isError", false);
+                    JsonArray content = response.getJsonArray("content");
+                    if (content == null) {
+                        // No content array — wrap the entire response as a text result
+                        String text = response.encode();
+                        content = new JsonArray().add(new JsonObject().put("type", "text").put("text", text));
+                    }
+                    // Convert JsonArray to List<Map<String,Object>>
+                    List<Object> contentList = new ArrayList<>();
+                    for (int i = 0; i < content.size(); i++) {
+                        Object item = content.getValue(i);
+                        if (item instanceof JsonObject jo) {
+                            contentList.add(jo.getMap());
+                        } else {
+                            contentList.add(item);
+                        }
+                    }
+                    log.info("IdeaToolProvider: tools/call {} returned {} content items (isError={})",
+                            originalName, contentList.size(), ideaError);
+                    return Map.of("content", contentList, "isError", ideaError);
+                })
+                .recover(err -> {
+                    log.debug("IdeaToolProvider: tools/call {} failed: {}", originalName, err.getMessage());
+                    return Future.succeededFuture(errorResult("IDEA tools/call failed: " + err.getMessage()));
+                });
+    }
+
+    private static Map<String, Object> errorResult(String message) {
+        return Map.of(
+                "content", new Object[]{Map.of("type", "text", "text", message)},
                 "isError", true
-        ));
+        );
     }
 }
+
+
 
