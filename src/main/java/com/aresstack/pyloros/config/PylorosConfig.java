@@ -15,7 +15,8 @@ public record PylorosConfig(
         String oauthClientSecret,
         String fixedAccessToken,
         int oauthAccessTokenTtlSeconds,
-        int oauthRefreshTokenTtlSeconds
+        int oauthRefreshTokenTtlSeconds,
+        boolean oauthRefreshTokenRotationEnabled
 ) {
 
     public static PylorosConfig load() {
@@ -37,7 +38,8 @@ public record PylorosConfig(
                 value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),
                 value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, ""),
                 intValue("oauth.access-token.ttl.seconds", "OAUTH_ACCESS_TOKEN_TTL_SECONDS", properties, 3600),
-                intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000)
+                intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000),
+                Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false"))
         );
     }
 

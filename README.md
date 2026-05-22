@@ -23,4 +23,5 @@ Optional fuer Tests TTLs kurz setzen:
 ```ps1
 $env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="30"
 $env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="300"
+$env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="false"
 ```

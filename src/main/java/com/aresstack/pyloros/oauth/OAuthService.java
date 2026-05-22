@@ -24,7 +24,6 @@ import java.util.UUID;
 public final class OAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(OAuthService.class);
-    private static final boolean REFRESH_TOKEN_ROTATION_ENABLED = false;
 
     private final PylorosConfig config;
     private final Clock clock;
@@ -175,8 +174,8 @@ public final class OAuthService {
         int expiresIn = config.oauthAccessTokenTtlSeconds();
         accessTokens.put(accessToken, new AccessToken(state.scope(), now.plusSeconds(expiresIn)));
 
-        String nextRefreshToken = null;
-        if (REFRESH_TOKEN_ROTATION_ENABLED) {
+        String nextRefreshToken = refreshToken;
+        if (config.oauthRefreshTokenRotationEnabled()) {
             refreshTokens.remove(refreshToken);
             nextRefreshToken = createOpaqueValue();
             refreshTokens.put(nextRefreshToken, new RefreshTokenState(

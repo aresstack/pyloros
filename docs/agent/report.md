@@ -2,21 +2,20 @@
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-`002-B - Refresh token configuration and cleanup` wurde umgesetzt.
+`002-C - Refresh response compatibility` wurde umgesetzt.
 
 Implementiert:
 
-- TTL-Konfiguration für Access Tokens und Refresh Tokens ergänzt:
-  - Access Token TTL default: `3600` Sekunden
-  - Refresh Token TTL default: `2592000` Sekunden
-- Refresh-Token-Ablaufzeit wird serverseitig geprüft.
-- Abgelaufene Refresh Tokens werden mit `invalid_grant` abgelehnt.
-- Abgelaufene/ungültige Refresh Tokens werden aus dem In-Memory-Store entfernt.
-- Optionales Rotation-Pattern wurde vorbereitet, aber nicht aktiviert (`REFRESH_TOKEN_ROTATION_ENABLED=false`).
+- `oauth.refresh-token.rotation.enabled` als Konfiguration ergänzt (Property + Env).
+- Default für Rotation ist `false`.
+- Bei `grant_type=refresh_token` wird jetzt **immer** ein `refresh_token` im Token-Response zurückgegeben.
+- Verhalten nach Modus:
+  - `rotation=false`: derselbe Refresh Token wird erneut zurückgegeben.
+  - `rotation=true`: neuer Refresh Token wird erzeugt, alter wird entfernt/invalidiert.
 
-Nicht implementiert (wie gefordert):
+Scope eingehalten:
 
-- kein persistenter Store
+- keine Persistenz
 - kein Device Flow
 - keine UI
 - kein Push
@@ -24,27 +23,26 @@ Nicht implementiert (wie gefordert):
 ## Welche Dateien wurden geändert oder neu erstellt?
 
 - `src/main/java/com/aresstack/pyloros/config/PylorosConfig.java`
-  - neue Konfigurationswerte:
-    - `oauthAccessTokenTtlSeconds`
-    - `oauthRefreshTokenTtlSeconds`
-  - Property/Env-Lookup mit Defaults:
-    - `oauth.access-token.ttl.seconds` / `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (default 3600)
-    - `oauth.refresh-token.ttl.seconds` / `OAUTH_REFRESH_TOKEN_TTL_SECONDS` (default 2592000)
+  - neues Feld: `oauthRefreshTokenRotationEnabled`
+  - neue Konfig-Auflösung:
+    - Property: `oauth.refresh-token.rotation.enabled`
+    - Env: `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED`
+    - Default: `false`
 - `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-  - RefreshTokenState um `expiresAt` erweitert
-  - Ablaufprüfung im Refresh-Grant ergänzt
-  - Cleanup-Logik für abgelaufene Refresh Tokens ergänzt
-  - invalid/mismatched Refresh Tokens werden entfernt und mit `invalid_grant` beantwortet
-  - Access Token TTL aus Konfiguration statt Hardcode
-  - vorbereitete, deaktivierte Rotation
+  - harte Konstante `REFRESH_TOKEN_ROTATION_ENABLED` entfernt
+  - Refresh-Grant liefert immer `refresh_token`
+  - Rotationslogik an Config gebunden (`rotation=false` reuse, `rotation=true` rotate+invalidate)
 - `src/main/resources/application.properties`
-  - Default-TTLs ergänzt
+  - `oauth.refresh-token.rotation.enabled=false` ergänzt
+- `README.md`
+  - Test/Start-Doku um `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED` ergänzt
 - `docs/agent/report.md` (überschrieben)
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- OAuth Token Lifecycle wurde um konfigurierbare Expiration und In-Memory-Cleanup erweitert, ohne Persistenz einzuführen.
-- Refresh Token Rotation bleibt absichtlich vorbereitet, aber deaktiviert, um den Scope klein und stabil zu halten.
+- OAuth Refresh Response wurde auf client-kompatibles Verhalten normiert:
+  - Refresh-Response enthält immer `refresh_token`
+  - Rotation bleibt optional und zur Laufzeit konfigurierbar.
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
@@ -52,49 +50,41 @@ Nicht implementiert (wie gefordert):
    - `./gradlew --no-daemon clean build --stacktrace`
    - Ergebnis: **BUILD SUCCESSFUL**
 
-2. **Runtime-Testinstanz**
-   - Pyloros auf `SERVER_PORT=8086` gestartet
-   - Testkonfiguration:
-     - `OAUTH_ACCESS_TOKEN_TTL_SECONDS=3600`
-     - `OAUTH_REFRESH_TOKEN_TTL_SECONDS=2`
+2. **Runtime-Test Rotation=false**
+   - Start auf `8087` mit:
+     - `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED=false`
+   - Verifiziert:
+     - `authorization_code` Response enthält `refresh_token`
+     - `refresh_token` Response enthält `refresh_token`
+     - `rotation_false_same_token=True`
+     - MCP Regression: `tools/list` mit refreshed access token funktioniert (`mcp_tools_count=23`)
 
-3. **Authorization Code Flow**
-   - `/oauth/authorize` liefert Redirect mit `code`
-   - `/oauth/token` mit `grant_type=authorization_code` funktioniert weiter
-   - Token Response enthält `refresh_token`
-
-4. **Refresh Grant (gültig)**
-   - `/oauth/token` mit `grant_type=refresh_token` + gültigem Token liefert neuen `access_token`
-
-5. **Refresh Grant (abgelaufen)**
-   - Nach Wartezeit > TTL (`3s` bei `2s` TTL):
-   - `/oauth/token` mit ursprünglichem Refresh Token liefert `{"error":"invalid_grant"}`
-
-6. **Refresh Grant (ungültig)**
-   - `/oauth/token` mit ungültigem Refresh Token liefert `{"error":"invalid_grant"}`
-
-7. **MCP Regression nach Refresh**
-   - Mit per Refresh erhaltenem Access Token:
-   - `POST /sse` `tools/list` funktioniert (`mcp_tools_count=23`)
+3. **Runtime-Test Rotation=true**
+   - Start auf `8088` mit:
+     - `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED=true`
+   - Verifiziert:
+     - `refresh_token` Response enthält `refresh_token`
+     - neuer Refresh Token wird ausgegeben (`rotation_true_rotated=True`)
+     - alter Refresh Token liefert `{"error":"invalid_grant"}`
+     - neuer Refresh Token ist weiter nutzbar (`refresh2_access_present=True`)
 
 ## Ergebnis: erfolgreich
 
 - Build grün
-- Refresh Token funktioniert mit gültigem Token
-- Abgelaufener Refresh Token liefert `invalid_grant`
-- Ungültiger Refresh Token liefert `invalid_grant`
-- OAuth Authorization-Code Login funktioniert weiter
-- MCP tools/list funktioniert nach Refresh weiter
+- Refresh Response enthält immer `refresh_token`
+- `rotation=false`: gleicher Refresh Token
+- `rotation=true`: neuer Refresh Token + alter invalid
+- bestehender OAuth-/MCP-Flow weiterhin funktionsfähig
 
 ## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-- Kein offener Fehler im Scope 002-B.
+- Kein offener Fehler im Scope 002-C.
 
 ## Konflikte / Hinweise
 
-- `docs/agent/assignment.md` steht weiterhin auf einem älteren Task (001-D).
-- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-B`.
+- `docs/agent/assignment.md` steht weiterhin auf älterem Task (001-D).
+- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-C`.
 
 ## Exact commit hash, or No commit created
 
-- Commit wird nach erfolgreicher Verifikation erstellt.
+- Commit wird nach dieser Verifikation erstellt.
