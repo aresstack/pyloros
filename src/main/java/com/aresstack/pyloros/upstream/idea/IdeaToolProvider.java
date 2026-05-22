@@ -6,13 +6,20 @@ import io.vertx.core.Future;
 
 import java.util.List;
 import java.util.Map;
+import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 
 public final class IdeaToolProvider implements ToolProvider {
 
     private final IdeaMcpConfig config;
+    private final IdeaMcpClient client;
 
     public IdeaToolProvider(IdeaMcpConfig config) {
+        this(config, null);
+    }
+
+    public IdeaToolProvider(IdeaMcpConfig config, IdeaMcpClient client) {
         this.config = config == null ? new IdeaMcpConfig(false, "127.0.0.1", 64343, "/sse", 3000, 60000, "idea__") : config;
+        this.client = client;
     }
 
     @Override
@@ -34,9 +41,17 @@ public final class IdeaToolProvider implements ToolProvider {
 
     @Override
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
-        // 001-A: provider not connected yet
+        // 001-B: if client not provided or not ready, return a clear not-connected error
+        if (client == null || !client.isReady()) {
+            return Future.succeededFuture(Map.of(
+                    "content", new Object[]{Map.of("type", "text", "text", "IDEA MCP provider is not connected yet.")},
+                    "isError", true
+            ));
+        }
+
+        // For 001-B we still do not forward calls to IDEA; indicate not implemented yet
         return Future.succeededFuture(Map.of(
-                "content", new Object[]{Map.of("type", "text", "text", "IDEA MCP provider is configured but not connected yet.")},
+                "content", new Object[]{Map.of("type", "text", "text", "IDEA MCP provider call not implemented yet.")},
                 "isError", true
         ));
     }

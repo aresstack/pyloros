@@ -8,6 +8,8 @@ import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolRegistry;
 import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
+import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
+import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
@@ -33,9 +35,16 @@ public final class PylorosApplication extends AbstractVerticle {
     public void start() {
         PylorosConfig config = PylorosConfig.load();
         OAuthService oauthService = new OAuthService(config);
+        // Setup IDEA MCP client and provider skeleton (001-B). Client is started only if enabled.
+        IdeaMcpConfig ideaConfig = config.ideaMcpConfig();
+        IdeaMcpClient ideaMcpClient = new IdeaMcpClient(vertx, ideaConfig);
+        if (ideaConfig.enabled()) {
+            ideaMcpClient.start();
+        }
+
         ToolRegistry toolRegistry = new ToolRegistry(List.of(
                 new PylorosPingToolProvider(),
-                new IdeaToolProvider(config.ideaMcpConfig())
+                new IdeaToolProvider(ideaConfig, ideaMcpClient)
         ));
 
         Router router = Router.router(vertx);
