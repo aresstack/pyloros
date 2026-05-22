@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 /**
  * High-level client that coordinates SSE session and JSON-RPC client. 001-B provides skeleton functionality.
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class IdeaMcpClient {
 
     private static final Logger log = LoggerFactory.getLogger(IdeaMcpClient.class);
+    private static final long TOOLS_REFRESH_DEBOUNCE_MS = 250L;
 
     private final Vertx vertx;
     private final IdeaMcpConfig config;
@@ -29,6 +31,8 @@ public final class IdeaMcpClient {
     private final IdeaToolNameMapper toolNameMapper;
     private final AtomicReference<List<Map<String, Object>>> cachedTools = new AtomicReference<>();
     private final AtomicReference<Set<String>> knownOriginalToolNames = new AtomicReference<>(Set.of());
+    private final AtomicBoolean toolsRefreshScheduled = new AtomicBoolean(false);
+    private final AtomicReference<Long> toolsRefreshTimerId = new AtomicReference<>();
     private volatile boolean initialized = false;
 
     public IdeaMcpClient(Vertx vertx, IdeaMcpConfig config) {
@@ -43,11 +47,25 @@ public final class IdeaMcpClient {
                 log.info("IdeaMcpClient: received notification {}", msg.encode());
                 // Clear cache and refresh tools proactively
                 cachedTools.set(null);
-                refreshTools();
+                scheduleToolsRefreshDebounced();
             } catch (Exception ex) {
                 log.debug("Failed to handle IDEA notification: {}", ex.getMessage());
             }
         });
+    }
+
+    private void scheduleToolsRefreshDebounced() {
+        if (!toolsRefreshScheduled.compareAndSet(false, true)) {
+            // A refresh is already scheduled; this notification is coalesced.
+            return;
+        }
+
+        long timerId = vertx.setTimer(TOOLS_REFRESH_DEBOUNCE_MS, ignored -> {
+            toolsRefreshTimerId.set(null);
+            toolsRefreshScheduled.set(false);
+            refreshTools();
+        });
+        toolsRefreshTimerId.set(timerId);
     }
 
     private void refreshTools() {
@@ -189,6 +207,11 @@ public final class IdeaMcpClient {
     }
 
     public Future<Void> stop() {
+        Long timerId = toolsRefreshTimerId.getAndSet(null);
+        if (timerId != null) {
+            vertx.cancelTimer(timerId);
+        }
+        toolsRefreshScheduled.set(false);
         return sseSession.stop();
     }
 }

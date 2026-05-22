@@ -2,43 +2,26 @@
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-**001-D2 - Normalize upstream tool names** wurde umgesetzt.
+`003-A: Debounce tools/list refresh` wurde umgesetzt.
 
-Implementiert:
+Änderung in `IdeaMcpClient`:
 
-- Öffentliche IDEA-Toolnamen wurden auf `intellij/...` umgestellt.
-- Legacy-Calls mit `idea__...` bleiben als Alias lauffähig.
-- Unprefixed Calls (z. B. `get_project_modules`) werden als Kompatibilitäts-Alias akzeptiert, aber nur wenn der Name ein bekannter IDEA-Upstream-Toolname ist.
-- Intern wird immer auf den originalen IDEA-Namen ohne Prefix weitergeleitet.
-- `tools/list` liefert weiterhin nur eine saubere öffentliche Variante (keine Duplikate, keine unprefixed Aliasnamen).
+- `notifications/tools/list_changed` löst keinen sofortigen `refreshTools()`-Aufruf mehr aus.
+- Stattdessen wird ein **debouncter** Refresh geplant (`250 ms`).
+- Es ist immer nur **ein** geplanter Refresh gleichzeitig erlaubt.
+- Zusätzliche Notifications während der Wartezeit werden zusammengefasst (coalesced).
+- Beim Stoppen des Clients wird ein geplanter Timer sauber abgebrochen.
+
+Wichtig: `tools/call`-Verhalten und OAuth-Logik wurden nicht geändert.
 
 ## Welche Dateien wurden geändert oder neu erstellt?
 
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaToolNameMapper.java` (neu)
-  - zentrale Namensnormalisierung:
-    - `publicName(original)` -> `intellij/original`
-    - `toOriginalName(aliasOrPublicOrOriginal)` -> `original`
-    - Alias-Erkennung (`intellij/`, `idea__`)
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java`
-  - `tools/list`-Normalisierung auf `intellij/...`
-  - Tracking bekannter Original-Toolnamen (`knownOriginalToolNames`)
-  - neue Methoden: `hasKnownTools()`, `isKnownOriginalTool(...)`
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaToolProvider.java`
-  - `supports(...)` erweitert für:
-    - `intellij/...` (primär)
-    - `idea__...` (legacy)
-    - unprefixed Alias (optimistisch bis Warm-up, danach strikt nur bekannte Tools)
-  - `callTool(...)` normalisiert Namen robust auf Originalnamen und validiert unprefixed Namen gegen bekannte Upstream-Tools
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java` (geändert)
 - `docs/agent/report.md` (überschrieben)
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- Public naming scheme für IDEA-Tools in Pyloros:
-  - alt: `idea__...`
-  - neu (primär): `intellij/...`
-- Kompatibilitätsstrategie:
-  - Listung nur in einem kanonischen Schema (`intellij/...`)
-  - Aufruf-Kompatibilität für `idea__...` und bekannte unprefixed Namen ohne doppelte Tool-Listeneinträge
+- Upstream-Notification-Verarbeitung in `IdeaMcpClient`: Burst-Notifications (`tools/list_changed`) werden jetzt per Debounce gebündelt, um parallele/übermäßige `tools/list` Requests zu vermeiden.
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
@@ -47,38 +30,38 @@ Implementiert:
    - Ergebnis: **BUILD SUCCESSFUL**
 
 2. **Runtime-Start**
-   - Pyloros auf `SERVER_PORT=8082` mit `OAUTH_ACCESS_TOKEN=dev-token` gestartet
+   - Pyloros auf `SERVER_PORT=8082` mit `OAUTH_ACCESS_TOKEN=dev-token` gestartet.
 
-3. **tools/list Verifikation**
-   - `tools/list` liefert:
-     - `pyloros__ping`
-     - IDEA-Tools nur als `intellij/...`
-   - Keine `idea__...`-Duplikate in der Liste
+3. **Debounce-Nachweis über Logs**
+   - Datei: `logs/003a-run.log`
+   - Zählung:
+     - `notifications/tools/list_changed`: **22**
+     - `IdeaJsonRpcClient POST tools/list`: **1**
+   - Damit ist bestätigt: keine dutzenden parallelen `tools/list` POSTs mehr beim Start.
 
-4. **tools/call Alias-Kompatibilität**
-   - `intellij/get_project_modules` -> funktioniert (`isError=false`, echte IDEA-Daten)
-   - `idea__get_project_modules` -> funktioniert (`isError=false`, echte IDEA-Daten)
-   - `get_project_modules` -> funktioniert (`isError=false`, echte IDEA-Daten)
+4. **Sichtbarkeit der Tools**
+   - `tools/list` liefert weiterhin IDEA-Tools (`intellij/...`) plus `pyloros__ping`.
 
-5. **Akzeptanztest gemäß Auftrag (`get_file_text_by_path`)**
-   - `intellij/get_file_text_by_path` -> funktioniert (`isError=false`)
-   - `idea__get_file_text_by_path` -> funktioniert (`isError=false`)
-   - `get_file_text_by_path` -> funktioniert (`isError=false`)
-
-6. **Negative Validierung (nur bekannte unprefixed akzeptieren)**
-   - `totally_unknown_tool_name` -> kontrolliert abgelehnt mit `isError=true` und Text `Unsupported tool: totally_unknown_tool_name`
+5. **Regression tools/call**
+   - `tools/call intellij/get_project_modules` funktioniert weiterhin (`isError=false`, echte Modulliste).
 
 ## Ergebnis: erfolgreich
 
-- 001-D2 Scope erfüllt
 - Build grün
-- Runtime-Verifikation grün
-- Keine Scope-Erweiterung (kein Index-MCP, keine UI, keine Persistenz)
+- Pyloros startet
+- IDEA Tools sichtbar
+- Start-Burst wird gebündelt (1 Refresh-POST statt vieler)
+- `tools/call intellij/get_project_modules` weiterhin funktionsfähig
 
-## Fehlgeschlagen: entfällt
+## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-Kein Fehlerfall offen.
+- Kein offener Fehler im Scope 003-A.
+
+## Konflikte / Hinweise
+
+- `docs/agent/assignment.md` steht noch auf `001-D` als aktuelle Aufgabe.
+- Diese Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `003-A`.
 
 ## Exact commit hash, or No commit created
 
-`adb7ea9` (kein Push durchgeführt)
+- No commit created.
