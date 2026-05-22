@@ -7,6 +7,8 @@ import com.aresstack.pyloros.oauth.OAuthService;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -14,6 +16,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class OAuthRoutes {
+
+    private static final Logger log = LoggerFactory.getLogger(OAuthRoutes.class);
 
     private final OAuthService oauthService;
 
@@ -44,16 +48,17 @@ public final class OAuthRoutes {
                     .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
                     .end();
         } catch (OAuthException exception) {
-            sendOAuthError(context, exception);
+            sendOAuthError(context, null, exception);
         }
     }
 
     private void token(RoutingContext context) {
+        String grantType = context.request().getFormAttribute("grant_type");
         try {
             ClientCredentials credentials = readClientCredentials(context);
             TokenResponse tokenResponse = oauthService.exchangeAuthorizationCode(
                     credentials,
-                    context.request().getFormAttribute("grant_type"),
+                    grantType,
                     context.request().getFormAttribute("code"),
                     context.request().getFormAttribute("refresh_token"),
                     context.request().getFormAttribute("redirect_uri"),
@@ -69,9 +74,17 @@ public final class OAuthRoutes {
             }
             body.put("scope", tokenResponse.scope());
 
-            HttpJson.send(context, 200, body);
+            log.info("[OAUTH] token response status=200 grant_type={} has_access_token={} has_refresh_token={} token_type={} expires_in={} scope={}",
+                    grantType,
+                    body.containsKey("access_token"),
+                    body.containsKey("refresh_token"),
+                    tokenResponse.tokenType(),
+                    tokenResponse.expiresIn(),
+                    tokenResponse.scope());
+
+            sendTokenResponse(context, 200, body);
         } catch (OAuthException exception) {
-            sendOAuthError(context, exception);
+            sendOAuthError(context, grantType, exception);
         }
     }
 
@@ -92,7 +105,22 @@ public final class OAuthRoutes {
         );
     }
 
-    private void sendOAuthError(RoutingContext context, OAuthException exception) {
+    private void sendTokenResponse(RoutingContext context, int statusCode, Map<String, Object> body) {
+        try {
+            context.response()
+                    .setStatusCode(statusCode)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
+                    .putHeader("Pragma", "no-cache")
+                    .end(HttpJson.mapper().writeValueAsString(body));
+        } catch (Exception exception) {
+            context.fail(exception);
+        }
+    }
+
+    private void sendOAuthError(RoutingContext context, String grantType, OAuthException exception) {
+        log.info("[OAUTH] token response status={} grant_type={} error={} error_description={}",
+                exception.statusCode(), grantType, exception.error(), exception.errorDescription());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", exception.error());
         if (exception.errorDescription() != null) {

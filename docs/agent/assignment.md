@@ -1,48 +1,46 @@
 # Current Assignment
 
-Task: 005 - Repository hygiene and release baseline
+Task: 002-E - OAuth token response diagnostics
 
 Read AGENTS.md first. Use this file as the single source of truth.
 
-Goal: Prepare repository for first stable release milestone.
+Goal: Log the outgoing /oauth/token response structure without logging secret values.
+Validate response headers and JSON structure conform to RFC 6749.
 
 Scope:
-1. Review and extend .gitignore for data/, logs/ and local IDE artifacts
-2. Update README.md: clarify Apache → HTTP Backend, OAuth Refresh flow, IntelliJ Tool Prefix (intellij/...)
-3. Check status of open requirements with completed commits
-4. Execute final build
-5. Prepare for push (but DO NOT push)
+1. Add diagnostic logging in OAuthRoutes.token() after building the response body
+2. Log without token values: status, grant_type, has_access_token, has_refresh_token, token_type, expires_in, scope
+3. Add Pragma: no-cache header to token responses (RFC 6749 requirement, alongside existing Cache-Control: no-store)
+4. Add error diagnostic logging in sendOAuthError()
+5. Execute full Gradle build
+6. Commit and push
 
-Allowed:
-- Extend .gitignore
-- Update README.md
-- Review build status
-- Run full Gradle build
-- Verify no uncommitted runtime data is about to be pushed
+Conformance checklist (success = /oauth/token):
+- HTTP 200 on success
+- Content-Type: application/json
+- Cache-Control: no-store
+- Pragma: no-cache
+- access_token present (snake_case)
+- token_type = Bearer
+- expires_in is integer (not string)
+- refresh_token present for authorization_code grant
+- refresh_token present for refresh_token grant
+- scope present
+- JSON keys in snake_case (verified by code review)
 
 Not allowed:
-- no git push
-- no broad code refactoring
-- no new features or requirements
+- No token values in log output
+- No broad code refactoring
 
-Status to verify (all completed):
+Status of previous tasks (all completed):
 - 001-A bis 001-E: implemented
 - 003-A/B: completed, Commit c7e068c
 - 002-A: completed, Commit 7466f86
 - 002-B: completed, Commit 1ad0303
 - 002-C: completed, Commit 921c002
 - 002-D: completed, Commit f7ececf
-
-Required checks:
-1. Verify .gitignore properly excludes:
-   - data/
-   - logs/
-   - Local IDE artifacts (.idea, *.iml, etc.)
-2. Update README.md with current implementation details
-3. Build is green with JDK 21
-4. No uncommitted runtime files ready to be staged
-5. Verify all previous commits are in local history
+- 005: completed, Commit a5fee45
 
 Final report:
 Overwrite docs/agent/report.md completely.
-Include files changed, .gitignore updates, README changes, build results, and confirmation ready for push.
+Include files changed, log output example, header verification, build results, commit hash.
