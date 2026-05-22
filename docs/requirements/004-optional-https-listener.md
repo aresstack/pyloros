@@ -1,4 +1,3 @@
-````markdown
 # 004 - Optional HTTPS Listener
 
 ## Problem
@@ -25,7 +24,7 @@ Default configuration:
 server.ssl.enabled=false
 server.ssl.cert.file=server.crt
 server.ssl.key.file=server.key
-````
+```
 
 The certificate directory is configured by a Java system property:
 
@@ -87,7 +86,4 @@ Use Vert.x `HttpServerOptions` and `PemKeyCertOptions`.
 * Multiple listeners at the same time.
 * Replacing Apache in the current deployment.
 
-```
-
 Sobald der Connector die File-Tools wieder korrekt bereitstellt, schreibe ich sie direkt ins Repo.
-```
