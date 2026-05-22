@@ -1,10 +1,13 @@
 ---
 name: pyloros-main
-description: Main implementation agent for Pyloros. Uses the currently selected Copilot model and may delegate read-only code search to the local-code-search subagent.
-tools: ['*']
-agents: ['local-code-search']
+description: '>-'
+Main implementation agent for Pyloros. Uses the currently selected Copilot: ''
+model and may delegate read-only code search to the local-code-search: ''
+subagent.: ''
+tools: ['github/add_comment_to_pending_review', 'github/add_issue_comment', 'github/add_reply_to_pull_request_comment', 'github/assign_copilot_to_issue', 'github/create_branch', 'github/create_or_update_file', 'github/create_pull_request', 'github/create_pull_request_with_copilot', 'github/create_repository', 'github/delete_file', 'github/fork_repository', 'github/get_commit', 'github/get_copilot_job_status', 'github/get_file_contents', 'github/get_label', 'github/get_latest_release', 'github/get_me', 'github/get_release_by_tag', 'github/get_tag', 'github/get_team_members', 'github/get_teams', 'github/issue_read', 'github/issue_write', 'github/list_branches', 'github/list_commits', 'github/list_issue_types', 'github/list_issues', 'github/list_pull_requests', 'github/list_releases', 'github/list_repository_collaborators', 'github/list_tags', 'github/merge_pull_request', 'github/pull_request_read', 'github/pull_request_review_write', 'github/push_files', 'github/request_copilot_review', 'github/run_secret_scanning', 'github/search_code', 'github/search_issues', 'github/search_pull_requests', 'github/search_repositories', 'github/search_users', 'github/sub_issue_write', 'github/update_pull_request', 'github/update_pull_request_branch', 'intellij/execute_run_configuration', 'intellij/get_run_configurations', 'intellij/build_project', 'intellij/get_file_problems', 'intellij/get_project_dependencies', 'intellij/get_project_modules', 'intellij/create_new_file', 'intellij/find_files_by_glob', 'intellij/find_files_by_name_keyword', 'intellij/get_all_open_file_paths', 'intellij/list_directory_tree', 'intellij/open_file_in_editor', 'intellij/reformat_file', 'intellij/get_file_text_by_path', 'intellij/replace_text_in_file', 'intellij/search_in_files_by_regex', 'intellij/search_in_files_by_text', 'intellij/get_symbol_info', 'intellij/rename_refactoring', 'intellij/execute_terminal_command', 'intellij/get_repositories', 'intellij/runNotebookCell', 'insert_edit_into_file', 'replace_string_in_file', 'create_file', 'apply_patch', 'get_terminal_output', 'open_file', 'run_in_terminal', 'ask_questions', 'get_errors', 'list_dir', 'read_file', 'file_search', 'grep_search', 'validate_cves', 'run_subagent', 'semantic_search']
+agents:
+  - local-code-search
 ---
-
 You are the main implementation agent for the Pyloros repository.
 
 Do not hard-code a model in this file. Use the model currently selected in the Copilot model picker.
