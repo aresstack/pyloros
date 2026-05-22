@@ -9,8 +9,10 @@ import org.slf4j.LoggerFactory;
 import io.vertx.core.Promise;
 import io.vertx.core.json.JsonArray;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 /**
  * High-level client that coordinates SSE session and JSON-RPC client. 001-B provides skeleton functionality.
@@ -24,7 +26,9 @@ public final class IdeaMcpClient {
 
     private final IdeaSseSession sseSession;
     private final IdeaJsonRpcClient jsonRpcClient;
+    private final IdeaToolNameMapper toolNameMapper;
     private final AtomicReference<List<Map<String, Object>>> cachedTools = new AtomicReference<>();
+    private final AtomicReference<Set<String>> knownOriginalToolNames = new AtomicReference<>(Set.of());
     private volatile boolean initialized = false;
 
     public IdeaMcpClient(Vertx vertx, IdeaMcpConfig config) {
@@ -32,6 +36,7 @@ public final class IdeaMcpClient {
         this.config = config;
         this.sseSession = new IdeaSseSession(vertx, config);
         this.jsonRpcClient = new IdeaJsonRpcClient(vertx, config, sseSession);
+        this.toolNameMapper = new IdeaToolNameMapper(config.toolPrefix());
         // register for notifications from SSE session (e.g. notifications/tools/list_changed)
         this.sseSession.setNotificationHandler(msg -> {
             try {
@@ -50,32 +55,8 @@ public final class IdeaMcpClient {
         if (!sseSession.isReady()) return;
         jsonRpcClient.postJsonRpc("tools/list", new JsonObject()).onSuccess(result -> {
             try {
-                if (result == null) {
-                    cachedTools.set(List.of());
-                    return;
-                }
-                if (result.containsKey("tools")) {
-                    JsonArray arr = result.getJsonArray("tools");
-                    List<Map<String, Object>> tools = new ArrayList<>();
-                    for (int i = 0; i < arr.size(); i++) {
-                        Object item = arr.getValue(i);
-                        if (item instanceof JsonObject jo) {
-                            Map<String, Object> map = jo.getMap();
-                            Map<String, Object> security = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
-                            map.put("securitySchemes", new Object[]{security});
-                            Object metaObj = map.get("_meta");
-                            Map<String, Object> meta = (metaObj instanceof Map) ? (Map<String, Object>) metaObj : Map.of();
-                            map.put("_meta", Map.of("securitySchemes", new Object[]{security}, "originalMeta", meta));
-                            Object nameObj = map.get("name");
-                            if (nameObj instanceof String name) {
-                                map.put("name", config.toolPrefix() + name);
-                            }
-                            tools.add(map);
-                        }
-                    }
-                    cachedTools.set(tools);
-                    log.info("IdeaMcpClient: refreshed tools/list returned {} tools", tools.size());
-                }
+                List<Map<String, Object>> tools = normalizeAndCacheTools(result);
+                log.info("IdeaMcpClient: refreshed tools/list returned {} tools", tools.size());
             } catch (Exception ex) {
                 log.debug("Failed to parse refreshed tools/list result: {}", ex.getMessage());
             }
@@ -126,34 +107,10 @@ public final class IdeaMcpClient {
             return jsonRpcClient.postJsonRpc("tools/list", new JsonObject());
         }).onSuccess(result -> {
             try {
-                if (result == null) {
-                    promise.complete(List.of());
-                    return;
-                }
-                if (result.containsKey("tools")) {
-                    JsonArray arr = result.getJsonArray("tools");
-                    List<Map<String, Object>> tools = new ArrayList<>();
-                    for (int i = 0; i < arr.size(); i++) {
-                        Object item = arr.getValue(i);
-                        if (item instanceof JsonObject jo) {
-                            Map<String, Object> map = jo.getMap();
-                            Map<String, Object> security = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
-                            map.put("securitySchemes", new Object[]{security});
-                            Object metaObj = map.get("_meta");
-                            Map<String, Object> meta = (metaObj instanceof Map) ? (Map<String, Object>) metaObj : Map.of();
-                            map.put("_meta", Map.of("securitySchemes", new Object[]{security}, "originalMeta", meta));
-                            Object nameObj = map.get("name");
-                            if (nameObj instanceof String name) {
-                                map.put("name", config.toolPrefix() + name);
-                            }
-                            tools.add(map);
-                        }
-                    }
-                    cachedTools.set(tools);
-                    log.info("IdeaMcpClient: tools/list returned {} tools", tools.size());
-                    promise.complete(tools);
-                    return;
-                }
+                List<Map<String, Object>> tools = normalizeAndCacheTools(result);
+                log.info("IdeaMcpClient: tools/list returned {} tools", tools.size());
+                promise.complete(tools);
+                return;
             } catch (Exception ex) {
                 log.debug("Failed to parse tools/list result: {}", ex.getMessage());
             }
@@ -172,6 +129,63 @@ public final class IdeaMcpClient {
 
     public Future<JsonObject> call(String method, JsonObject params) {
         return jsonRpcClient.postJsonRpc(method, params);
+    }
+
+    public boolean hasKnownTools() {
+        Set<String> current = knownOriginalToolNames.get();
+        return current != null && !current.isEmpty();
+    }
+
+    public boolean isKnownOriginalTool(String originalName) {
+        if (originalName == null || originalName.isBlank()) {
+            return false;
+        }
+        Set<String> current = knownOriginalToolNames.get();
+        return current != null && current.contains(originalName);
+    }
+
+    private List<Map<String, Object>> normalizeAndCacheTools(JsonObject result) {
+        if (result == null || !result.containsKey("tools")) {
+            cachedTools.set(List.of());
+            knownOriginalToolNames.set(Set.of());
+            return List.of();
+        }
+
+        JsonArray arr = result.getJsonArray("tools");
+        if (arr == null) {
+            cachedTools.set(List.of());
+            knownOriginalToolNames.set(Set.of());
+            return List.of();
+        }
+
+        List<Map<String, Object>> tools = new ArrayList<>();
+        Set<String> knownOriginal = new HashSet<>();
+
+        for (int i = 0; i < arr.size(); i++) {
+            Object item = arr.getValue(i);
+            if (!(item instanceof JsonObject jo)) {
+                continue;
+            }
+
+            Map<String, Object> map = jo.getMap();
+            Map<String, Object> security = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
+            map.put("securitySchemes", new Object[]{security});
+            Object metaObj = map.get("_meta");
+            Map<String, Object> meta = (metaObj instanceof Map) ? (Map<String, Object>) metaObj : Map.of();
+            map.put("_meta", Map.of("securitySchemes", new Object[]{security}, "originalMeta", meta));
+
+            Object nameObj = map.get("name");
+            if (nameObj instanceof String originalName && !originalName.isBlank()) {
+                knownOriginal.add(originalName);
+                map.put("name", toolNameMapper.publicName(originalName));
+            }
+
+            tools.add(map);
+        }
+
+        cachedTools.set(tools);
+        knownOriginalToolNames.set(Set.copyOf(knownOriginal));
+        return tools;
     }
 
     public Future<Void> stop() {
