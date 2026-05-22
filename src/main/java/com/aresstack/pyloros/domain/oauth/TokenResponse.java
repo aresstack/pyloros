@@ -4,6 +4,7 @@ public record TokenResponse(
         String accessToken,
         String tokenType,
         int expiresIn,
+        String refreshToken,
         String scope
 ) {
 }

@@ -52,7 +52,7 @@ public final class MetadataRoutes {
                 "authorization_endpoint", config.publicOrigin() + "/oauth/authorize",
                 "token_endpoint", config.publicOrigin() + "/oauth/token",
                 "response_types_supported", new String[]{"code"},
-                "grant_types_supported", new String[]{"authorization_code"},
+                "grant_types_supported", new String[]{"authorization_code", "refresh_token"},
                 "token_endpoint_auth_methods_supported", new String[]{"client_secret_basic", "client_secret_post"},
                 "code_challenge_methods_supported", new String[]{"S256"},
                 "scopes_supported", new String[]{"mcp"}

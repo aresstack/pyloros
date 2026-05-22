@@ -29,6 +29,7 @@ public final class OAuthService {
     private final Clock clock;
     private final Map<String, AuthorizationCode> authorizationCodes = new LinkedHashMap<>();
     private final Map<String, AccessToken> accessTokens = new LinkedHashMap<>();
+    private final Map<String, RefreshTokenState> refreshTokens = new LinkedHashMap<>();
 
     public OAuthService(PylorosConfig config) {
         this(config, Clock.systemUTC());
@@ -85,6 +86,7 @@ public final class OAuthService {
     public TokenResponse exchangeAuthorizationCode(ClientCredentials credentials,
                                                    String grantType,
                                                    String code,
+                                                   String refreshToken,
                                                    String redirectUri,
                                                    String codeVerifier) {
         log.info("[OAUTH] token grantType={} code={} redirectUri={} clientId={} hasVerifier={}",
@@ -94,9 +96,20 @@ public final class OAuthService {
             throw new OAuthException(401, "invalid_client");
         }
 
-        if (!"authorization_code".equals(grantType)) {
-            throw new OAuthException(400, "unsupported_grant_type");
+        if ("authorization_code".equals(grantType)) {
+            return exchangeFromAuthorizationCode(credentials, code, redirectUri, codeVerifier);
         }
+        if ("refresh_token".equals(grantType)) {
+            return exchangeFromRefreshToken(credentials, refreshToken);
+        }
+
+        throw new OAuthException(400, "unsupported_grant_type");
+    }
+
+    private TokenResponse exchangeFromAuthorizationCode(ClientCredentials credentials,
+                                                        String code,
+                                                        String redirectUri,
+                                                        String codeVerifier) {
 
         AuthorizationCode authorizationCode = authorizationCodes.remove(code);
         if (authorizationCode == null) {
@@ -120,10 +133,34 @@ public final class OAuthService {
         }
 
         String accessToken = config.fixedAccessToken().isBlank() ? createOpaqueValue() : config.fixedAccessToken();
+        String refreshToken = createOpaqueValue();
         int expiresIn = 3600;
-        accessTokens.put(accessToken, new AccessToken(authorizationCode.scope(), Instant.now(clock).plusSeconds(expiresIn)));
+        Instant now = Instant.now(clock);
+        accessTokens.put(accessToken, new AccessToken(authorizationCode.scope(), now.plusSeconds(expiresIn)));
+        refreshTokens.put(refreshToken, new RefreshTokenState(credentials.clientId(), authorizationCode.scope()));
 
-        return new TokenResponse(accessToken, "Bearer", expiresIn, authorizationCode.scope());
+        return new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, authorizationCode.scope());
+    }
+
+    private TokenResponse exchangeFromRefreshToken(ClientCredentials credentials, String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        RefreshTokenState state = refreshTokens.get(refreshToken);
+        if (state == null) {
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        if (!Objects.equals(state.clientId(), credentials.clientId())) {
+            throw new OAuthException(400, "invalid_grant");
+        }
+
+        String accessToken = config.fixedAccessToken().isBlank() ? createOpaqueValue() : config.fixedAccessToken();
+        int expiresIn = 3600;
+        accessTokens.put(accessToken, new AccessToken(state.scope(), Instant.now(clock).plusSeconds(expiresIn)));
+
+        return new TokenResponse(accessToken, "Bearer", expiresIn, null, state.scope());
     }
 
     public boolean isBearerAuthorized(String authorizationHeader) {
@@ -208,5 +245,8 @@ public final class OAuthService {
 
     private String createOpaqueValue() {
         return UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private record RefreshTokenState(String clientId, String scope) {
     }
 }

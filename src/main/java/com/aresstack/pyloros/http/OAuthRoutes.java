@@ -55,16 +55,21 @@ public final class OAuthRoutes {
                     credentials,
                     context.request().getFormAttribute("grant_type"),
                     context.request().getFormAttribute("code"),
+                    context.request().getFormAttribute("refresh_token"),
                     context.request().getFormAttribute("redirect_uri"),
                     context.request().getFormAttribute("code_verifier")
             );
 
-            HttpJson.send(context, 200, Map.of(
-                    "access_token", tokenResponse.accessToken(),
-                    "token_type", tokenResponse.tokenType(),
-                    "expires_in", tokenResponse.expiresIn(),
-                    "scope", tokenResponse.scope()
-            ));
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("access_token", tokenResponse.accessToken());
+            body.put("token_type", tokenResponse.tokenType());
+            body.put("expires_in", tokenResponse.expiresIn());
+            if (tokenResponse.refreshToken() != null && !tokenResponse.refreshToken().isBlank()) {
+                body.put("refresh_token", tokenResponse.refreshToken());
+            }
+            body.put("scope", tokenResponse.scope());
+
+            HttpJson.send(context, 200, body);
         } catch (OAuthException exception) {
             sendOAuthError(context, exception);
         }
