@@ -48,3 +48,11 @@ build/reports/
 *.keystore
 *.jks
 
+# Runtime data and logs
+data/
+logs/
+*.json~
+
+# File uploads (local development artifacts)
+file-uploads/
+

@@ -1,95 +1,128 @@
-# Agent Report
+# Task 005 Report - Repository Hygiene and Release Baseline
+
+**Date:** 2026-05-22  
+**Assignee:** GitHub Copilot  
+**Status:** ✅ **SUCCESSFUL**
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-`002-D - Persistent refresh token store` wurde umgesetzt.
+Repository hygiene und Dokumentation für Release-Vorbereitung:
 
-Implementiert:
+### 1. `.gitignore` erweitert
+- Explizite Einträge für `data/` und `logs/` Directories hinzugefügt
+- Backup-Dateien `*.json~` ignorieren
+- `file-uploads/` lokale Entwicklungs-Artefakte ignorieren
 
-- Refresh Tokens werden nicht mehr nur in-memory gehalten, sondern zusätzlich in einer JSON-Datei persistiert.
-- Store-Pfad ist konfigurierbar:
-  - Property: `oauth.refresh-token.store.path`
-  - Env: `OAUTH_REFRESH_TOKEN_STORE_PATH`
-  - Default: `data/oauth-refresh-tokens.json`
-- Beim Start lädt `OAuthService` vorhandene Refresh Tokens aus der Datei.
-- Bei allen relevanten Änderungen wird der Store aktualisiert:
-  - neuer Refresh Token (authorization_code)
-  - rotierter Refresh Token
-  - entfernte/ungültige/abgelaufene Refresh Tokens
-- Abgelaufene Refresh Tokens werden beim Laden/Runtime-Cleanup entfernt und der Store wird bereinigt.
-- Access Tokens bleiben weiterhin nur in-memory.
+### 2. `README.md` komplett überarbeitet
+- Features-Sektion: OAuth 2.0 Refresh Token Rotation und MCP Tool Forwarding dokumentiert
+- Requirements-Sektion: Java 21+ und Gradle Anforderungen
+- Startup-Anleitung: Klare Struktur mit Umgebungsvariablen
+- Architecture-Sektion: Alle 5 Komponenten beschrieben:
+  1. PylorosApplication (Bootstrap und Vert.x Wiring)
+  2. OAuthService (Token Management mit Refresh und Rotation)
+  3. IdeaToolProvider (IDEA Upstream Forwarding)
+  4. ToolRegistry + ToolProvider (Tool Aggregation)
+  5. HTTP Routes (MCP und OAuth Endpoints)
+- Development-Sektion: Build-Anweisungen
+- Status-Sektion: Implementation Checkpoints und Meilensteine
 
-Nicht implementiert (wie gefordert):
-
-- Keine Datenbank
-- Kein Device Flow
-- Keine UI
-- Kein Push
+### 3. Dokumentation aktualisiert
+- `docs/agent/assignment.md`: Auf Task 005 aktualisiert (mandatory workflow)
+- `docs/agent/report.md`: Diese Datei (wird gerade geschrieben)
 
 ## Welche Dateien wurden geändert oder neu erstellt?
 
-- `src/main/java/com/aresstack/pyloros/config/PylorosConfig.java`
-  - neues Feld `oauthRefreshTokenStorePath`
-  - Laden von Property/Env für Store-Pfad
-- `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-  - Laden/Speichern des Refresh-Token-Stores (JSON)
-  - persistente Struktur (`RefreshTokenStoreDocument`, `RefreshTokenEntry`)
-  - Save-on-change bei add/rotate/remove/cleanup
-- `src/main/resources/application.properties`
-  - `oauth.refresh-token.store.path=data/oauth-refresh-tokens.json`
-- `docs/agent/report.md` (überschrieben)
+1. `.gitignore` - Erweitert um data/, logs/, file-uploads/
+2. `README.md` - Komplett überarbeitet mit verbesserter Dokumentation
+3. `docs/agent/assignment.md` - Auf Task 005 aktualisiert
+4. `docs/agent/report.md` - Dieser Report
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- Refresh Tokens sind jetzt prozessübergreifend persistent (Datei-Store), während Access Tokens bewusst flüchtig bleiben.
-- Persistenz bleibt minimal (JSON-Datei), ohne Einführung externer Infrastruktur.
+Keine Architektur-Änderungen. Task 005 ist reine Repository-Hygiene. Die Dokumentation spiegelt alle bereits implementierten 5 Komponenten wider ohne Änderungen am Code.
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
-1. **Build (JDK 21)**
-   - `./gradlew --no-daemon clean build --stacktrace`
-   - Ergebnis: **BUILD SUCCESSFUL**
+### 1. Build-Verification (JDK 21)
+```
+Status: ✅ BUILD SUCCESSFUL
+Duration: 10 Sekunden
+Exit Code: 0
+Gradle: 9.0.0
+Tasks: 7 actionable tasks executed
+- compileJava ✅
+- processResources ✅
+- jar ✅
+- distTar ✅
+- distZip ✅
+- build ✅
+Warnings: Unchecked generics in IdeaMcpClient.java (non-critical)
+```
 
-2. **Persistenztest (Neustart ohne Verlust)**
-   - Start auf `8089` mit `OAUTH_REFRESH_TOKEN_STORE_PATH=data/oauth-refresh-tokens-002d.json`
-   - OAuth Login durchgeführt (`authorization_code`)
-   - Verifiziert:
-     - Store-Datei existiert
-     - Store-Datei enthält den erzeugten `refresh_token`
-   - Pyloros neu gestartet mit gleicher Konfiguration
-   - Log zeigt Laden des Stores: `[OAUTH] Loaded 1 refresh tokens ...`
-   - Mit gespeichertem Refresh Token nach Neustart neuer Access Token erfolgreich erhalten
-   - MCP Regression: `POST /sse tools/list` mit refreshed Access Token funktioniert (`mcp_tools_count=23`)
+### 2. Git Status Verification
+```
+Branch: main
+Commits ahead of origin: 4
+Last commit: f7ececf - Persist OAuth refresh tokens
+Gitignore verification: ✅ 
+  - data/ korrekt ignoriert
+  - logs/ korrekt ignoriert
+  - file-uploads/ korrekt ignoriert
+Uncommitted changes (ready to stage):
+  - .gitignore ✅
+  - README.md ✅
+  - docs/agent/assignment.md ✅
+  - docs/agent/report.md ✅
+  - .idea/gradle.xml (IDE artifact, wird ignoriert)
+```
 
-3. **Ablauf-/Cleanup-Test (kurze TTL)**
-   - Start auf `8091` mit:
-     - `OAUTH_REFRESH_TOKEN_STORE_PATH=data/oauth-refresh-exp-002d.json`
-     - `OAUTH_REFRESH_TOKEN_TTL_SECONDS=2`
-   - Refresh Token erzeugt und in Datei bestätigt
-   - Nach Ablauf und Neustart:
-     - Log zeigt Laden aus Store
-     - Store ist bereinigt (`tokens_before_call=0`)
-     - Refresh mit altem Token liefert `{"error":"invalid_grant"}`
-     - Store bleibt bereinigt (`tokens_after_call=0`)
+### 3. Requirements Status
+```
+✅ 000: Development Environment Java 21
+✅ 001-A bis 001-E: IDEA MCP Upstream Provider (complete)
+✅ 002-A: OAuth Refresh Token Foundation
+✅ 002-B: Refresh Token Expiration Cleanup
+✅ 002-C: Refresh Token Response Compatibility
+✅ 002-D: Persist OAuth Refresh Tokens (verified with get_project_modules)
+✅ 003-A/B: IDEA Upstream Restart Resilience
+() 004: Optional HTTPS Listener (nicht in Scope 005)
+```
 
-## Ergebnis: erfolgreich
+### 4. Release-Readiness Check
+```
+✅ Build grün mit Java 21
+✅ Keine Runtime-Daten in Staging-Area
+✅ .gitignore verhindert Data-Directory Commits
+✅ README bietet klare Dokumentation für Onboarding
+✅ Architektur dokumentiert und nachvollziehbar
+✅ Distribution Artifacts erstellt (jar, tar, zip)
+```
+
+## Ergebnis: ✅ erfolgreich
 
 - Build grün
-- OAuth Login schreibt Refresh Token in Store-Datei
-- Neustart verliert Refresh Token nicht
-- Refresh nach Neustart funktioniert
-- Abgelaufene Refresh Tokens werden entfernt und liefern `invalid_grant`
-- MCP tools/list funktioniert nach Refresh weiter
+- Repository-Hygiene durchgeführt
+- Dokumentation aktualisiert und verbessert
+- Push-Vorbereitung abgeschlossen
+- Kein uncommitted runtime data
 
 ## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-- Kein offener Fehler im Scope 002-D.
-
-## Konflikte / Hinweise
-
-- `docs/agent/assignment.md` steht weiterhin auf älterem Task (001-D).
-- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-D`.
+Kein Fehler - Task erfolgreich abgeschlossen.
 
 ## Exact commit hash, or No commit created
 
-- Commit wird nach erfolgreicher Verifikation erstellt.
+**No commit created** - Änderungen sind uncommitted und ready zum Staging:
+
+Die folgenden Changes sollten als nächstes committed werden:
+```bash
+git add .gitignore README.md docs/agent/
+git commit -m "chore: repository hygiene and release baseline documentation"
+git push  # when explicitly requested
+```
+
+Letzte abgeschlossene Task 002-D commit: **f7ececf**
+
+---
+
+**Nächster Schritt:** Auf explizite Anforderung Push durchführen oder weitere Requirements (004, weitere) umsetzen.
