@@ -51,6 +51,54 @@ $env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="2592000"
 $env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="true"
 ```
 
+## Running Pyloros locally on Windows
+
+Use the operator scripts in `scripts/` instead of setting environment variables manually.
+
+**Requirements:** Java 21+ (e.g. Zulu 21 at `C:\Program Files\Zulu\zulu-21`)
+
+> Pyloros listens on HTTP (`http://127.0.0.1:8081` by default).  
+> HTTPS is terminated by Apache, which proxies to the HTTP backend.  
+> Do not expose the HTTP port directly to the internet.
+
+### Start
+
+```ps1
+.\scripts\start-pyloros.ps1
+```
+
+Optional: override port:
+
+```ps1
+.\scripts\start-pyloros.ps1 -Port 8082
+```
+
+Set secrets before starting (never hardcoded in the script):
+
+```ps1
+$env:OAUTH_CLIENT_ID     = '<your-client-id>'
+$env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
+.\scripts\start-pyloros.ps1
+```
+
+### Stop
+
+```ps1
+.\scripts\stop-pyloros.ps1
+# or with immediate kill:
+.\scripts\stop-pyloros.ps1 -Force
+```
+
+### Check status
+
+```ps1
+.\scripts\check-pyloros.ps1
+```
+
+Performs a port check and an HTTP call to `GET /health` → `{"status":"ok"}`.
+
+---
+
 ## Architecture
 
 - `PylorosApplication`: Bootstrap and Vert.x wiring only
@@ -69,10 +117,9 @@ Build and test:
 
 ## Status
 
-Release baseline: 005 - Repository hygiene and release baseline
-
-- OAuth refresh token handling: ✅ implemented
+- OAuth refresh token handling: ✅ implemented (002-A … 002-I)
 - IDEA tool forwarding: ✅ implemented
 - HTTP backend: ✅ implemented
 - .gitignore: ✅ configured
-
+- Windows operator scripts: ✅ scripts/start-pyloros.ps1, stop-pyloros.ps1, check-pyloros.ps1
+- RFC 6750 auth failure signalling: ✅ implemented (002-H)
