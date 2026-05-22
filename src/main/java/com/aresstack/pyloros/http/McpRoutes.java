@@ -1,7 +1,9 @@
 package com.aresstack.pyloros.http;
 
 import com.aresstack.pyloros.config.PylorosConfig;
+import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.oauth.OAuthService;
+import com.aresstack.pyloros.tool.ToolRegistry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
@@ -14,10 +16,12 @@ public final class McpRoutes {
 
     private final PylorosConfig config;
     private final OAuthService oauthService;
+    private final ToolRegistry toolRegistry;
 
-    public McpRoutes(PylorosConfig config, OAuthService oauthService) {
+    public McpRoutes(PylorosConfig config, OAuthService oauthService, ToolRegistry toolRegistry) {
         this.config = config;
         this.oauthService = oauthService;
+        this.toolRegistry = toolRegistry;
     }
 
     public void mount(Router router) {
@@ -62,34 +66,44 @@ public final class McpRoutes {
         }
 
         switch (method == null ? "" : method) {
-            case "initialize" -> HttpJson.rpcResult(context, id, Map.of(
-                    "protocolVersion", config.mcpProtocolVersion(),
-                    "capabilities", Map.of("tools", Map.of(), "resources", Map.of(), "prompts", Map.of()),
-                    "serverInfo", Map.of("name", "pyloros", "version", "0.1.0")
-            ));
-            case "tools/list" -> HttpJson.rpcResult(context, id, Map.of("tools", new Object[]{dummyTool()}));
+            case "initialize" -> initialize(context, id);
+            case "tools/list" -> listTools(context, id);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> HttpJson.rpcResult(context, id, Map.of(
-                    "content", new Object[]{Map.of("type", "text", "text", "Pyloros Java gateway is alive.")},
-                    "isError", false
-            ));
+            case "tools/call", "call_tool" -> callTool(context, id, request);
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
 
-    private Map<String, Object> dummyTool() {
-        return Map.of(
-                "name", "pyloros__ping",
-                "description", "Returns a small confirmation that Pyloros is alive.",
-                "inputSchema", Map.of(
-                        "type", "object",
-                        "properties", Map.of(),
-                        "additionalProperties", false
-                ),
-                "securitySchemes", new Object[]{Map.of("type", "oauth2", "scopes", new String[]{"mcp"})},
-                "_meta", Map.of("securitySchemes", new Object[]{Map.of("type", "oauth2", "scopes", new String[]{"mcp"})})
-        );
+    private void initialize(RoutingContext context, JsonNode id) {
+        HttpJson.rpcResult(context, id, Map.of(
+                "protocolVersion", config.mcpProtocolVersion(),
+                "capabilities", Map.of("tools", Map.of(), "resources", Map.of(), "prompts", Map.of()),
+                "serverInfo", Map.of("name", "pyloros", "version", "0.1.0")
+        ));
+    }
+
+    private void listTools(RoutingContext context, JsonNode id) {
+        toolRegistry.listTools()
+                .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
+                .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+    }
+
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request) {
+        McpToolCall toolCall = extractToolCall(request);
+        toolRegistry.callTool(toolCall)
+                .onSuccess(result -> HttpJson.rpcResult(context, id, result))
+                .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+    }
+
+    private McpToolCall extractToolCall(JsonNode request) {
+        JsonNode params = request.hasNonNull("params") ? request.get("params") : HttpJson.mapper().createObjectNode();
+        String name = params.hasNonNull("name") ? params.get("name").asText() : "";
+        JsonNode arguments = params.has("arguments") ? params.get("arguments") : params.get("input");
+        if (arguments == null || arguments.isNull()) {
+            arguments = HttpJson.mapper().createObjectNode();
+        }
+        return new McpToolCall(name, arguments);
     }
 
     private boolean isAuthorized(RoutingContext context) {
@@ -99,7 +113,6 @@ public final class McpRoutes {
     private void unauthorized(RoutingContext context) {
         context.response()
                 .setStatusCode(401)
-                .putHeader("WWW-Authenticate", "Bearer realm=\"pyloros\", resource_metadata=\"" + config.publicOrigin() + "/.well-known/oauth-protected-resource\"")
                 .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
                 .end("{\"error\":\"Unauthorized\"}");
