@@ -32,6 +32,56 @@ public final class IdeaMcpClient {
         this.config = config;
         this.sseSession = new IdeaSseSession(vertx, config);
         this.jsonRpcClient = new IdeaJsonRpcClient(vertx, config, sseSession);
+        // register for notifications from SSE session (e.g. notifications/tools/list_changed)
+        this.sseSession.setNotificationHandler(msg -> {
+            try {
+                log.info("IdeaMcpClient: received notification {}", msg.encode());
+                // Clear cache and refresh tools proactively
+                cachedTools.set(null);
+                refreshTools();
+            } catch (Exception ex) {
+                log.debug("Failed to handle IDEA notification: {}", ex.getMessage());
+            }
+        });
+    }
+
+    private void refreshTools() {
+        if (!config.enabled()) return;
+        if (!sseSession.isReady()) return;
+        jsonRpcClient.postJsonRpc("tools/list", new JsonObject()).onSuccess(result -> {
+            try {
+                if (result == null) {
+                    cachedTools.set(List.of());
+                    return;
+                }
+                if (result.containsKey("tools")) {
+                    JsonArray arr = result.getJsonArray("tools");
+                    List<Map<String, Object>> tools = new ArrayList<>();
+                    for (int i = 0; i < arr.size(); i++) {
+                        Object item = arr.getValue(i);
+                        if (item instanceof JsonObject jo) {
+                            Map<String, Object> map = jo.getMap();
+                            Map<String, Object> security = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
+                            map.put("securitySchemes", new Object[]{security});
+                            Object metaObj = map.get("_meta");
+                            Map<String, Object> meta = (metaObj instanceof Map) ? (Map<String, Object>) metaObj : Map.of();
+                            map.put("_meta", Map.of("securitySchemes", new Object[]{security}, "originalMeta", meta));
+                            Object nameObj = map.get("name");
+                            if (nameObj instanceof String name) {
+                                map.put("name", config.toolPrefix() + name);
+                            }
+                            tools.add(map);
+                        }
+                    }
+                    cachedTools.set(tools);
+                    log.info("IdeaMcpClient: refreshed tools/list returned {} tools", tools.size());
+                }
+            } catch (Exception ex) {
+                log.debug("Failed to parse refreshed tools/list result: {}", ex.getMessage());
+            }
+        }).onFailure(err -> {
+            log.debug("refresh tools/list failed: {}", err.getMessage());
+        });
     }
 
     public void start() {

@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Promise;
+import io.vertx.core.Handler;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
@@ -33,6 +34,8 @@ public final class IdeaSseSession {
     private HttpClient client;
     // pending responses keyed by id published to IDEA and answered back via SSE 'message' events
     private final Map<String, Promise<JsonObject>> pendingResponses = new ConcurrentHashMap<>();
+    // optional handler invoked for incoming notification messages (e.g. notifications/tools/list_changed)
+    private volatile Handler<JsonObject> notificationHandler;
 
     public IdeaSseSession(Vertx vertx, IdeaMcpConfig config) {
         this.vertx = vertx;
@@ -149,6 +152,18 @@ public final class IdeaSseSession {
         if ("message".equals(event) && data.length() > 0) {
             try {
                 JsonObject json = new JsonObject(data.toString());
+                // If this is a notification for tools list changes, inform registered handler
+                try {
+                    if (json.containsKey("method") && "notifications/tools/list_changed".equals(json.getString("method"))) {
+                        if (notificationHandler != null) {
+                            // pass the full message (including params) to the handler
+                            notificationHandler.handle(json);
+                        }
+                        return;
+                    }
+                } catch (Exception ignore) {
+                    // fall through to other handling
+                }
                 // If a pending promise exists for this id, complete it with the result (or the whole message)
                 if (json.containsKey("id")) {
                     String id = String.valueOf(json.getValue("id"));
@@ -166,6 +181,14 @@ public final class IdeaSseSession {
                 log.debug("Failed to parse IDEA SSE message event: {}", ex.getMessage());
             }
         }
+    }
+
+    /**
+     * Register a handler for notification messages coming from IDEA over SSE.
+     * The handler will receive the full JSON message (contains method and params).
+     */
+    public void setNotificationHandler(Handler<JsonObject> handler) {
+        this.notificationHandler = handler;
     }
 
     /**

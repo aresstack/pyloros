@@ -1,48 +1,74 @@
 # Agent Report
 
-What was verified, changed or implemented?
+## Was wurde verifiziert, geändert oder implementiert?
 
-- Verified that IDEA MCP SSE endpoint uses CRLF sequences and that the previous parser missed the initial "event: endpoint" message when CRLF was sent.
-- Implemented a robust SSE parser (handled CRLF) and added asynchronous JSON-RPC response routing via SSE message events.
-- Added forwarding of a developer access token from environment variable `OAUTH_ACCESS_TOKEN` for local testing to both the SSE connection and JSON-RPC POSTs.
+**001-C-A: Notification refresh — runtime-grün.**
 
-Which files were changed or newly created?
+Implementiert und verifiziert:
 
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaSseSession.java` — improved CRLF handling (keeps existing normalisation) and added SSE 'message' parsing + pending-response registry (`registerPendingResponse`).
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaJsonRpcClient.java` — changed POST logic to support asynchronous JSON-RPC where the HTTP endpoint returns 202 and the real response is delivered via SSE. Now registers pending promises with `IdeaSseSession` and waits for SSE-delivered results.
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java` — added informational logging around initialize and tools/list handling.
+- `IdeaSseSession`: Erkennt SSE-`message`-Events, deren JSON-Body `method == "notifications/tools/list_changed"` enthält, und leitet sie an einen registrierten `Handler<JsonObject>` weiter (`setNotificationHandler`).
+- `IdeaMcpClient`: Registriert im Konstruktor einen Notification-Handler. Bei Eingang der Notification wird `cachedTools` auf `null` gesetzt und `refreshTools()` gerufen. `refreshTools()` ruft `tools/list` via `jsonRpcClient.postJsonRpc(...)` ab, transformiert die Ergebnisse (injects `securitySchemes`, `_meta`, `toolPrefix`) und aktualisiert `cachedTools`.
 
-Which architecture decision was touched?
+## Welche Dateien wurden geändert oder neu erstellt?
 
-- Upstream IDEA MCP integration: moved from assuming synchronous HTTP JSON-RPC responses to supporting asynchronous workflows where IDEA accepts requests (202) and replies via SSE messages. This is an important protocol-level decision and aligns the client with IDEA MCP behaviour observed in the test environment.
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaSseSession.java` — Notification-Hook (`setNotificationHandler`) ergänzt; Erkennung von `notifications/tools/list_changed` in `processEventBlock`.
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java` — Notification-Handler im Konstruktor registriert; `refreshTools()` implementiert.
+- `docs/agent/report.md` — dieser Report.
 
-Which tests, builds and runtime checks were executed?
+## Welche Architekturentscheidung wurde berührt?
 
-- Performed local build: `./gradlew --no-daemon clean build` (Java 21 Zulu) — build successful after stopping background processes that held log files.
-- Started the application with environment variables `SERVER_PORT=8082` and `OAUTH_ACCESS_TOKEN=dev-token` and verified root and health endpoints.
-- Observed SSE connection: IDEA SSE `event: endpoint` was discovered by the application (log: "IDEA SSE endpoint discovered: /message?sessionId=...").
-- Manually POSTed a JSON-RPC `initialize` to the discovered IDEA message endpoint; IDEA responded with HTTP 202 Accepted (indicating asynchronous delivery).
-- Queried Pyloros `POST /sse` `tools/list` (JSON-RPC proxy) — still returns only `pyloros__ping` at this point.
+Upstream IDEA MCP Integration: Pyloros reagiert jetzt auf server-initiierte Notifications (`notifications/tools/list_changed`) und aktualisiert den Tool-Cache dynamisch. Dieses Muster ist eine minimale Ergänzung — keine Änderung am bestehenden asynchronen JSON-RPC-Flow über SSE.
 
-Result: partial success
+## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
-- Build: successful
-- Application: starts and connects to IDEA SSE endpoint; SSE endpoint is discovered.
-- Manual JSON-RPC to IDEA message endpoint: accepted (202) — confirms that IDEA expects asynchronous handling.
-- Pyloros `tools/list`: still returns only internal `pyloros__ping` (the IDEA tools are not yet populated).
+1. **Build**: `./gradlew --no-daemon clean build` mit JDK 21 (Zulu 21.0.5) — BUILD SUCCESSFUL, keine Kompilierfehler.
+2. **Start**: Pyloros auf `SERVER_PORT=8082` gestartet (laufender Prozess PID 46844 auf Port 8082).
+3. **Runtime-Verifikation** (`001-C-A`):
+   - `POST http://127.0.0.1:8082/sse` mit `{"id":2,"method":"tools/list"}` und `Authorization: Bearer dev-token`.
+   - Antwort enthält **23 Tools**: `pyloros__ping` plus 22 `idea__...`-Tools.
 
-If failed: exact error and recommended next step
+**Vollständige Tool-Liste aus Runtime-Test:**
 
-- Symptom: `tools/list` returned only `pyloros__ping`.
-- Diagnosis: IDEA accepts POSTs asynchronously (202) and sends results/notifications via SSE 'message' events. Pyloros previously assumed synchronous HTTP responses and therefore did not receive results. I implemented SSE-based pending response routing and adjusted the JSON-RPC client to register a pending promise, but further work is required because IDEA often sends notifications (e.g., `notifications/tools/list_changed`) rather than direct RPC responses.
+```
+pyloros__ping
+idea__execute_run_configuration
+idea__get_run_configurations
+idea__build_project
+idea__get_file_problems
+idea__get_project_dependencies
+idea__get_project_modules
+idea__create_new_file
+idea__find_files_by_glob
+idea__find_files_by_name_keyword
+idea__get_all_open_file_paths
+idea__list_directory_tree
+idea__open_file_in_editor
+idea__reformat_file
+idea__get_file_text_by_path
+idea__replace_text_in_file
+idea__search_in_files_by_regex
+idea__search_in_files_by_text
+idea__get_symbol_info
+idea__rename_refactoring
+idea__execute_terminal_command
+idea__get_repositories
+idea__runNotebookCell
+```
 
-Recommended next steps:
+## Ergebnis: erfolgreich
 
-1. Implement handling of `notifications/tools/list_changed` SSE notifications: when such a notification arrives, the client should call the IDEA JSON-RPC `tools/list` (or otherwise request the current tool list) and update `IdeaMcpClient`'s cached tools.
-2. Add end-to-end logging for the JSON-RPC id flow: log the generated id, HTTP 202 acceptance, and the SSE 'message' that completes the pending promise — this will make it easier to debug message correlation.
-3. Add unit/integration tests that mock the IDEA SSE stream and message responses to verify the asynchronous flow.
+- Build: ✅ erfolgreich
+- Pyloros startet auf 8082: ✅
+- IDEA SSE Endpoint wird erkannt: ✅
+- `idea__...` Tools erscheinen in `tools/list`: ✅ (22 Tools)
+- `pyloros__ping` weiterhin vorhanden: ✅
+- tools/call Forwarding: nicht implementiert (außerhalb des Scopes)
+- Push: nicht durchgeführt
 
-Exact commit hash, or No commit created
+## Fehlgeschlagen: entfällt
 
-- No commit was created (local file edits only). No push performed.
+Kein Fehler aufgetreten.
 
+## Commit-Hash
+
+Commit wird nach diesem Report erstellt (kein Push).
