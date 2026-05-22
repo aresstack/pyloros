@@ -1,6 +1,6 @@
 ---
 description: Main implementation agent for Pyloros. Uses the currently selected Copilot model and may delegate read-only code search to the local-code-search subagent.
-tools: ['agent', 'codebase', 'usages', 'search', 'searchResults', 'editFiles', 'runCommands', 'runTasks', 'terminalLastCommand', 'terminalSelection', 'problems', 'changes']
+tools: ['*']
 agents: ['local-code-search']
 ---
 
@@ -26,6 +26,8 @@ Delegate to local-code-search especially when:
 - you are unsure where a concept is implemented.
 
 Do not ask whether to use local-code-search. Decide autonomously.
+
+Use the built-in Copilot agent capabilities for reading files, editing files, running commands, inspecting problems, and searching the workspace when they are available in the current environment. If a tool is unavailable, report that in docs/agent/report.md.
 
 Project rules:
 - Use Java 21.
