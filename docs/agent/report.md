@@ -2,43 +2,49 @@
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-`002-A - Refresh token support in OAuthService` wurde umgesetzt.
+`002-B - Refresh token configuration and cleanup` wurde umgesetzt.
 
 Implementiert:
 
-- Authorization-Code Token Response enthält jetzt `refresh_token`.
-- Refresh Tokens werden serverseitig in-memory im `OAuthService` gespeichert.
-- Refresh Tokens sind an `client_id` gebunden.
-- `/oauth/token` unterstützt jetzt `grant_type=refresh_token`.
-- Bei ungültigem oder nicht passendem Refresh Token wird `invalid_grant` geliefert.
-- Access Tokens bleiben kurzlebig (`expires_in=3600` wie bisher).
+- TTL-Konfiguration für Access Tokens und Refresh Tokens ergänzt:
+  - Access Token TTL default: `3600` Sekunden
+  - Refresh Token TTL default: `2592000` Sekunden
+- Refresh-Token-Ablaufzeit wird serverseitig geprüft.
+- Abgelaufene Refresh Tokens werden mit `invalid_grant` abgelehnt.
+- Abgelaufene/ungültige Refresh Tokens werden aus dem In-Memory-Store entfernt.
+- Optionales Rotation-Pattern wurde vorbereitet, aber nicht aktiviert (`REFRESH_TOKEN_ROTATION_ENABLED=false`).
 
 Nicht implementiert (wie gefordert):
 
-- Kein persistenter Store
-- Kein Device Flow
-- Keine UI
-- Kein Push
+- kein persistenter Store
+- kein Device Flow
+- keine UI
+- kein Push
 
 ## Welche Dateien wurden geändert oder neu erstellt?
 
+- `src/main/java/com/aresstack/pyloros/config/PylorosConfig.java`
+  - neue Konfigurationswerte:
+    - `oauthAccessTokenTtlSeconds`
+    - `oauthRefreshTokenTtlSeconds`
+  - Property/Env-Lookup mit Defaults:
+    - `oauth.access-token.ttl.seconds` / `OAUTH_ACCESS_TOKEN_TTL_SECONDS` (default 3600)
+    - `oauth.refresh-token.ttl.seconds` / `OAUTH_REFRESH_TOKEN_TTL_SECONDS` (default 2592000)
 - `src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
-  - In-memory `refreshTokens` Store ergänzt
-  - `refresh_token` Grant implementiert
-  - `client_id`-Bindung und `invalid_grant`-Validierung ergänzt
-- `src/main/java/com/aresstack/pyloros/http/OAuthRoutes.java`
-  - `refresh_token` Form-Parameter an Service weitergereicht
-  - `refresh_token` bei Token-Response ausgegeben (wenn vorhanden)
-- `src/main/java/com/aresstack/pyloros/domain/oauth/TokenResponse.java`
-  - Feld `refreshToken` ergänzt
-- `src/main/java/com/aresstack/pyloros/http/MetadataRoutes.java`
-  - `grant_types_supported` enthält jetzt zusätzlich `refresh_token`
+  - RefreshTokenState um `expiresAt` erweitert
+  - Ablaufprüfung im Refresh-Grant ergänzt
+  - Cleanup-Logik für abgelaufene Refresh Tokens ergänzt
+  - invalid/mismatched Refresh Tokens werden entfernt und mit `invalid_grant` beantwortet
+  - Access Token TTL aus Konfiguration statt Hardcode
+  - vorbereitete, deaktivierte Rotation
+- `src/main/resources/application.properties`
+  - Default-TTLs ergänzt
 - `docs/agent/report.md` (überschrieben)
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- OAuth-Token-Lifecycle wurde von reinem Authorization-Code-Flow auf kurzen Access-Token + serverseitigen in-memory Refresh-Token-Flow erweitert.
-- Refresh Tokens bleiben absichtlich nicht-persistent (prozesslokal), passend zum Scope von 002-A.
+- OAuth Token Lifecycle wurde um konfigurierbare Expiration und In-Memory-Cleanup erweitert, ohne Persistenz einzuführen.
+- Refresh Token Rotation bleibt absichtlich vorbereitet, aber deaktiviert, um den Scope klein und stabil zu halten.
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
@@ -46,42 +52,49 @@ Nicht implementiert (wie gefordert):
    - `./gradlew --no-daemon clean build --stacktrace`
    - Ergebnis: **BUILD SUCCESSFUL**
 
-2. **Runtime Start**
-   - Pyloros lokal gestartet auf `SERVER_PORT=8085`.
+2. **Runtime-Testinstanz**
+   - Pyloros auf `SERVER_PORT=8086` gestartet
+   - Testkonfiguration:
+     - `OAUTH_ACCESS_TOKEN_TTL_SECONDS=3600`
+     - `OAUTH_REFRESH_TOKEN_TTL_SECONDS=2`
 
-3. **OAuth Happy Path**
-   - `/oauth/authorize` -> Redirect mit `code=...`
-   - `/oauth/token` mit `grant_type=authorization_code` -> erfolgreich
-   - Token Response enthält `refresh_token`.
+3. **Authorization Code Flow**
+   - `/oauth/authorize` liefert Redirect mit `code`
+   - `/oauth/token` mit `grant_type=authorization_code` funktioniert weiter
+   - Token Response enthält `refresh_token`
 
-4. **Refresh Grant**
-   - `/oauth/token` mit `grant_type=refresh_token` + gültigem Token -> neuer `access_token` geliefert.
+4. **Refresh Grant (gültig)**
+   - `/oauth/token` mit `grant_type=refresh_token` + gültigem Token liefert neuen `access_token`
 
-5. **Invalid Refresh Token**
-   - `/oauth/token` mit `grant_type=refresh_token` + ungültigem Token -> `{"error":"invalid_grant"}`.
+5. **Refresh Grant (abgelaufen)**
+   - Nach Wartezeit > TTL (`3s` bei `2s` TTL):
+   - `/oauth/token` mit ursprünglichem Refresh Token liefert `{"error":"invalid_grant"}`
 
-6. **MCP Regression nach Refresh**
-   - Mit per Refresh erhaltenem Access Token funktioniert MCP weiter:
-   - `POST /sse` `tools/list` -> `mcp_tools_count=23`.
+6. **Refresh Grant (ungültig)**
+   - `/oauth/token` mit ungültigem Refresh Token liefert `{"error":"invalid_grant"}`
+
+7. **MCP Regression nach Refresh**
+   - Mit per Refresh erhaltenem Access Token:
+   - `POST /sse` `tools/list` funktioniert (`mcp_tools_count=23`)
 
 ## Ergebnis: erfolgreich
 
 - Build grün
-- normaler OAuth Login weiterhin funktionsfähig
-- Token Response enthält `refresh_token`
-- Refresh Grant liefert neuen Access Token
-- ungültiger Refresh Token liefert `invalid_grant`
-- bestehende MCP Calls funktionieren weiter
+- Refresh Token funktioniert mit gültigem Token
+- Abgelaufener Refresh Token liefert `invalid_grant`
+- Ungültiger Refresh Token liefert `invalid_grant`
+- OAuth Authorization-Code Login funktioniert weiter
+- MCP tools/list funktioniert nach Refresh weiter
 
 ## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-- Kein offener Fehler im Scope 002-A.
+- Kein offener Fehler im Scope 002-B.
 
 ## Konflikte / Hinweise
 
 - `docs/agent/assignment.md` steht weiterhin auf einem älteren Task (001-D).
-- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-A`.
+- Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `002-B`.
 
 ## Exact commit hash, or No commit created
 
-- `3944b7c` (kein Push durchgeführt)
+- Commit wird nach erfolgreicher Verifikation erstellt.

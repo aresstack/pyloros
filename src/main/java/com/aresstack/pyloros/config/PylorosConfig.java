@@ -13,7 +13,9 @@ public record PylorosConfig(
         String mcpProtocolVersion,
         String oauthClientId,
         String oauthClientSecret,
-        String fixedAccessToken
+        String fixedAccessToken,
+        int oauthAccessTokenTtlSeconds,
+        int oauthRefreshTokenTtlSeconds
 ) {
 
     public static PylorosConfig load() {
@@ -33,7 +35,9 @@ public record PylorosConfig(
                 value("mcp.protocol.version", "MCP_VERSION_CHATGPT", properties, "2025-03-26"),
                 value("oauth.client.id", "OAUTH_CLIENT_ID", properties, value("oauth.client.id", "BASIC_AUTH_USER", properties, "")),
                 value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),
-                value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, "")
+                value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, ""),
+                intValue("oauth.access-token.ttl.seconds", "OAUTH_ACCESS_TOKEN_TTL_SECONDS", properties, 3600),
+                intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000)
         );
     }
 

@@ -24,6 +24,7 @@ import java.util.UUID;
 public final class OAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(OAuthService.class);
+    private static final boolean REFRESH_TOKEN_ROTATION_ENABLED = false;
 
     private final PylorosConfig config;
     private final Clock clock;
@@ -96,6 +97,8 @@ public final class OAuthService {
             throw new OAuthException(401, "invalid_client");
         }
 
+        cleanupExpiredRefreshTokens();
+
         if ("authorization_code".equals(grantType)) {
             return exchangeFromAuthorizationCode(credentials, code, redirectUri, codeVerifier);
         }
@@ -134,10 +137,15 @@ public final class OAuthService {
 
         String accessToken = config.fixedAccessToken().isBlank() ? createOpaqueValue() : config.fixedAccessToken();
         String refreshToken = createOpaqueValue();
-        int expiresIn = 3600;
+        int expiresIn = config.oauthAccessTokenTtlSeconds();
+        int refreshExpiresIn = config.oauthRefreshTokenTtlSeconds();
         Instant now = Instant.now(clock);
         accessTokens.put(accessToken, new AccessToken(authorizationCode.scope(), now.plusSeconds(expiresIn)));
-        refreshTokens.put(refreshToken, new RefreshTokenState(credentials.clientId(), authorizationCode.scope()));
+        refreshTokens.put(refreshToken, new RefreshTokenState(
+                credentials.clientId(),
+                authorizationCode.scope(),
+                now.plusSeconds(refreshExpiresIn)
+        ));
 
         return new TokenResponse(accessToken, "Bearer", expiresIn, refreshToken, authorizationCode.scope());
     }
@@ -152,15 +160,33 @@ public final class OAuthService {
             throw new OAuthException(400, "invalid_grant");
         }
 
+        Instant now = Instant.now(clock);
+        if (state.expiresAt().isBefore(now)) {
+            refreshTokens.remove(refreshToken);
+            throw new OAuthException(400, "invalid_grant");
+        }
+
         if (!Objects.equals(state.clientId(), credentials.clientId())) {
+            refreshTokens.remove(refreshToken);
             throw new OAuthException(400, "invalid_grant");
         }
 
         String accessToken = config.fixedAccessToken().isBlank() ? createOpaqueValue() : config.fixedAccessToken();
-        int expiresIn = 3600;
-        accessTokens.put(accessToken, new AccessToken(state.scope(), Instant.now(clock).plusSeconds(expiresIn)));
+        int expiresIn = config.oauthAccessTokenTtlSeconds();
+        accessTokens.put(accessToken, new AccessToken(state.scope(), now.plusSeconds(expiresIn)));
 
-        return new TokenResponse(accessToken, "Bearer", expiresIn, null, state.scope());
+        String nextRefreshToken = null;
+        if (REFRESH_TOKEN_ROTATION_ENABLED) {
+            refreshTokens.remove(refreshToken);
+            nextRefreshToken = createOpaqueValue();
+            refreshTokens.put(nextRefreshToken, new RefreshTokenState(
+                    credentials.clientId(),
+                    state.scope(),
+                    now.plusSeconds(config.oauthRefreshTokenTtlSeconds())
+            ));
+        }
+
+        return new TokenResponse(accessToken, "Bearer", expiresIn, nextRefreshToken, state.scope());
     }
 
     public boolean isBearerAuthorized(String authorizationHeader) {
@@ -247,6 +273,14 @@ public final class OAuthService {
         return UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
     }
 
-    private record RefreshTokenState(String clientId, String scope) {
+    private void cleanupExpiredRefreshTokens() {
+        Instant now = Instant.now(clock);
+        refreshTokens.entrySet().removeIf(entry -> {
+            RefreshTokenState state = entry.getValue();
+            return state == null || state.expiresAt().isBefore(now);
+        });
+    }
+
+    private record RefreshTokenState(String clientId, String scope, Instant expiresAt) {
     }
 }
