@@ -14,10 +14,16 @@ public final class ToolRegistry {
     private final List<ToolProvider> providers;
 
     public ToolRegistry(List<ToolProvider> providers) {
-        this.providers = List.copyOf(providers);
+        // Defensively copy providers; accept null as empty list so callers don't need to check
+        this.providers = List.copyOf(providers == null ? List.of() : providers);
     }
 
     public Future<List<Map<String, Object>>> listTools() {
+        // If there are no providers, return an empty tool list immediately
+        if (providers.isEmpty()) {
+            return Future.succeededFuture(List.of());
+        }
+
         List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();
         for (ToolProvider provider : providers) {
             futures.add(provider.listTools());
@@ -26,7 +32,10 @@ public final class ToolRegistry {
         return Future.all(new ArrayList<>(futures)).map(composite -> {
             List<Map<String, Object>> tools = new ArrayList<>();
             for (int index = 0; index < futures.size(); index++) {
-                tools.addAll(composite.resultAt(index));
+                List<Map<String, Object>> result = composite.resultAt(index);
+                if (result != null) {
+                    tools.addAll(result);
+                }
             }
             return tools;
         });
