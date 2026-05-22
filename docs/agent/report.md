@@ -71,4 +71,4 @@ Kein Fehler aufgetreten.
 
 ## Commit-Hash
 
-Commit wird nach diesem Report erstellt (kein Push).
+`ceaddc0` — kein Push durchgeführt.
