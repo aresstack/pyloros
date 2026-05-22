@@ -1,0 +1,50 @@
+# Gradle build and caches
+.gradle/
+build/
+
+# Gradle wrapper
+gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea/**/workspace.xml
+.idea/**/usage.statistics.xml
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Java
+*.class
+
+# Eclipse
+.settings/
+.classpath
+.project
+
+# Generated/temporary files
+out/
+tmp/
+build/generated/
+build/reports/
+
+# Logs, editor backups, and other temp files
+*.log
+*~
+*.swp
+*.swo
+*.orig
+
+# Ignore any local tool run artifacts
+/.run/
+
+# Keep IDE-specific local run configs and keystore files out
+*.keystore
+*.jks
+
