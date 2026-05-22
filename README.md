@@ -36,11 +36,18 @@ $env:IDEA_TOOL_PREFIX = 'idea'
 .\gradlew.bat --no-daemon run --stacktrace
 ```
 
-### Optional: Configure short TTLs for testing
+### Optional: Configure short TTLs
 
+For testing:
 ```ps1
 $env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="300"
 $env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="3600"
+$env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="false"
+```
+For production:
+```ps1
+$env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="3600"
+$env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="2592000"
 $env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="false"
 ```
 
