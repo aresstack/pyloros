@@ -60,7 +60,12 @@ Implementiert:
    - `idea__get_project_modules` -> funktioniert (`isError=false`, echte IDEA-Daten)
    - `get_project_modules` -> funktioniert (`isError=false`, echte IDEA-Daten)
 
-5. **Negative Validierung (nur bekannte unprefixed akzeptieren)**
+5. **Akzeptanztest gemäß Auftrag (`get_file_text_by_path`)**
+   - `intellij/get_file_text_by_path` -> funktioniert (`isError=false`)
+   - `idea__get_file_text_by_path` -> funktioniert (`isError=false`)
+   - `get_file_text_by_path` -> funktioniert (`isError=false`)
+
+6. **Negative Validierung (nur bekannte unprefixed akzeptieren)**
    - `totally_unknown_tool_name` -> kontrolliert abgelehnt mit `isError=true` und Text `Unsupported tool: totally_unknown_tool_name`
 
 ## Ergebnis: erfolgreich
@@ -76,4 +81,4 @@ Kein Fehlerfall offen.
 
 ## Exact commit hash, or No commit created
 
-`2356835` (kein Push durchgeführt)
+`adb7ea9` (kein Push durchgeführt)
