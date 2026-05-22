@@ -216,11 +216,13 @@ public final class OAuthService {
 
     private TokenResponse exchangeFromRefreshToken(ClientCredentials credentials, String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
+            log.info("[OAUTH] refresh rejected reason=missing_refresh_token clientId={}", credentials.clientId());
             throw new OAuthException(400, "invalid_grant");
         }
 
         RefreshTokenState state = refreshTokens.get(refreshToken);
         if (state == null) {
+            log.info("[OAUTH] refresh rejected reason=unknown_refresh_token clientId={} token={}", credentials.clientId(), shortValue(refreshToken));
             throw new OAuthException(400, "invalid_grant");
         }
 
@@ -228,12 +230,14 @@ public final class OAuthService {
         if (state.expiresAt().isBefore(now)) {
             refreshTokens.remove(refreshToken);
             saveRefreshTokensToStore();
+            log.info("[OAUTH] refresh rejected reason=expired_refresh_token clientId={} expiredAt={}", credentials.clientId(), state.expiresAt());
             throw new OAuthException(400, "invalid_grant");
         }
 
         if (!Objects.equals(state.clientId(), credentials.clientId())) {
             refreshTokens.remove(refreshToken);
             saveRefreshTokensToStore();
+            log.warn("[OAUTH] refresh rejected reason=client_mismatch expected={} actual={}", state.clientId(), credentials.clientId());
             throw new OAuthException(400, "invalid_grant");
         }
 
@@ -363,6 +367,10 @@ public final class OAuthService {
                 return;
             }
 
+            Instant now = Instant.now(clock);
+            int loaded = 0;
+            int expiredRemoved = 0;
+
             for (RefreshTokenEntry entry : document.tokens()) {
                 if (entry == null || entry.token() == null || entry.token().isBlank()) {
                     continue;
@@ -384,10 +392,23 @@ public final class OAuthService {
                     continue;
                 }
 
+                loaded++;
+                if (expiresAt.isBefore(now)) {
+                    expiredRemoved++;
+                    log.info("[OAUTH] refresh token expired on load clientId={} expiredAt={}", entry.clientId(), expiresAt);
+                    continue;
+                }
+
                 refreshTokens.put(entry.token(), new RefreshTokenState(entry.clientId(), entry.scope(), expiresAt));
             }
 
-            log.info("[OAUTH] Loaded {} refresh tokens from {}", refreshTokens.size(), storePath);
+            int active = refreshTokens.size();
+            log.info("[OAUTH] Refresh token store loaded={} expired_removed={} active={} from {}",
+                    loaded, expiredRemoved, active, storePath);
+
+            if (expiredRemoved > 0) {
+                saveRefreshTokensToStore();
+            }
         } catch (Exception ex) {
             log.warn("[OAUTH] Failed to load refresh token store: {}", ex.getMessage());
         }
