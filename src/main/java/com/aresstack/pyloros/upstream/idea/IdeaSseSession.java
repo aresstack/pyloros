@@ -3,16 +3,13 @@ package com.aresstack.pyloros.upstream.idea;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
-import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import io.vertx.core.json.JsonObject;
-import io.vertx.core.Promise;
 import io.vertx.core.Handler;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
@@ -36,6 +33,8 @@ public final class IdeaSseSession {
     private final Map<String, Promise<JsonObject>> pendingResponses = new ConcurrentHashMap<>();
     // optional handler invoked for incoming notification messages (e.g. notifications/tools/list_changed)
     private volatile Handler<JsonObject> notificationHandler;
+    // optional handler invoked when SSE connection is lost and endpoint becomes stale
+    private volatile Handler<String> disconnectHandler;
 
     public IdeaSseSession(Vertx vertx, IdeaMcpConfig config) {
         this.vertx = vertx;
@@ -73,21 +72,25 @@ public final class IdeaSseSession {
                         }
                         req.exceptionHandler(err -> {
                             log.debug("IDEA SSE connection error: {}", err.getMessage());
+                            markStaleAndFailPending("connection error", err);
                             scheduleReconnect();
                         });
                         req.send()
                                 .onSuccess(this::handleResponse)
                                 .onFailure(err -> {
                                     log.debug("Failed to send IDEA SSE request: {}", err.getMessage());
+                                    markStaleAndFailPending("request send failure", err);
                                     scheduleReconnect();
                                 });
                     })
                     .onFailure(err -> {
                         log.debug("Failed to create IDEA SSE request: {}", err.getMessage());
+                        markStaleAndFailPending("request creation failure", err);
                         scheduleReconnect();
                     });
         } catch (Exception ex) {
             log.debug("Exception while starting IDEA SSE connection: {}", ex.getMessage());
+            markStaleAndFailPending("connection bootstrap exception", ex);
             scheduleReconnect();
         }
     }
@@ -95,6 +98,7 @@ public final class IdeaSseSession {
     private void handleResponse(HttpClientResponse response) {
         if (response.statusCode() >= 400) {
             log.debug("IDEA SSE responded with status {}", response.statusCode());
+            markStaleAndFailPending("sse status " + response.statusCode(), null);
             scheduleReconnect();
             return;
         }
@@ -120,11 +124,13 @@ public final class IdeaSseSession {
 
         response.exceptionHandler(err -> {
             log.debug("IDEA SSE response error: {}", err.getMessage());
+            markStaleAndFailPending("response exception", err);
             scheduleReconnect();
         });
 
         response.endHandler(v -> {
             log.debug("IDEA SSE connection ended");
+            markStaleAndFailPending("response ended", null);
             scheduleReconnect();
         });
     }
@@ -192,6 +198,13 @@ public final class IdeaSseSession {
     }
 
     /**
+     * Register a handler that is invoked when the upstream connection is lost.
+     */
+    public void setDisconnectHandler(Handler<String> handler) {
+        this.disconnectHandler = handler;
+    }
+
+    /**
      * Register a pending response promise for a request id and schedule timeout.
      */
     public void registerPendingResponse(String id, Promise<JsonObject> promise, long timeoutMillis) {
@@ -222,6 +235,7 @@ public final class IdeaSseSession {
 
     public Future<Void> stop() {
         closed = true;
+        markStaleAndFailPending("session stopped", null);
         try {
             if (client != null) {
                 client.close();
@@ -230,6 +244,34 @@ public final class IdeaSseSession {
         } catch (Exception ignored) {
         }
         return Future.succeededFuture((Void) null);
+    }
+
+    private void markStaleAndFailPending(String reason, Throwable cause) {
+        currentEndpoint = null;
+
+        if (disconnectHandler != null) {
+            try {
+                disconnectHandler.handle(reason);
+            } catch (Exception ex) {
+                log.debug("Disconnect handler failed: {}", ex.getMessage());
+            }
+        }
+
+        if (pendingResponses.isEmpty()) {
+            return;
+        }
+
+        String message = cause == null
+                ? "IDEA MCP upstream disconnected (" + reason + ")"
+                : "IDEA MCP upstream disconnected (" + reason + "): " + cause.getMessage();
+        IllegalStateException failure = new IllegalStateException(message, cause);
+
+        pendingResponses.forEach((id, promise) -> {
+            Promise<JsonObject> removed = pendingResponses.remove(id);
+            if (removed != null) {
+                removed.tryFail(failure);
+            }
+        });
     }
 }
 

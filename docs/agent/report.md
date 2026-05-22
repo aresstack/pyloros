@@ -2,26 +2,32 @@
 
 ## Was wurde verifiziert, geändert oder implementiert?
 
-`003-A: Debounce tools/list refresh` wurde umgesetzt.
+Abgeschlossener Resilience-Block:
 
-Änderung in `IdeaMcpClient`:
-
-- `notifications/tools/list_changed` löst keinen sofortigen `refreshTools()`-Aufruf mehr aus.
-- Stattdessen wird ein **debouncter** Refresh geplant (`250 ms`).
-- Es ist immer nur **ein** geplanter Refresh gleichzeitig erlaubt.
-- Zusätzliche Notifications während der Wartezeit werden zusammengefasst (coalesced).
-- Beim Stoppen des Clients wird ein geplanter Timer sauber abgebrochen.
-
-Wichtig: `tools/call`-Verhalten und OAuth-Logik wurden nicht geändert.
+- `003-A Debounce tools/list refresh`
+  - `notifications/tools/list_changed` werden gebündelt.
+  - Es wird nur ein geplanter `tools/list`-Refresh gleichzeitig ausgeführt.
+- `003-B Handle temporary IDEA MCP upstream loss`
+  - SSE-Endpoint wird bei Disconnect als stale markiert.
+  - Pending JSON-RPC Calls fail-fast bei Upstream-Verlust.
+  - `tools/call` liefert bei IDEA-Ausfall kontrolliert `isError=true`.
+  - `pyloros__ping` bleibt während Ausfall verfügbar.
+  - Recovery nach Upstream-Rückkehr funktioniert (Endpoint-Erkennung + Tool-Wiederherstellung).
 
 ## Welche Dateien wurden geändert oder neu erstellt?
 
-- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java` (geändert)
-- `docs/agent/report.md` (überschrieben)
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaMcpClient.java`
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaSseSession.java`
+- `src/main/java/com/aresstack/pyloros/upstream/idea/IdeaToolProvider.java`
+- `docs/agent/report.md`
 
 ## Welche Architekturentscheidung wurde berührt?
 
-- Upstream-Notification-Verarbeitung in `IdeaMcpClient`: Burst-Notifications (`tools/list_changed`) werden jetzt per Debounce gebündelt, um parallele/übermäßige `tools/list` Requests zu vermeiden.
+- IDEA-Upstream-Resilience wurde als eigener Stabilitätsblock umgesetzt:
+  - Notification-Burst-Coalescing (Debounce)
+  - explizite Disconnect-State-Behandlung (stale endpoint)
+  - fail-fast für laufende Requests bei Transportverlust
+  - kontrollierte Fehlerantworten statt Proxy-/Registry-Crashpfade
 
 ## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
 
@@ -29,39 +35,32 @@ Wichtig: `tools/call`-Verhalten und OAuth-Logik wurden nicht geändert.
    - `./gradlew --no-daemon build --stacktrace`
    - Ergebnis: **BUILD SUCCESSFUL**
 
-2. **Runtime-Start**
-   - Pyloros auf `SERVER_PORT=8082` mit `OAUTH_ACCESS_TOKEN=dev-token` gestartet.
-
-3. **Debounce-Nachweis über Logs**
-   - Datei: `logs/003a-run.log`
-   - Zählung:
+2. **003-A Runtime-Nachweis (Debounce)**
+   - Log-Auswertung:
      - `notifications/tools/list_changed`: **22**
      - `IdeaJsonRpcClient POST tools/list`: **1**
-   - Damit ist bestätigt: keine dutzenden parallelen `tools/list` POSTs mehr beim Start.
+   - Ergebnis: Burst wird gebündelt, keine dutzenden parallelen Refresh-POSTs.
 
-4. **Sichtbarkeit der Tools**
-   - `tools/list` liefert weiterhin IDEA-Tools (`intellij/...`) plus `pyloros__ping`.
-
-5. **Regression tools/call**
-   - `tools/call intellij/get_project_modules` funktioniert weiterhin (`isError=false`, echte Modulliste).
+3. **003-B Runtime-Nachweis (Outage + Recovery)**
+   - Ausfall simuliert mit `IDEA_MCP_PORT=1`:
+     - `tools/call intellij/get_project_modules` -> kontrolliert `isError=true`
+     - `tools/call pyloros__ping` -> weiterhin `isError=false`
+   - Recovery ohne Port-Override:
+     - Endpoint wird neu erkannt (`IDEA SSE endpoint discovered ...`)
+     - `tools/list` zeigt wieder `intellij/...` + `pyloros__ping`
+     - `tools/call intellij/get_project_modules` wieder `isError=false`
 
 ## Ergebnis: erfolgreich
 
+- 003-A und 003-B zusammen erfolgreich abgeschlossen
 - Build grün
-- Pyloros startet
-- IDEA Tools sichtbar
-- Start-Burst wird gebündelt (1 Refresh-POST statt vieler)
-- `tools/call intellij/get_project_modules` weiterhin funktionsfähig
+- Runtime-Verifikation grün
+- Kein Push durchgeführt
 
 ## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
 
-- Kein offener Fehler im Scope 003-A.
-
-## Konflikte / Hinweise
-
-- `docs/agent/assignment.md` steht noch auf `001-D` als aktuelle Aufgabe.
-- Diese Umsetzung erfolgte gemäß expliziter Nutzerfreigabe für `003-A`.
+- Entfällt (kein offener Fehler im Scope).
 
 ## Exact commit hash, or No commit created
 
-- No commit created.
+- `b3952e8` (kein Push durchgeführt)

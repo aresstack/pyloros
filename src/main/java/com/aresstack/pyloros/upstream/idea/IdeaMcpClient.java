@@ -41,6 +41,12 @@ public final class IdeaMcpClient {
         this.sseSession = new IdeaSseSession(vertx, config);
         this.jsonRpcClient = new IdeaJsonRpcClient(vertx, config, sseSession);
         this.toolNameMapper = new IdeaToolNameMapper(config.toolPrefix());
+        this.sseSession.setDisconnectHandler(reason -> {
+            log.info("IdeaMcpClient: upstream disconnected ({}), marking session state stale", reason);
+            initialized = false;
+            cachedTools.set(null);
+            knownOriginalToolNames.set(Set.of());
+        });
         // register for notifications from SSE session (e.g. notifications/tools/list_changed)
         this.sseSession.setNotificationHandler(msg -> {
             try {

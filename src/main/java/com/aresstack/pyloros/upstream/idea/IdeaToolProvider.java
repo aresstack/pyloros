@@ -53,12 +53,14 @@ public final class IdeaToolProvider implements ToolProvider {
             return false;
         }
 
-        if (client == null || !client.isReady()) {
-            return false;
-        }
-
+        // Always claim namespaced IDEA aliases so outage handling happens in callTool()
+        // with a controlled provider error instead of ToolRegistry unsupported fallback.
         if (toolNameMapper.isNamespacedAlias(toolName)) {
             return true;
+        }
+
+        if (client == null || !client.isReady()) {
+            return false;
         }
 
         // Unprefixed compatibility alias:
