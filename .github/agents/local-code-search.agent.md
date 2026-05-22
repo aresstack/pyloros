@@ -1,5 +1,5 @@
 ---
-name: LocalCodeSearch
+name: local-code-search
 description: Searches and analyzes the local codebase with a local Ollama coding model.
 tools: ['search/codebase', 'search/usages', 'read']
 model: qwen2.5-coder:14b
