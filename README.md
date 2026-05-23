@@ -29,6 +29,9 @@ java -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
 ```
+$env:OAUTH_CLIENT_ID     = '<your-client-id>'
+$env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
+
 $env:GITHUB_MCP_ENABLED = 'true'
 $env:GITHUB_MCP_TOKEN = '<real token>'
 
