@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'com.gradleup.shadow' version '9.0.0'
 }
 
 group = 'com.aresstack'
@@ -41,6 +42,13 @@ dependencies {
 
 application {
     mainClass = 'com.aresstack.pyloros.PylorosApplication'
+}
+
+tasks.named('shadowJar') {
+    archiveFileName = 'pyloros.jar'
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {

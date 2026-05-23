@@ -1,126 +1,47 @@
-# Task 006 Report - Runtime Packaging and Operator Scripts
+# Task 007 Report - Fat Shadow JAR Runtime Artifact
 
-**Date:** 2026-05-23  
-**Assignee:** GitHub Copilot  
-**Status:** ✅ **SUCCESSFUL - COMMITTED AND PUSHED**
+## What was verified, changed, or implemented
+- Configured Gradle Groovy build to produce a runnable fat JAR using Shadow.
+- Set the runnable manifest `Main-Class` to `com.aresstack.pyloros.PylorosApplication`.
+- Kept Java 21 toolchain unchanged.
+- Kept `application.properties` defaults, env support behavior, OAuth semantics, and IDEA forwarding code unchanged.
+- Updated README to document fat JAR build/start as the runtime target.
 
----
+## Files changed
+- `build.gradle`
+- `README.md`
+- `docs/agent/report.md`
 
-## Was wurde verifiziert, geändert oder implementiert?
+## Architecture decision touched
+- Runtime packaging target is a single runnable fat Shadow JAR (`java -jar`) instead of operator-script/distribution runtime targets.
 
-### Neue Skripte in `scripts/`
+## Shadow plugin version used
+- `com.gradleup.shadow` version `9.0.0`
 
-**`start-pyloros.ps1`**
-- Löst den Projekt-Root relativ zum Skript-Standort auf (kein hardcodieter Pfad nötig).
-- Erkennt `JAVA_HOME` automatisch: bevorzugt `C:\Program Files\Zulu\zulu-21` wenn vorhanden; überschreibt vorhandenes `JAVA_HOME` nicht.
-- Setzt sichere Runtime-Defaults nur wenn Env-Variable noch nicht gesetzt:
-  - `SERVER_PORT=8081`
-  - `PUBLIC_ORIGIN=https://current-car.com`
-  - `OAUTH_ACCESS_TOKEN_TTL_SECONDS=3600`
-  - `OAUTH_REFRESH_TOKEN_TTL_SECONDS=2592000`
-  - `OAUTH_REFRESH_TOKEN_ROTATION_ENABLED=false`
-- Druckt Startup-Banner mit Port, Origin, Token-Store-Pfad – **keine Secrets**.
-- Startet via `.\gradlew.bat --no-daemon run --stacktrace`.
+## Build / test / runtime checks executed
+1. `.\gradlew.bat clean build` -> **SUCCESS**
+2. `.\gradlew.bat clean shadowJar` -> **SUCCESS**
+3. Fat jar produced at exact path: `C:\Projects\pyloros\build\libs\pyloros.jar`
+4. Exact runtime command tested: `java -jar .\build\libs\pyloros.jar`
+5. Healthcheck command/result:
+   - Request: `Invoke-WebRequest -Uri 'http://127.0.0.1:8081/health' -UseBasicParsing -TimeoutSec 5`
+   - Result: `STATUS=200 BODY={"status":"ok"}`
 
-**`stop-pyloros.ps1`**
-- Nutzt `netstat -ano` um den PID auf dem konfigurierten Port zu finden.
-- Zeigt PID und Prozessname vor dem Stoppen.
-- Stoppt nure den Prozess der tatsächlich auf dem Port lauscht.
-- `-Force` Switch für sofortigen Kill ohne Bestätigung.
-- Freundliche Meldung wenn kein Prozess läuft.
+## Connector verification status
+- Public connector full functional verification with authenticated upstream call: **NOT fully verified locally**.
+- `intellij/get_project_modules` end-to-end verification against running IntelliJ MCP upstream: **NOT verified locally**.
+- Reason: local run did not include a validated OAuth token flow plus confirmed reachable IntelliJ MCP upstream instance.
+- Exact next-step command (after obtaining valid bearer token and ensuring IntelliJ MCP is reachable):
+  - SSE reachability:
+    - `Invoke-WebRequest -Uri 'http://127.0.0.1:8081/sse' -Headers @{ Authorization = 'Bearer <ACCESS_TOKEN>' } -UseBasicParsing`
+  - IntelliJ tool call:
+    - `Invoke-WebRequest -Uri 'http://127.0.0.1:8081/sse' -Method Post -ContentType 'application/json' -Headers @{ Authorization = 'Bearer <ACCESS_TOKEN>' } -Body '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"idea__get_project_modules","arguments":{}}}' -UseBasicParsing`
 
-**`check-pyloros.ps1`**
-- Meldet Port/Prozess-Status (PID, Prozessname, lokale Adresse).
-- Führt HTTP-Check auf `GET /health` durch → `{"status":"ok"}`.
-- Benötigt keine OAuth-Credentials.
-- Exitcode 0 wenn OK, 1 wenn Prozess nicht läuft.
-
-### `/health` Endpoint
-- **Bereits vorhanden** in `MetadataRoutes.java` Zeile 27:
-  ```java
-  router.get("/health").handler(context -> HttpJson.send(context, 200, Map.of("status", "ok")));
-  ```
-- Kein Code-Change nötig.
-
-### `README.md` aktualisiert
-- Neue Sektion **"Running Pyloros locally on Windows"** mit Start/Stop/Check-Kommandos.
-- Hinweis auf Apache als TLS-Termination und HTTP-Backend.
-- Status-Sektion auf aktuellen Stand (002-A bis 002-I, 006) gebracht.
-
----
-
-## Welche Dateien wurden geändert oder neu erstellt?
-
-**Neu erstellt:**
-1. `scripts/start-pyloros.ps1`
-2. `scripts/stop-pyloros.ps1`
-3. `scripts/check-pyloros.ps1`
-
-**Modified:**
-4. `README.md` - Operator-Sektion + aktualisierter Status
-5. `docs/agent/assignment.md` - Task 006 Assignment
-
----
-
-## Welche Architekturentscheidung wurde berührt?
-
-- Keine Code-Architektur-Änderungen.
-- Betrieb-Hygiene: Operator-Skripte kapseln die Startup-Logik, keine manuellen Env-Variablen mehr nötig.
-- `/health` war bereits ungeschützt und ohne Token zugänglich.
-
----
-
-## Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
-
-### Build (JDK Zulu 21)
-```
-BUILD SUCCESSFUL in 951ms
-8 actionable tasks: 8 up-to-date
-```
-
-### Skript-Syntaxprüfung
-- Alle drei `.ps1`-Dateien erstellt und inhaltlich geprüft.
-- `start-pyloros.ps1` korrekte JAVA_HOME-Logik und Banner-Output ohne Secrets.
-- `stop-pyloros.ps1` korrekte netstat+PID-Logik mit -Force Switch.
-- `check-pyloros.ps1` korrekte HTTP-Check-Logik mit Fallback-Meldung.
-
----
-
-## Ergebnis: ✅ erfolgreich
-
----
-
-## Falls fehlgeschlagen: exakter Fehler und nächster Schritt
-
-Kein Fehler.
-
----
+## Result
+- **Successful** for Task 007 scope (fat runnable Shadow JAR + documented commands + healthcheck).
 
 ## Exact commit hash
+- Pending commit at report-write time.
 
-**Commit:** `38afd03`  
-**Message:** "Add Windows operator scripts"  
-**Remote:** `origin/main` (58e128c..38afd03)
-
----
-
-## Push durchgeführt: ✅ JA
-
----
-
-## Quick-Start nach diesem Release
-
-```ps1
-# Einmalig Secrets setzen (z.B. in separatem nicht-committeten Skript):
-$env:OAUTH_CLIENT_ID     = 'angel'
-$env:OAUTH_CLIENT_SECRET = 'change-me'
-
-# Starten:
-.\scripts\start-pyloros.ps1
-
-# Status prüfen (in neuer Shell):
-.\scripts\check-pyloros.ps1
-
-# Stoppen:
-.\scripts\stop-pyloros.ps1 -Force
-```
+## Push performed
+- Pending at report-write time.

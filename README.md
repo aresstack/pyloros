@@ -16,6 +16,22 @@ Reactive Java / Vert.x gateway guarding and routing MCP tool access for AI-assis
 
 ## Starten / Getting Started
 
+### Runtime artifact (fat Shadow JAR)
+
+```ps1
+Set-Location 'C:\Projects\pyloros'
+
+# Build runnable fat jar
+.\gradlew.bat clean shadowJar
+
+# Start runtime artifact
+java -jar .\build\libs\pyloros.jar
+```
+
+The fat JAR is the primary runtime target.
+
+### Development run (Gradle)
+
 ```ps1
 Set-Location 'C:\Projects\pyloros'
 
@@ -53,7 +69,7 @@ $env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="true"
 
 ## Running Pyloros locally on Windows
 
-Use the operator scripts in `scripts/` instead of setting environment variables manually.
+Runtime target is the fat JAR (`java -jar`). Existing scripts in `scripts/` are optional convenience helpers.
 
 **Requirements:** Java 21+ (e.g. Zulu 21 at `C:\Program Files\Zulu\zulu-21`)
 
@@ -112,6 +128,8 @@ Performs a port check and an HTTP call to `GET /health` → `{"status":"ok"}`.
 Build and test:
 ```ps1
 .\gradlew.bat clean build
+.\gradlew.bat clean shadowJar
+.\java -jar .\build\libs\pyloros.jar
 .\gradlew.bat --no-daemon run --stacktrace
 ```
 
