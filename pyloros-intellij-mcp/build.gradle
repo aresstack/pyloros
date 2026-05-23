@@ -1,6 +1,10 @@
 plugins {
-    id 'base'
-}
-
-// Documentation-only IntelliJ/MCP enablement module for Pyloros.
-// It intentionally has no production source set and no runtime dependencies.
+        id 'java-library'
+    }
+    
+    dependencies {
+        implementation project(':pyloros-server')
+        implementation "io.vertx:vertx-core:${vertxVersion}"
+        implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    }
+    

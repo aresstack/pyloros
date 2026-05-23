@@ -4,6 +4,9 @@ import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.config.ToolNameSeparatorResolver;
+import com.aresstack.pyloros.extension.LoadedTargetPlatformModules;
+import com.aresstack.pyloros.extension.TargetPlatformModuleLoader;
+import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
 import com.aresstack.pyloros.oauth.OAuthSecurityModule;
@@ -68,6 +71,11 @@ public final class PylorosApplication extends AbstractVerticle {
 
         List<ToolProvider> providers = new ArrayList<>();
         providers.add(new PylorosPingToolProvider());
+
+        LoadedTargetPlatformModules targetPlatformModules = TargetPlatformModuleLoader.load(config.targetPlatformModules());
+        providers.addAll(targetPlatformModules.toolProviders());
+        providers.add(new TargetPlatformSkillsToolProvider(targetPlatformModules));
+
         registerExternalProviders(providers);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
