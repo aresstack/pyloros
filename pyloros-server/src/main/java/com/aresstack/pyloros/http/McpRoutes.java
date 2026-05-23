@@ -38,6 +38,7 @@ public final class McpRoutes {
     public void mount(Router router) {
         router.get(config.mcpPublicPath()).handler(this::mcpSse);
         router.post(config.mcpPublicPath()).handler(this::mcpPost);
+        router.post(config.mcpPublicPath() + "/*").handler(this::mcpPost);
     }
 
     private void mcpSse(RoutingContext context) {
@@ -62,11 +63,21 @@ public final class McpRoutes {
             return;
         }
 
+        String pathToolName = ToolCallRequestResolver.resolvePathToolName(context.pathParam("*"));
+
         JsonNode request;
         try {
             request = HttpJson.mapper().readTree(context.body().asString());
         } catch (JsonProcessingException exception) {
             HttpJson.send(context, 400, Map.of("error", "Invalid JSON"));
+            return;
+        }
+
+        if (ToolCallRequestResolver.isDirectPathInvocation(request, pathToolName)) {
+            McpToolCall toolCall = ToolCallRequestResolver.resolvePathInvocationToolCall(request, pathToolName);
+            toolRouter.callTool(toolCall)
+                    .onSuccess(result -> HttpJson.send(context, 200, result))
+                    .onFailure(error -> HttpJson.send(context, 500, Map.of("error", error.getMessage())));
             return;
         }
 
@@ -83,7 +94,7 @@ public final class McpRoutes {
             case "tools/list" -> listTools(context, id);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> callTool(context, id, request);
+            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName);
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
@@ -102,22 +113,13 @@ public final class McpRoutes {
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
-    private void callTool(RoutingContext context, JsonNode id, JsonNode request) {
-        McpToolCall toolCall = extractToolCall(request);
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName) {
+        McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, fallbackToolName);
         toolRouter.callTool(toolCall)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
-    private McpToolCall extractToolCall(JsonNode request) {
-        JsonNode params = request.hasNonNull("params") ? request.get("params") : HttpJson.mapper().createObjectNode();
-        String name = params.hasNonNull("name") ? params.get("name").asText() : "";
-        JsonNode arguments = params.has("arguments") ? params.get("arguments") : params.get("input");
-        if (arguments == null || arguments.isNull()) {
-            arguments = HttpJson.mapper().createObjectNode();
-        }
-        return new McpToolCall(name, arguments);
-    }
 
     private void unauthorized(RoutingContext context, BearerAuthResult reason) {
         String reasonStr = switch (reason) {
