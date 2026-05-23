@@ -26,9 +26,9 @@ public class McpAggregationSmokeTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String DEFAULT_MCP_URL = "http://127.0.0.1:8081/sse";
     private static final String PYLOROS_PING = "pyloros__ping";
-    private static final String INTELLIJ_TOOL = "intellij/get_project_modules";
-    private static final String GITHUB_TOOL = "github/get_me";
-    private static final String INTELLIJ_INDEX_TOOL = "intellij-index/ide_index_status";
+    private static final String INTELLIJ_TOOL = "intellij__get_project_modules";
+    private static final String GITHUB_TOOL = "github__get_me";
+    private static final String INTELLIJ_INDEX_TOOL = "intellij-index__ide_index_status";
 
     private final String mcpUrl;
     private final String accessToken;

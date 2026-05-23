@@ -100,7 +100,7 @@ public final class ToolCatalog {
 
         String externalName = provider.preservesUpstreamToolName()
                 ? upstreamToolName
-                : providerId + "/" + upstreamToolName;
+                : providerId + "__" + upstreamToolName;
         ToolAddress address = new ToolAddress(providerId, upstreamToolName);
 
         LinkedHashMap<String, Object> descriptor = new LinkedHashMap<>(tool);

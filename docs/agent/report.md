@@ -1,59 +1,65 @@
-Was wurde verifiziert, geändert oder implementiert?
-- E2E-Diagnostik für den Unterschied "gelistet != aufrufbar" umgesetzt, damit klar trennbar ist:
-  - (A) Call erreicht Pyloros nicht (kein passender MCP-POST-/tools/call-Logeintrag)
-  - (B) Call erreicht Pyloros, scheitert im Routing/Dispatch (Router-/Provider-Logs zeigen Hit/Miss und Ziel)
-- `McpRoutes` erweitert:
-  - MCP-POST-Logging mit `path`, `method`, `source` (`rpc`/`path`), `resolvedToolName`
-  - `tools/call`-Detail-Logging mit `name` und `argumentKeys` (nur Keys, keine Secret-Werte)
-- `ToolRouter` erweitert:
-  - exakter Catalog-Lookup-Log `externalName`, `hit=true/false`
-  - bei Hit zusätzlich `providerId` und `upstreamToolName`
-  - Dispatch-Log vor Provider-Aufruf
-- `GenericMcpToolProvider` Dispatch-Logs präzisiert auf `providerId` + `upstreamToolName`.
-- Routingsemantik unverändert belassen:
-  - externer Name bleibt `provider/tool`
-  - Provider erhält weiterhin nur `upstreamToolName`.
+# Report – Assignment 009-G
 
-Welche Dateien wurden geändert oder neu erstellt?
-- Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
-- Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolRouter.java`
-- Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/GenericMcpToolProvider.java`
-- Geändert: `pyloros-server/src/test/java/com/aresstack/pyloros/http/ToolCallRequestResolverTest.java`
-- Geändert: `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
-- Geändert: `docs/agent/report.md`
+## Was wurde verifiziert, geaendert oder implementiert?
+- Implementiert: Externe Tool-Namensbildung zentral im `ToolCatalog` von `providerId + "/" + upstreamToolName` auf `providerId + "__" + upstreamToolName` umgestellt (nur fuer nicht-native Provider).
+- Unveraendert gelassen:
+  - interne Adressierung ueber `ToolAddress(providerId, upstreamToolName)`
+  - exaktes Router-Lookup per `toolsByExternalName.get(requestToolName)`
+  - Provider-Dispatch per `callTool(upstreamToolName, arguments)`
+  - keine Prefix-/Split-Heuristik eingefuehrt.
+- Tests angepasst auf `__`-Namen inkl. Routing-Verifikation fuer `intellij-index`.
+- Zusatzlich Smoke-Test-Konstanten auf `__`-Namen aktualisiert, damit der A/B-Test-Slice konsistent ist.
 
-Welche Architekturentscheidung wurde berührt?
-- Keine neue Architektur; bestehende Entscheidung bestätigt:
-  - Routing über exakten Toolnamen via `ToolCatalog`/`ToolRouter`
-  - kein Prefix-/Split-Routing
-  - Slash bleibt kanonischer Bestandteil des Toolnamens
-  - Provider-API bleibt `callTool(upstreamToolName, args)`.
+## Welche Dateien wurden geaendert oder neu erstellt?
+- Geaendert:
+  - `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
+  - `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
+  - `pyloros-server/src/test/java/com/aresstack/pyloros/http/ToolCallRequestResolverTest.java`
+  - `pyloros-app/src/main/java/com/aresstack/pyloros/smoke/McpAggregationSmokeTest.java`
+  - `docs/agent/report.md` (dieser Report, vollstaendig ueberschrieben)
+- Neu erstellt: keine
 
-Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
-- Tests:
-  - `:pyloros-server:test --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest` -> erfolgreich.
-- Build:
-  - `build` mit Java 21 (`JAVA_HOME=C:\Program Files\Zulu\zulu-21`) -> erfolgreich.
-  - `clean build` mit Java 21 -> fehlgeschlagen wegen Dateisperre beim Löschen von `pyloros-app/build/libs/pyloros.jar`.
-- Lokale Verifizierbarkeit mit neuer Diagnosekette:
-  - Für einen `tools/call` oder `POST /sse/<provider/tool>` sind jetzt die geforderten Logs für Nameauflösung, Catalog-Hit/Miss und Upstream-Dispatch vorhanden.
+## Welche Architekturentscheidung wurde beruehrt?
+- Externe Tool-Benennung (`tools/list`/oeffentliche Namen) fuer den kontrollierten 009-G A/B-Test wurde auf resource-safe Delimiter `__` umgestellt.
+- Interne Architekturgrenzen bleiben unveraendert (Adresse, Lookup, Dispatch exakt map-basiert).
+- Hinweis: Dies ist explizit ein A/B-Test-Slice und keine dauerhafte Architekturfestlegung.
 
-Result: failed
+## Welche Tests, Builds und Runtime-Checks wurden ausgefuehrt?
+1. (Fehlversuch, Umgebung)
+   - Kommando:
+     - `.\gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --console=plain`
+   - Ergebnis: **fehlgeschlagen**, da Gradle mit JVM 8 lief (`Gradle requires JVM 17 or later... configured to use JVM 8`).
 
-If failed: exact error and recommended next step
-- Exakter Build-Fehler bei `clean build`:
-  - `Execution failed for task ':pyloros-app:clean'.`
-  - `java.io.IOException: Unable to delete directory 'C:\Projects\pyloros\pyloros-app\build'`
-  - Ursache: `pyloros-app/build/libs/pyloros.jar` war gelockt (offener Prozess/Handle).
-- Zudem ist die zentrale Akzeptanz (echter ChatGPT/api_tool-End-to-End-Call) noch nicht final nachgewiesen.
-- Empfohlene nächste Schritte:
-  1. Laufenden Pyloros-/Java-Prozess beenden, der `pyloros.jar` lockt.
-  2. `clean build` erneut ausführen.
-  3. ChatGPT Connector "Aktualisieren" und den echten `api_tool.call_tool` auf `intellij-index/ide_index_status` ausführen.
-  4. Pyloros-Logs prüfen:
-     - Wenn kein `[MCP] tools/call ... name=intellij-index/ide_index_status` erscheint -> Fehler vor Pyloros (Connector-Mapping).
-     - Wenn Log erscheint und danach `hit=false`/Dispatch-Fehler -> Fehler in Pyloros-Routing/Upstream.
+2. Relevante Tests mit Java 21
+   - Kommando:
+     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --console=plain`
+   - Ergebnis: **BUILD SUCCESSFUL**.
 
-Exact commit hash, or No commit created
-- No commit created
-- Current HEAD reference: `5f48f2be9137b96ea854c33b36efd93b8df97c7b`
+3. Build (zunaechst mit clean)
+   - Kommando:
+     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat clean build --console=plain`
+   - Ergebnis: **fehlgeschlagen** wegen Dateisperre beim Loeschen von `pyloros-app/build/libs/pyloros.jar`.
+
+4. Build ohne clean (relevanter Gesamtbuild)
+   - Kommando:
+     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat build --console=plain`
+   - Ergebnis: **BUILD SUCCESSFUL** (mit bestehenden Javadoc-Warnungen, keine neuen Fehler).
+
+5. IDE-Fehlerpruefung geaenderter Dateien
+   - Ergebnis: keine Compile-Fehler in den geaenderten Dateien (nur vorhandene Test-Style-Warnungen).
+
+## Ergebnis: erfolgreich oder fehlgeschlagen
+- **Erfolgreich**: 009-G wurde umgesetzt, relevante Tests und Build sind gruen (mit Java 21).
+
+## Falls fehlgeschlagen: exakter Fehler und empfohlener naechster Schritt
+- Nicht zutreffend fuer Endergebnis.
+- Dokumentierte Zwischenfehler:
+  - JVM 8 statt Java 21 -> durch explizites Setzen von `JAVA_HOME` auf Zulu 21 behoben.
+  - `clean build` Dateisperre auf `pyloros.jar` -> durch Build ohne clean umgangen; bei Bedarf Lock-Prozess beenden und `clean build` erneut ausfuehren.
+
+## Exakter Commit-Hash oder kein Commit
+- **No commit created**.
+
+## Zusatzhinweis Workflow/Tooling
+- Der geforderte `local-code-search` Subagent wurde versucht, war in dieser Umgebung jedoch nicht lauffaehig (`Model "qwen2.5-coder:14b" not found`).
+- Daher wurde die Codebasisanalyse mit lokalen Workspace-Search/Read-Tools durchgefuehrt.

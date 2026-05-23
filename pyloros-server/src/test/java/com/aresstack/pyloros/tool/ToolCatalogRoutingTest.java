@@ -26,7 +26,7 @@ class ToolCatalogRoutingTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
-    void listToolsBuildsStableSnapshotWithSlashNames() {
+    void listToolsBuildsStableSnapshotWithDoubleUnderscoreNames() {
         RecordingProvider github = new RecordingProvider("github", false, "get_me");
         RecordingProvider intellij = new RecordingProvider("intellij", false, "get_project_modules");
         RecordingProvider index = new RecordingProvider("intellij-index", false, "ide_index_status");
@@ -41,26 +41,26 @@ class ToolCatalogRoutingTest {
         Set<String> names = toolNames(tools);
 
         assertTrue(names.contains("pyloros__ping"));
-        assertTrue(names.contains("github/get_me"));
-        assertTrue(names.contains("intellij/get_project_modules"));
-        assertTrue(names.contains("intellij-index/ide_index_status"));
+        assertTrue(names.contains("github__get_me"));
+        assertTrue(names.contains("intellij__get_project_modules"));
+        assertTrue(names.contains("intellij-index__ide_index_status"));
 
         ToolCatalogSnapshot snapshot = toolCatalog.snapshot();
-        ToolCatalogEntry githubEntry = snapshot.toolsByExternalName().get("github/get_me");
+        ToolCatalogEntry githubEntry = snapshot.toolsByExternalName().get("github__get_me");
         assertNotNull(githubEntry);
         assertEquals(new ToolAddress("github", "get_me"), githubEntry.address());
         assertSame(githubEntry, snapshot.toolsByAddress().get(new ToolAddress("github", "get_me")));
-        assertEquals("github/get_me", githubEntry.descriptor().get("name"));
+        assertEquals("github__get_me", githubEntry.descriptor().get("name"));
         assertEquals(List.of(githubEntry), snapshot.toolsByProviderId().get("github"));
     }
 
     @Test
-    void routerRoutesGithubSlashNameToProviderAndUpstreamTool() {
+    void routerRoutesGithubDoubleUnderscoreNameToProviderAndUpstreamTool() {
         RecordingProvider github = new RecordingProvider("github", false, "get_me");
         ToolRouter toolRouter = routerWithCatalog(github);
         JsonNode arguments = JSON.createObjectNode().put("viewer", true);
 
-        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github/get_me", arguments)));
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github__get_me", arguments)));
 
         assertEquals("get_me", github.lastUpstreamToolName);
         assertEquals(arguments, github.lastArguments);
@@ -68,12 +68,12 @@ class ToolCatalogRoutingTest {
     }
 
     @Test
-    void routerRoutesIntellijSlashNameToProviderAndUpstreamTool() {
+    void routerRoutesIntellijDoubleUnderscoreNameToProviderAndUpstreamTool() {
         RecordingProvider intellij = new RecordingProvider("intellij", false, "get_project_modules");
         ToolRouter toolRouter = routerWithCatalog(intellij);
         JsonNode arguments = JSON.createObjectNode().put("projectPath", "C:/Projects/pyloros");
 
-        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("intellij/get_project_modules", arguments)));
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("intellij__get_project_modules", arguments)));
 
         assertEquals("get_project_modules", intellij.lastUpstreamToolName);
         assertEquals(arguments, intellij.lastArguments);
@@ -86,7 +86,7 @@ class ToolCatalogRoutingTest {
         ToolRouter toolRouter = routerWithCatalog(index);
         JsonNode arguments = JSON.createObjectNode().put("projectPath", "C:/Projects/pyloros");
 
-        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("intellij-index/ide_index_status", arguments)));
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("intellij-index__ide_index_status", arguments)));
 
         assertEquals("ide_index_status", index.lastUpstreamToolName);
         assertEquals(arguments, index.lastArguments);
@@ -109,10 +109,10 @@ class ToolCatalogRoutingTest {
         RecordingProvider github = new RecordingProvider("github", false, "get_me");
         ToolRouter toolRouter = routerWithCatalog(github);
 
-        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github/does_not_exist", JSON.createObjectNode())));
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github__does_not_exist", JSON.createObjectNode())));
 
         assertEquals(Boolean.TRUE, result.get("isError"));
-        assertEquals("Tool not found: github/does_not_exist", firstText(result));
+        assertEquals("Tool not found: github__does_not_exist", firstText(result));
     }
 
     @Test
