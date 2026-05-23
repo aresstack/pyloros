@@ -12,6 +12,7 @@
             <option value="$PROJECT_DIR$/pyloros-server" />
             <option value="$PROJECT_DIR$/pyloros-upstream-github" />
             <option value="$PROJECT_DIR$/pyloros-upstream-idea" />
+            <option value="$PROJECT_DIR$/pyloros-upstream-intellij-index" />
           </set>
         </option>
       </GradleProjectSettings>

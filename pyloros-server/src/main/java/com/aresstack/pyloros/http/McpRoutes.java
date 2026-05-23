@@ -22,6 +22,7 @@ import java.util.Map;
 public final class McpRoutes {
 
     private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
+    private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
 
     private static final String WWW_AUTHENTICATE_INVALID_TOKEN =
             "Bearer error=\"invalid_token\", error_description=\"The access token is invalid or expired\"";
@@ -39,9 +40,25 @@ public final class McpRoutes {
     }
 
     public void mount(Router router) {
-        router.get(config.mcpPublicPath()).handler(this::mcpSse);
-        router.post(config.mcpPublicPath()).handler(this::mcpPost);
-        router.post(config.mcpPublicPath() + "/*").handler(this::mcpPost);
+        mountPath(router, config.mcpPublicPath());
+        if (!LEGACY_MCP_PUBLIC_PATH.equals(config.mcpPublicPath())) {
+            mountPath(router, LEGACY_MCP_PUBLIC_PATH);
+        }
+    }
+
+    private void mountPath(Router router, String publicPath) {
+        router.get(publicPath).handler(context -> {
+            context.put("mcpBasePath", publicPath);
+            mcpSse(context);
+        });
+        router.post(publicPath).handler(context -> {
+            context.put("mcpBasePath", publicPath);
+            mcpPost(context);
+        });
+        router.post(publicPath + "/*").handler(context -> {
+            context.put("mcpBasePath", publicPath);
+            mcpPost(context);
+        });
     }
 
     private void mcpSse(RoutingContext context) {
@@ -56,7 +73,7 @@ public final class McpRoutes {
                 .putHeader(HttpHeaders.CACHE_CONTROL, "no-cache")
                 .putHeader(HttpHeaders.CONNECTION, "keep-alive");
         context.response().write("event: endpoint\n");
-        context.response().write("data: " + config.mcpPublicPath() + "\n\n");
+        context.response().write("data: " + mountedBasePath(context) + "\n\n");
     }
 
     private void mcpPost(RoutingContext context) {
@@ -134,11 +151,21 @@ public final class McpRoutes {
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {
         String method = request != null && request.hasNonNull("method") ? request.get("method").asText() : "";
         String toolName = resolvedToolName == null ? "" : resolvedToolName;
-        log.info("[MCP] post path={} method={} source={} resolvedToolName={}",
+        log.info("[MCP] post path={} method={} source={} resolvedToolName={} deprecated={}",
                 context.request().path(),
                 method,
                 source,
-                toolName);
+                toolName,
+                isDeprecated(context));
+    }
+
+    private String mountedBasePath(RoutingContext context) {
+        String mountedPath = context.get("mcpBasePath");
+        return mountedPath == null || mountedPath.isBlank() ? config.mcpPublicPath() : mountedPath;
+    }
+
+    private boolean isDeprecated(RoutingContext context) {
+        return LEGACY_MCP_PUBLIC_PATH.equals(mountedBasePath(context));
     }
 
     private void logToolsCall(String source, McpToolCall toolCall) {

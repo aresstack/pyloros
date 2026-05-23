@@ -1,64 +1,77 @@
-# Report – Assignment 009-H
+What was verified, changed or implemented?
+- The canonical public MCP endpoint was changed to `/pyloros`.
+- The legacy alias `/sse` remains mounted as a deprecated compatibility endpoint.
+- Both `/pyloros` and `/sse` serve the same MCP operations:
+  - `initialize`
+  - `tools/list`
+  - `tools/call`
+  - `resources/list`
+  - `prompts/list` remains supported.
+- MCP POST logging now marks whether the request used the deprecated alias:
+  - `/pyloros` -> `deprecated=false`
+  - `/sse` -> `deprecated=true`
+- The SSE endpoint event now returns the actually mounted base path, so `/sse` remains compatible as an alias and `/pyloros` is canonical.
+- Public metadata continues to advertise the canonical endpoint via `/pyloros`, while legacy metadata aliases for `/sse` remain available.
+- Default public config was updated from `/sse` to `/pyloros`.
+- README connector URL and examples were updated to `https://current-car.com/pyloros`.
+- Local smoke-test default URL was updated to `http://127.0.0.1:8081/pyloros` while keeping `/sse` as documented legacy override.
+- No changes were made to `ToolCatalog`, `ProviderRegistry`, provider dispatch, or routing semantics.
+- Default tool-name separator remains `__`.
+- Additional compatibility coverage was verified with a dedicated HTTP test for both canonical and legacy endpoints, including direct path-based tool invocation.
 
-## What was verified, changed or implemented?
-- `docs/agent/assignment.md` was replaced with the new slice `009-H` for configurable external tool-name separators.
-- Added central formatter `ToolNameFormatter` with `externalName(providerId, upstreamToolName)` and default separator constant `__`.
-- `ToolCatalog` now receives `ToolNameFormatter` (constructor injection) and uses it for external names of non-preserved tools.
-- `PylorosApplication` wiring updated:
-  - resolves separator via new `ToolNameSeparatorResolver`
-  - applies priority CLI `--tool-name-separator=...` > JVM `-Dmcp.tool-name-separator=...` > default `__`
-  - passes formatter into `ToolCatalog`
-- `ToolAddress` and `ToolRouter` architecture stayed unchanged (exact map lookup, no split/prefix routing).
-- Tests updated/added:
-  - default `__` naming still covered
-  - slash override (`/`) covered for tools/list and routing
-  - internal address invariance covered (`ToolAddress(providerId, upstreamToolName)`)
-  - separator priority behavior covered in app config tests
-- README updated to document separator default/overrides and `/` compatibility-test mode note.
+Which files were changed or newly created?
+- Changed:
+  - `README.md`
+  - `pyloros-app/build.gradle`
+  - `pyloros-app/src/main/java/com/aresstack/pyloros/config/PylorosConfig.java`
+  - `pyloros-app/src/main/java/com/aresstack/pyloros/smoke/McpAggregationSmokeTest.java`
+  - `pyloros-app/src/main/resources/application.properties`
+  - `pyloros-server/build.gradle`
+  - `pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
+  - `pyloros-server/src/main/java/com/aresstack/pyloros/http/MetadataRoutes.java`
+  - `pyloros-server/src/test/java/com/aresstack/pyloros/http/PublicEndpointCompatibilityTest.java`
+  - `pyloros-server/src/test/java/com/aresstack/pyloros/oauth/OAuthServiceRefreshReplayTest.java`
+  - `docs/agent/report.md`
+- Newly created:
+  - `pyloros-server/src/test/java/com/aresstack/pyloros/http/PublicEndpointCompatibilityTest.java`
 
-## Which files were changed or newly created?
-Changed:
-- `README.md`
-- `docs/agent/assignment.md`
-- `pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
-- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
-- `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
+Which architecture decision was touched?
+- The public gateway endpoint is now canonically `/pyloros`.
+- `/sse` remains only as a deprecated compatibility alias.
+- Public endpoint naming changed, but internal MCP routing architecture did not:
+  - no provider-specific public endpoints
+  - no change to `ToolCatalog`
+  - no change to `ProviderRegistry`
+  - no change to exact tool routing behavior.
 
-Created:
-- `pyloros-app/src/main/java/com/aresstack/pyloros/config/ToolNameSeparatorResolver.java`
-- `pyloros-app/src/test/java/com/aresstack/pyloros/config/ToolNameSeparatorResolverTest.java`
-- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolNameFormatter.java`
+Which tests, builds and runtime checks were executed?
+- Environment:
+  - Java 21 via `C:\Program Files\Zulu\zulu-21`
+- Executed commands:
+  1. `./gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.http.PublicEndpointCompatibilityTest --no-daemon --console=plain`
+     - result: successful
+  2. `./gradlew.bat :pyloros-app:test --tests com.aresstack.pyloros.config.ToolNameSeparatorResolverTest --no-daemon --console=plain`
+     - result: successful
+  3. `./gradlew.bat build --no-daemon --console=plain`
+     - result: successful
+  4. `./gradlew.bat clean build --no-daemon --console=plain`
+     - result: successful
+- Additional runtime/build handling:
+  - A running `java -jar .\pyloros-app\build\libs\pyloros.jar` process was identified as the lock owner for `pyloros.jar` and was stopped before rerunning `clean build`.
+- Functional coverage confirmed by `PublicEndpointCompatibilityTest`:
+  - `/pyloros` RPC compatibility
+  - `/sse` RPC compatibility
+  - `/pyloros/<tool>` direct path invocation
+  - `/sse/<tool>` direct path invocation
+  - canonical metadata advertisement on `/pyloros`
+  - legacy metadata alias preservation on `/sse`
+  - deprecated logging flag behavior.
 
-## Which architecture decision was touched?
-- External tool-name formatting is now centralized and configurable.
-- Internal routing contract was preserved:
-  - `ToolAddress(providerId, upstreamToolName)` unchanged
-  - router lookup remains exact: `toolsByExternalName.get(requestToolName)`
-  - no split/prefix/path-based routing introduced
-  - providers remain responsible only for upstream names/calls
+Result: successful
 
-## Which tests, builds and runtime checks were executed?
-Executed with Java 21 (`C:\Program Files\Zulu\zulu-21`):
-1. `java -version`
-   - result: `openjdk version "21.0.5" ...`
-2. `./gradlew.bat clean build --no-daemon`
-   - result: **failed** at `:pyloros-app:clean` due locked `pyloros.jar` in `pyloros-app/build/libs`
-3. `./gradlew.bat build --no-daemon`
-   - result: **successful** (`BUILD SUCCESSFUL`)
-4. `./gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --no-daemon`
-   - result: **successful**
-5. `./gradlew.bat :pyloros-app:test --tests com.aresstack.pyloros.config.ToolNameSeparatorResolverTest --no-daemon`
-   - result: **successful**
+If failed: exact error and recommended next step
+- No remaining failure.
+- Note: a real ChatGPT connector `api_tool.call_tool` run was not executed directly from this environment. Local endpoint compatibility and path-based invocation behavior were verified through automated tests.
 
-## Result: successful or failed
-- **Successful** for implementation and required verification scope.
-
-## If failed: exact error and recommended next step
-- One command failed:
-  - `./gradlew.bat clean build --no-daemon`
-  - error: `Unable to delete directory 'C:\Projects\pyloros\pyloros-app\build' ... pyloros.jar`
-- Recommended next step:
-  - stop process locking `pyloros-app/build/libs/pyloros.jar` (likely running app/JAR), then rerun `clean build`.
-
-## Exact commit hash, or No commit created
+Exact commit hash, or No commit created
 - No commit created

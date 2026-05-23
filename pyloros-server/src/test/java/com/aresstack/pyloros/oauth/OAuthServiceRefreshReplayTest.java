@@ -136,7 +136,7 @@ class OAuthServiceRefreshReplayTest {
     private static ServerConfig config(boolean rotationEnabled, Path storePath) {
         return new TestServerConfig(
                 "https://current-car.com",
-                "/sse",
+                "/pyloros",
                 "2025-03-26",
                 CREDENTIALS.clientId(),
                 CREDENTIALS.clientSecret(),

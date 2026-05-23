@@ -7,6 +7,8 @@ import java.util.Map;
 
 public final class MetadataRoutes {
 
+    private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
+
     private final ServerConfig config;
 
     public MetadataRoutes(ServerConfig config) {
@@ -25,20 +27,41 @@ public final class MetadataRoutes {
         )));
 
 
-        router.get("/.well-known/oauth-protected-resource").handler(context -> protectedResourceMetadata(context));
-        router.get("/.well-known/oauth-protected-resource/sse").handler(context -> protectedResourceMetadata(context));
+        router.get("/.well-known/oauth-protected-resource").handler(context -> protectedResourceMetadata(context, config.mcpPublicPath()));
+        mountProtectedResourceAlias(router, config.mcpPublicPath());
+        if (!LEGACY_MCP_PUBLIC_PATH.equals(config.mcpPublicPath())) {
+            mountProtectedResourceAlias(router, LEGACY_MCP_PUBLIC_PATH);
+        }
 
-        router.get("/.well-known/oauth-authorization-server").handler(context -> authorizationServerMetadata(context));
-        router.get("/.well-known/openid-configuration").handler(context -> authorizationServerMetadata(context));
-        router.get("/.well-known/oauth-authorization-server/sse").handler(context -> authorizationServerMetadata(context));
-        router.get("/sse/.well-known/oauth-authorization-server").handler(context -> authorizationServerMetadata(context));
-        router.get("/.well-known/openid-configuration/sse").handler(context -> authorizationServerMetadata(context));
-        router.get("/sse/.well-known/openid-configuration").handler(context -> authorizationServerMetadata(context));
+        router.get("/.well-known/oauth-authorization-server").handler(this::authorizationServerMetadata);
+        router.get("/.well-known/openid-configuration").handler(this::authorizationServerMetadata);
+        mountAuthorizationMetadataAliases(router, config.mcpPublicPath());
+        if (!LEGACY_MCP_PUBLIC_PATH.equals(config.mcpPublicPath())) {
+            mountAuthorizationMetadataAliases(router, LEGACY_MCP_PUBLIC_PATH);
+        }
     }
 
-    private void protectedResourceMetadata(io.vertx.ext.web.RoutingContext context) {
+    private void mountProtectedResourceAlias(Router router, String publicPath) {
+        String segment = endpointSegment(publicPath);
+        router.get("/.well-known/oauth-protected-resource/" + segment)
+                .handler(context -> protectedResourceMetadata(context, publicPath));
+    }
+
+    private void mountAuthorizationMetadataAliases(Router router, String publicPath) {
+        String segment = endpointSegment(publicPath);
+        router.get("/.well-known/oauth-authorization-server/" + segment).handler(this::authorizationServerMetadata);
+        router.get(publicPath + "/.well-known/oauth-authorization-server").handler(this::authorizationServerMetadata);
+        router.get("/.well-known/openid-configuration/" + segment).handler(this::authorizationServerMetadata);
+        router.get(publicPath + "/.well-known/openid-configuration").handler(this::authorizationServerMetadata);
+    }
+
+    private static String endpointSegment(String publicPath) {
+        return publicPath.startsWith("/") ? publicPath.substring(1) : publicPath;
+    }
+
+    private void protectedResourceMetadata(io.vertx.ext.web.RoutingContext context, String publicPath) {
         HttpJson.send(context, 200, Map.of(
-                "resource", config.publicOrigin() + config.mcpPublicPath(),
+                "resource", config.publicOrigin() + publicPath,
                 "authorization_servers", new String[]{config.publicOrigin()},
                 "scopes_supported", new String[]{"mcp"},
                 "bearer_methods_supported", new String[]{"header"}

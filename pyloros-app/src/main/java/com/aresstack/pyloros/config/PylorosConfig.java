@@ -25,7 +25,7 @@ public record PylorosConfig(
         return new PylorosConfig(
                 intValue("server.port", "SERVER_PORT", properties, 8081),
                 normalizeOrigin(value("public.origin", "PUBLIC_ORIGIN", properties, "https://current-car.com")),
-                value("mcp.public.path", "MCP_PUBLIC_PATH", properties, "/sse"),
+                value("mcp.public.path", "MCP_PUBLIC_PATH", properties, "/pyloros"),
                 value("mcp.protocol.version", "MCP_VERSION_CHATGPT", properties, "2025-03-26"),
                 value("oauth.client.id", "OAUTH_CLIENT_ID", properties, value("oauth.client.id", "BASIC_AUTH_USER", properties, "")),
                 value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),

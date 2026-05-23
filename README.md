@@ -2,6 +2,12 @@
 
 Pyloros is a headless Java 21 / Vert.x agent capability gateway that exposes local and remote MCP servers behind one MCP endpoint.
 
+Canonical public endpoint:
+- `https://current-car.com/pyloros`
+
+Legacy compatibility alias:
+- `https://current-car.com/sse` (deprecated)
+
 ## What Pyloros does
 
 - loads MCP upstreams from a Copilot-style `mcp.json`
@@ -200,9 +206,11 @@ Set-Location 'C:\Projects\pyloros'
 $env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 $env:PYLOROS_SMOKE_ACCESS_TOKEN='<pyloros access token>'
-$env:PYLOROS_SMOKE_MCP_URL='http://127.0.0.1:8081/sse'
+$env:PYLOROS_SMOKE_MCP_URL='http://127.0.0.1:8081/pyloros'
 .\gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
 ```
+
+For legacy compatibility verification, override the smoke URL with `http://127.0.0.1:8081/sse`.
 
 ### Real ChatGPT / `api_tool` invocation test
 

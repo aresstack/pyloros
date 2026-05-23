@@ -19,12 +19,12 @@ import java.util.Set;
  *
  * Environment:
  *   PYLOROS_SMOKE_ACCESS_TOKEN  (required) - Bearer token for Pyloros
- *   PYLOROS_SMOKE_MCP_URL       (optional) - default: http://127.0.0.1:8081/sse
+ *   PYLOROS_SMOKE_MCP_URL       (optional) - default: http://127.0.0.1:8081/pyloros
  */
 public class McpAggregationSmokeTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final String DEFAULT_MCP_URL = "http://127.0.0.1:8081/sse";
+    private static final String DEFAULT_MCP_URL = "http://127.0.0.1:8081/pyloros";
     private static final String PYLOROS_PING = "pyloros__ping";
     private static final String INTELLIJ_TOOL = "intellij__get_project_modules";
     private static final String GITHUB_TOOL = "github__get_me";
