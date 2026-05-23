@@ -74,12 +74,7 @@ public final class PylorosApplication extends AbstractVerticle {
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
-        Router router = Router.router(vertx);
-        router.route().handler(BodyHandler.create());
-
-        new HealthRoutes().mount(router);
-        securityModule.mountRoutes(router);
-        new McpRoutes(config, securityModule.authenticator(), toolCatalog, toolRouter).mount(router);
+        Router router = createRouter(config, securityModule, toolCatalog, toolRouter);
 
         vertx.createHttpServer()
                 .requestHandler(router)
@@ -91,6 +86,16 @@ public final class PylorosApplication extends AbstractVerticle {
                         config.mcpPublicPath()
                 ))
                 .onFailure(error -> log.error("Could not start HTTP server", error));
+    }
+
+    private Router createRouter(PylorosConfig config, SecurityModule securityModule, ToolCatalog toolCatalog, ToolRouter toolRouter) {
+        Router router = Router.router(vertx);
+        router.route().handler(BodyHandler.create());
+
+        new HealthRoutes().mount(router);
+        securityModule.mountRoutes(router);
+        new McpRoutes(config, securityModule.authenticator(), toolCatalog, toolRouter).mount(router);
+        return router;
     }
 
     private SecurityModule createSecurityModule(PylorosConfig config) {
