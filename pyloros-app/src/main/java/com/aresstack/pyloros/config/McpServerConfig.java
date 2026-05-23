@@ -1,9 +1,12 @@
 package com.aresstack.pyloros.config;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record McpServerConfig(
         String type,
         URI url,
