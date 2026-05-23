@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "requestInit": {
+        "headers": {
+          "Authorization": "Bearer ${GITHUB_MCP_TOKEN}"
+        }
+      }
+    },
+    "intellij": {
+      "type": "sse",
+      "url": "http://localhost:64343/sse",
+      "headers": {
+        "IJ_MCP_SERVER_PROJECT_PATH": "C:/Projects/pyloros"
+      }
+    },
+    "intellij-index": {
+      "url": "http://127.0.0.1:29170/index-mcp/streamable-http"
+    },
+    "mcp-steroid": {
+      "type": "http",
+      "url": "http://localhost:6315/mcp"
+    }
+  }
+}

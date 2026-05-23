@@ -1,0 +1,6 @@
+plugins {
+    id 'base'
+}
+
+// Documentation-only IntelliJ/MCP enablement module for Pyloros.
+// It intentionally has no production source set and no runtime dependencies.

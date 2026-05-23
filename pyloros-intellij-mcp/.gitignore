@@ -1,0 +1,3 @@
+# Local MCP configs may contain access tokens or machine-specific ports.
+config/mcp.local.json
+config/*.local.json
