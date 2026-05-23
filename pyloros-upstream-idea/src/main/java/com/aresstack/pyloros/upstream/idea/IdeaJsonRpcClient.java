@@ -6,12 +6,9 @@ import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpMethod;
-import io.vertx.core.http.RequestOptions;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.nio.charset.StandardCharsets;
 
 /**
  * Minimal JSON-RPC client skeleton for IDEA MCP. For 001-B this is only a lightweight helper that
@@ -70,11 +67,7 @@ public final class IdeaJsonRpcClient {
                     .onSuccess(req -> {
                         req.putHeader("Content-Type", "application/json");
                         req.putHeader("Accept", "application/json");
-                        // Forward fixed access token (dev token) if present in environment for local testing.
-                        String token = System.getenv("OAUTH_ACCESS_TOKEN");
-                        if (token != null && !token.isBlank()) {
-                            req.putHeader("Authorization", "Bearer " + token);
-                        }
+                        config.headers().forEach(req::putHeader);
                         req.send(Buffer.buffer(body))
                                 .onSuccess(response -> {
                                     // If server returns a sync result in body (rare), complete promise.

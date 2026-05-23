@@ -33,14 +33,6 @@ public final class GenericMcpToolProvider implements ToolProvider {
 
     @Override
     public Future<List<Map<String, Object>>> listTools() {
-        if (!config.isEnabled()) {
-            return Future.succeededFuture(List.of());
-        }
-        if (config.requiresToken() && !config.hasToken()) {
-            log.info("[MCP-UPSTREAM] provider={} unavailable reason=token-not-configured", config.providerId());
-            return Future.succeededFuture(List.of());
-        }
-
         return client.listTools().map(tools -> {
             List<Map<String, Object>> upstreamTools = new ArrayList<>();
             for (Map<String, Object> item : tools) {
@@ -58,13 +50,6 @@ public final class GenericMcpToolProvider implements ToolProvider {
 
     @Override
     public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode argumentsNode) {
-        if (!config.isEnabled()) {
-            return Future.succeededFuture(errorResult("Provider is disabled: " + config.providerId()));
-        }
-        if (config.requiresToken() && !config.hasToken()) {
-            return Future.succeededFuture(errorResult("Provider token not configured: " + config.providerId()));
-        }
-
         String requested = upstreamToolName == null ? "" : upstreamToolName;
 
         JsonObject arguments;

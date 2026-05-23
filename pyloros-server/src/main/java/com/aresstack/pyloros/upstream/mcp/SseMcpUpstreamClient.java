@@ -14,7 +14,6 @@ import io.vertx.ext.web.client.WebClientOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,8 +40,7 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
         this.vertx = vertx;
         this.config = config;
 
-        URI uri = URI.create(config.url());
-        boolean ssl = "https".equalsIgnoreCase(uri.getScheme());
+        boolean ssl = "https".equalsIgnoreCase(config.url().getScheme());
         this.sseClient = vertx.createHttpClient();
         this.rpcClient = WebClient.create(vertx, new WebClientOptions().setSsl(ssl).setConnectTimeout(config.connectTimeoutMillis()));
     }
@@ -101,7 +99,7 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
             return Future.failedFuture("No SSE endpoint discovered for provider " + config.providerId());
         }
 
-        URI endpointUri = toAbsoluteEndpoint(endpoint);
+        java.net.URI endpointUri = toAbsoluteEndpoint(endpoint);
         String id = String.valueOf(idGen.getAndIncrement());
         JsonObject body = new JsonObject()
                 .put("jsonrpc", "2.0")
@@ -127,8 +125,8 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
                 .putHeader("Accept", "application/json")
                 .timeout(config.responseTimeoutMillis());
 
-        if (config.hasToken()) {
-            req = req.putHeader("Authorization", "Bearer " + config.token());
+        for (Map.Entry<String, String> header : config.headers().entrySet()) {
+            req = req.putHeader(header.getKey(), header.getValue());
         }
 
         req.sendBuffer(Buffer.buffer(body.encode()))
@@ -167,15 +165,14 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
             return;
         }
 
-        URI uri = URI.create(config.url());
-        int port = uri.getPort() < 0 ? defaultPort(uri.getScheme()) : uri.getPort();
-        String path = uri.getPath() == null || uri.getPath().isBlank() ? "/" : uri.getPath();
+        int port = config.url().getPort() < 0 ? defaultPort(config.url().getScheme()) : config.url().getPort();
+        String path = config.url().getPath() == null || config.url().getPath().isBlank() ? "/" : config.url().getPath();
 
-        sseClient.request(HttpMethod.GET, port, uri.getHost(), path)
+        sseClient.request(HttpMethod.GET, port, config.url().getHost(), path)
                 .onSuccess(req -> {
                     req.putHeader("Accept", "text/event-stream");
-                    if (config.hasToken()) {
-                        req.putHeader("Authorization", "Bearer " + config.token());
+                    for (Map.Entry<String, String> header : config.headers().entrySet()) {
+                        req.putHeader(header.getKey(), header.getValue());
                     }
                     req.send()
                             .onSuccess(this::handleSseResponse)
@@ -253,15 +250,15 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
         }
     }
 
-    private URI toAbsoluteEndpoint(String endpoint) {
-        URI base = URI.create(config.url());
+    private java.net.URI toAbsoluteEndpoint(String endpoint) {
+        java.net.URI base = config.url();
         if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
-            return URI.create(endpoint);
+            return java.net.URI.create(endpoint);
         }
 
         String normalizedPath = endpoint.startsWith("/") ? endpoint : "/" + endpoint;
         int port = base.getPort() < 0 ? defaultPort(base.getScheme()) : base.getPort();
-        return URI.create(base.getScheme() + "://" + base.getHost() + ":" + port + normalizedPath);
+        return java.net.URI.create(base.getScheme() + "://" + base.getHost() + ":" + port + normalizedPath);
     }
 
     private void scheduleReconnect(String reason, Throwable cause) {

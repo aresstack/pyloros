@@ -12,27 +12,13 @@ import io.vertx.core.Vertx;
 import java.util.List;
 import java.util.Map;
 
-/**
- * GitHub provider now uses the generic MCP transport abstraction.
- */
 public final class GitHubToolProvider implements ToolProvider {
 
     private final GenericMcpToolProvider delegate;
 
-    public GitHubToolProvider(Vertx vertx, GitHubMcpConfig config) {
-        McpUpstreamConfig upstreamConfig = new McpUpstreamConfig(
-                "github",
-                config.enabled(),
-                "streamable-http",
-                config.url(),
-                config.toolPrefix(),
-                config.token(),
-                true,
-                config.connectTimeoutMillis(),
-                config.responseTimeoutMillis()
-        );
-        McpUpstreamClient client = McpUpstreamClients.create(vertx, upstreamConfig);
-        this.delegate = new GenericMcpToolProvider(upstreamConfig, client);
+    public GitHubToolProvider(Vertx vertx, McpUpstreamConfig config) {
+        McpUpstreamClient client = McpUpstreamClients.create(vertx, config);
+        this.delegate = new GenericMcpToolProvider(config, client);
     }
 
     @Override

@@ -11,7 +11,6 @@ import io.vertx.ext.web.client.WebClientOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -32,8 +31,7 @@ public final class StreamableHttpMcpUpstreamClient implements McpUpstreamClient 
     public StreamableHttpMcpUpstreamClient(Vertx vertx, McpUpstreamConfig config) {
         this.config = config;
 
-        URI uri = URI.create(config.url());
-        boolean ssl = "https".equalsIgnoreCase(uri.getScheme());
+        boolean ssl = "https".equalsIgnoreCase(config.url().getScheme());
         WebClientOptions options = new WebClientOptions()
                 .setSsl(ssl)
                 .setConnectTimeout(config.connectTimeoutMillis());
@@ -118,11 +116,10 @@ public final class StreamableHttpMcpUpstreamClient implements McpUpstreamClient 
 
         Promise<JsonObject> promise = Promise.promise();
 
-        URI uri = URI.create(config.url());
-        String host = uri.getHost();
-        int port = uri.getPort() < 0 ? defaultPort(uri.getScheme()) : uri.getPort();
-        String path = uri.getPath() == null || uri.getPath().isBlank() ? "/" : uri.getPath();
-        boolean ssl = "https".equalsIgnoreCase(uri.getScheme());
+        String host = config.url().getHost();
+        int port = config.url().getPort() < 0 ? defaultPort(config.url().getScheme()) : config.url().getPort();
+        String path = config.url().getPath() == null || config.url().getPath().isBlank() ? "/" : config.url().getPath();
+        boolean ssl = "https".equalsIgnoreCase(config.url().getScheme());
 
         var req = webClient.post(port, host, path)
                 .ssl(ssl)
@@ -130,8 +127,8 @@ public final class StreamableHttpMcpUpstreamClient implements McpUpstreamClient 
                 .putHeader("Accept", "application/json, text/event-stream")
                 .timeout(config.responseTimeoutMillis());
 
-        if (config.hasToken()) {
-            req = req.putHeader("Authorization", "Bearer " + config.token());
+        for (Map.Entry<String, String> header : config.headers().entrySet()) {
+            req = req.putHeader(header.getKey(), header.getValue());
         }
 
         String sid = sessionId.get();
@@ -189,11 +186,10 @@ public final class StreamableHttpMcpUpstreamClient implements McpUpstreamClient 
     }
 
     private void sendNotification(String method) {
-        URI uri = URI.create(config.url());
-        String host = uri.getHost();
-        int port = uri.getPort() < 0 ? defaultPort(uri.getScheme()) : uri.getPort();
-        String path = uri.getPath() == null || uri.getPath().isBlank() ? "/" : uri.getPath();
-        boolean ssl = "https".equalsIgnoreCase(uri.getScheme());
+        String host = config.url().getHost();
+        int port = config.url().getPort() < 0 ? defaultPort(config.url().getScheme()) : config.url().getPort();
+        String path = config.url().getPath() == null || config.url().getPath().isBlank() ? "/" : config.url().getPath();
+        boolean ssl = "https".equalsIgnoreCase(config.url().getScheme());
 
         JsonObject body = new JsonObject()
                 .put("jsonrpc", "2.0")
@@ -205,8 +201,8 @@ public final class StreamableHttpMcpUpstreamClient implements McpUpstreamClient 
                 .putHeader("Content-Type", "application/json")
                 .timeout(config.connectTimeoutMillis());
 
-        if (config.hasToken()) {
-            req = req.putHeader("Authorization", "Bearer " + config.token());
+        for (Map.Entry<String, String> header : config.headers().entrySet()) {
+            req = req.putHeader(header.getKey(), header.getValue());
         }
 
         String sid = sessionId.get();

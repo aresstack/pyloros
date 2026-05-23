@@ -1,5 +1,7 @@
 package com.aresstack.pyloros;
 
+import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
+import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
@@ -11,12 +13,14 @@ import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
-import com.aresstack.pyloros.upstream.github.GitHubMcpConfig;
 import com.aresstack.pyloros.upstream.github.GitHubToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
 import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
 import com.aresstack.pyloros.upstream.intellijindex.IntellijIndexToolProvider;
+import com.aresstack.pyloros.upstream.mcp.GenericMcpToolProvider;
+import com.aresstack.pyloros.upstream.mcp.McpUpstreamClient;
+import com.aresstack.pyloros.upstream.mcp.McpUpstreamClients;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamConfig;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
@@ -27,13 +31,24 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 public final class PylorosApplication extends AbstractVerticle {
 
     private static final Logger log = LoggerFactory.getLogger(PylorosApplication.class);
 
+    private final String[] launchArgs;
+
+    public PylorosApplication() {
+        this(new String[0]);
+    }
+
+    public PylorosApplication(String[] launchArgs) {
+        this.launchArgs = launchArgs == null ? new String[0] : launchArgs.clone();
+    }
+
     public static void main(String[] args) {
-        Vertx.vertx().deployVerticle(new PylorosApplication())
+        Vertx.vertx().deployVerticle(new PylorosApplication(args))
                 .onFailure(error -> {
                     log.error("Failed to deploy Pyloros", error);
                     System.exit(1);
@@ -45,38 +60,9 @@ public final class PylorosApplication extends AbstractVerticle {
         PylorosConfig config = PylorosConfig.load();
         OAuthService oauthService = new OAuthService(config);
 
-        IdeaMcpConfig ideaConfig = config.ideaMcpConfig();
-        IdeaMcpClient ideaMcpClient = new IdeaMcpClient(vertx, ideaConfig);
-        if (ideaConfig.enabled()) {
-            ideaMcpClient.start();
-            log.info("[MCP-UPSTREAM] provider=intellij transport=sse enabled endpoint=http://{}:{}{}",
-                    ideaConfig.host(), ideaConfig.port(), ideaConfig.ssePath());
-        } else {
-            log.info("[MCP-UPSTREAM] provider=intellij disabled");
-        }
-
-        GitHubMcpConfig githubConfig = config.githubMcpConfig();
-        ToolProvider githubProvider = new GitHubToolProvider(vertx, githubConfig);
-        if (githubConfig.enabled() && githubConfig.token() != null && !githubConfig.token().isBlank()) {
-            log.info("[MCP-UPSTREAM] provider=github transport=streamable-http enabled url={}", githubConfig.url());
-        } else {
-            log.info("[MCP-UPSTREAM] provider=github disabled (set PYLOROS_UPSTREAM_GITHUB_ENABLED=true and GITHUB_MCP_TOKEN)");
-        }
-
-        McpUpstreamConfig intellijIndexConfig = config.intellijIndexUpstreamConfig();
-        ToolProvider intellijIndexProvider = new IntellijIndexToolProvider(vertx, intellijIndexConfig);
-        if (intellijIndexConfig.enabled()) {
-            log.info("[MCP-UPSTREAM] provider=intellij-index transport={} enabled url={}",
-                    intellijIndexConfig.transport(), intellijIndexConfig.url());
-        } else {
-            log.info("[MCP-UPSTREAM] provider=intellij-index disabled");
-        }
-
         List<ToolProvider> providers = new ArrayList<>();
         providers.add(new PylorosPingToolProvider());
-        providers.add(new IdeaToolProvider(ideaConfig, ideaMcpClient));
-        providers.add(githubProvider);
-        providers.add(intellijIndexProvider);
+        registerExternalProviders(providers);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
@@ -100,5 +86,50 @@ public final class PylorosApplication extends AbstractVerticle {
                         config.mcpPublicPath()
                 ))
                 .onFailure(error -> log.error("Could not start HTTP server", error));
+    }
+
+    private void registerExternalProviders(List<ToolProvider> providers) {
+        McpJsonConfigLoader loader = new McpJsonConfigLoader();
+        Optional<LoadedMcpJsonConfig> loaded = loader.load(launchArgs);
+        if (loaded.isEmpty()) {
+            log.info("[MCP-CONFIG] no mcp.json found; starting without external MCP upstreams");
+            return;
+        }
+
+        LoadedMcpJsonConfig mcpJson = loaded.get();
+        log.info("[MCP-CONFIG] loaded mcp.json path={} serverCount={}",
+                mcpJson.path(),
+                mcpJson.config().servers() == null ? 0 : mcpJson.config().servers().size());
+
+        for (McpUpstreamConfig upstream : loader.resolveUpstreams(mcpJson)) {
+            ToolProvider provider = createProvider(upstream);
+            if (provider != null) {
+                providers.add(provider);
+            }
+        }
+    }
+
+    private ToolProvider createProvider(McpUpstreamConfig upstream) {
+        log.info("[MCP-UPSTREAM] provider={} transport={} url={}",
+                upstream.providerId(), upstream.transport(), upstream.url());
+
+        if ("intellij".equals(upstream.providerId()) && "sse".equalsIgnoreCase(upstream.transport())) {
+            IdeaMcpConfig ideaConfig = IdeaMcpConfig.from(upstream);
+            IdeaMcpClient ideaClient = new IdeaMcpClient(vertx, ideaConfig);
+            ideaClient.start();
+            return new IdeaToolProvider(ideaConfig, ideaClient);
+        }
+
+        if ("github".equals(upstream.providerId())) {
+            return new GitHubToolProvider(vertx, upstream);
+        }
+
+        if ("intellij-index".equals(upstream.providerId())) {
+            return new IntellijIndexToolProvider(vertx, upstream);
+        }
+
+        McpUpstreamClient client = McpUpstreamClients.create(vertx, upstream);
+        client.start();
+        return new GenericMcpToolProvider(upstream, client);
     }
 }

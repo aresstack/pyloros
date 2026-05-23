@@ -65,11 +65,7 @@ public final class IdeaSseSession {
             client.request(io.vertx.core.http.HttpMethod.GET, port, host, path)
                     .onSuccess(req -> {
                         req.putHeader("Accept", "text/event-stream");
-                        // If a fixed access token is provided via environment for local testing, send it.
-                        String token = System.getenv("OAUTH_ACCESS_TOKEN");
-                        if (token != null && !token.isBlank()) {
-                            req.putHeader("Authorization", "Bearer " + token);
-                        }
+                        config.headers().forEach(req::putHeader);
                         req.exceptionHandler(err -> {
                             log.debug("IDEA SSE connection error: {}", err.getMessage());
                             markStaleAndFailPending("connection error", err);

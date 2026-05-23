@@ -8,11 +8,11 @@ public final class McpUpstreamClients {
     }
 
     public static McpUpstreamClient create(Vertx vertx, McpUpstreamConfig config) {
-        if (config == null || !config.isEnabled()) {
+        if (config == null) {
             return new NoopMcpUpstreamClient();
         }
 
-        String transport = config.transport() == null ? "" : config.transport().trim().toLowerCase();
+        String transport = config.transport().trim().toLowerCase();
         return switch (transport) {
             case "streamable-http" -> new StreamableHttpMcpUpstreamClient(vertx, config);
             case "sse" -> new SseMcpUpstreamClient(vertx, config);

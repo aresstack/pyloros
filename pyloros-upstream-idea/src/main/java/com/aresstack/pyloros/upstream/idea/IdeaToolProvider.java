@@ -24,7 +24,7 @@ public final class IdeaToolProvider implements ToolProvider {
     }
 
     public IdeaToolProvider(IdeaMcpConfig config, IdeaMcpClient client) {
-        this.config = config == null ? new IdeaMcpConfig(false, "127.0.0.1", 64343, "/sse", 3000, 60000, "idea__") : config;
+        this.config = config == null ? new IdeaMcpConfig(null, Map.of(), 3000, 60000) : config;
         this.client = client;
     }
 
