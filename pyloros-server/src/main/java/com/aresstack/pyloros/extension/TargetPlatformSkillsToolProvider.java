@@ -57,7 +57,7 @@ package com.aresstack.pyloros.extension;
         }
     
         private String listSkills() {
-            List<TargetPlatformSkill> skills = modules.skills();
+            List<TargetPlatformSkill> skills = allSkills();
             if (skills.isEmpty()) {
                 return "No target-platform skills are available. Enable a target platform module such as intellij.";
             }
@@ -72,7 +72,7 @@ package com.aresstack.pyloros.extension;
                 return error("Missing required argument: skillId");
             }
     
-            Optional<TargetPlatformSkill> skill = modules.skills().stream()
+            Optional<TargetPlatformSkill> skill = allSkills().stream()
                     .filter(candidate -> skillId.equals(candidate.id()))
                     .findFirst();
     
@@ -80,7 +80,14 @@ package com.aresstack.pyloros.extension;
                     .orElseGet(() -> error("Skill not found: " + skillId));
         }
     
-        private Map<String, Object> listSkillsToolDefinition() {
+        private List<TargetPlatformSkill> allSkills() {
+        List<TargetPlatformSkill> skills = new java.util.ArrayList<>();
+        skills.addAll(new UserDataFile().loadTargetPlatformSkills());
+        skills.addAll(modules.skills());
+        return List.copyOf(skills);
+    }
+
+    private Map<String, Object> listSkillsToolDefinition() {
             return toolDefinition(
                     LIST_SKILLS_TOOL,
                     "Lists skills provided by enabled Pyloros target platform modules.",

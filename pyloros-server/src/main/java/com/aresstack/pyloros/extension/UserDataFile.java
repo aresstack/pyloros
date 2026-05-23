@@ -29,6 +29,20 @@ public final class UserDataFile {
         return file;
     }
 
+    public synchronized List<TargetPlatformSkill> loadTargetPlatformSkills() {
+        List<TargetPlatformSkill> result = new ArrayList<>();
+        for (UserContentEntry item : read().getItems()) {
+            result.add(new TargetPlatformSkill(
+                    item.getId(),
+                    item.getTitle(),
+                    item.getDescription(),
+                    item.getText(),
+                    item.getModuleId()
+            ));
+        }
+        return List.copyOf(result);
+    }
+
     public synchronized UserContentEntry save(String moduleId, String id, String title, String description, String text) {
         UserContentDocument document = read();
         List<UserContentEntry> updatedItems = new ArrayList<>();
