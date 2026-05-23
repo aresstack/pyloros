@@ -28,6 +28,14 @@ public final class ToolRouter {
         }
 
         String requestedExternalName = toolCall.name();
+
+        // Always refresh the catalog before dispatch so that tools/call works correctly
+        // even when tools/list was not called in this session (e.g. connector uses a cached
+        // tool list from a previous session or from OpenAI's side).
+        return toolCatalog.listTools().compose(ignored -> dispatch(requestedExternalName, toolCall));
+    }
+
+    private Future<Map<String, Object>> dispatch(String requestedExternalName, McpToolCall toolCall) {
         ToolCatalogEntry entry = toolCatalog.findByExternalName(requestedExternalName).orElse(null);
         if (entry == null) {
             log.info("[TOOL-ROUTER] catalog lookup externalName={} hit=false", requestedExternalName);

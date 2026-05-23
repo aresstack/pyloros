@@ -1,44 +1,37 @@
-010-A - Rename public endpoint to /pyloros
+010-B - Fix catalog consistency for /pyloros and /sse tool calls
+
+Befund:
+api_tool listet Tools wie pyloros__ping und intellij-index__ide_index_status.
+api_tool.call_tool auf exakt diese gelisteten Tools liefert aber:
+Tool not found: <toolName>
+
+Ursache:
+ToolRouter.callTool las den ToolCatalog-Snapshot synchron ohne vorheriges Refresh.
+Wenn ChatGPT tools/call schickt, ohne zuvor in dieser Session tools/list aufgerufen
+zu haben (z.B. weil der Connector die Tool-Liste aus dem OpenAI-Cache verwendet),
+ist der Snapshot leer.
 
 Ziel:
-Pyloros bekommt einen semantisch korrekten öffentlichen Gateway-Endpunkt.
+Ein Tool, das über tools/list sichtbar ist, muss unmittelbar danach über tools/call
+aufrufbar sein – auch wenn tools/list nicht in derselben Session aufgerufen wurde.
 
-Canonical endpoint:
-- /pyloros
-
-Legacy alias:
-- /sse
-
-Regeln:
-- /pyloros und /sse müssen initialize, tools/list, tools/call, resources/list unterstützen
-- /sse bleibt deprecated compatibility alias
-- README ChatGPT Connector URL: https://current-car.com/pyloros
-- Startlog zeigt: Pyloros listening ... public URL https://current-car.com/pyloros
-- Logs markieren legacy alias:
-  [MCP] post path=/sse ... deprecated=true
-- keine Provider-spezifischen Public-Endpoints
-- keine Änderung an ToolCatalog/ProviderRegistry/Routing
-- Default Tool-Separator bleibt "__"
-
-Umsetzung:
-1. Öffentlichen MCP-Endpunkt zentral auf `/pyloros` setzen.
-2. Legacy-Alias `/sse` zusätzlich mounten.
-3. Beide Endpunkte müssen dieselben MCP-Operationen bedienen:
-   - initialize
-   - tools/list
-   - tools/call
-   - resources/list
-   - prompts/list darf weiter unterstützt bleiben
-4. Logging ergänzen:
-   - Requests auf `/sse` als `deprecated=true`
-   - Requests auf `/pyloros` als `deprecated=false`
-5. Startlog und README auf `/pyloros` aktualisieren.
-6. Keine Änderungen an ToolCatalog/ProviderRegistry/Routing-Semantik.
+Fix:
+ToolRouter.callTool ruft vor dem Catalog-Lookup immer toolCatalog.listTools() auf
+(was refresh() triggert und den Snapshot aktualisiert), bevor per dispatch()
+im frisch befüllten Snapshot nachgeschlagen wird.
 
 Akzeptanz:
-- build grün
-- alter Connector über /sse funktioniert weiter
-- neuer Connector über /pyloros funktioniert
-- api_tool.call_tool intellij-index__ide_index_status über neuen Connector funktioniert
-- README und docs/agent/report.md aktualisiert
-- kein Commit ohne Freigabe
+1. Connector-Refresh zeigt pyloros__ping.
+2. api_tool.call_tool pyloros__ping funktioniert.
+3. Connector-Refresh zeigt intellij-index__ide_index_status.
+4. api_tool.call_tool intellij-index__ide_index_status funktioniert.
+5. Pyloros-Log zeigt beim Call:
+   [MCP] ... method=tools/call ... name=intellij-index__ide_index_status
+   [TOOL-ROUTER] catalog lookup externalName=intellij-index__ide_index_status hit=true
+6. /pyloros und /sse nutzen exakt denselben ToolCatalog und ToolRouter.
+7. RPC tools/call und path-based invocation nutzen denselben Resolver.
+8. Kein getrennter Catalog pro Route.
+9. Keine Änderung am Separator.
+10. Build + clean build grün.
+
+Kein Commit ohne Freigabe.
