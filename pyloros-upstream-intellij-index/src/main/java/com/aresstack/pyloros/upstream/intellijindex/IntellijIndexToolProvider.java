@@ -1,4 +1,4 @@
-package com.aresstack.pyloros.upstream.github;
+package com.aresstack.pyloros.upstream.intellijindex;
 
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.tool.ToolProvider;
@@ -12,27 +12,13 @@ import io.vertx.core.Vertx;
 import java.util.List;
 import java.util.Map;
 
-/**
- * GitHub provider now uses the generic MCP transport abstraction.
- */
-public final class GitHubToolProvider implements ToolProvider {
+public final class IntellijIndexToolProvider implements ToolProvider {
 
     private final GenericMcpToolProvider delegate;
 
-    public GitHubToolProvider(Vertx vertx, GitHubMcpConfig config) {
-        McpUpstreamConfig upstreamConfig = new McpUpstreamConfig(
-                "github",
-                config.enabled(),
-                "streamable-http",
-                config.url(),
-                config.toolPrefix(),
-                config.token(),
-                true,
-                config.connectTimeoutMillis(),
-                config.responseTimeoutMillis()
-        );
-        McpUpstreamClient client = McpUpstreamClients.create(vertx, upstreamConfig);
-        this.delegate = new GenericMcpToolProvider(upstreamConfig, client);
+    public IntellijIndexToolProvider(Vertx vertx, McpUpstreamConfig config) {
+        McpUpstreamClient client = McpUpstreamClients.create(vertx, config);
+        this.delegate = new GenericMcpToolProvider(config, client);
     }
 
     @Override

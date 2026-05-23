@@ -1,0 +1,12 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'IntelliJ index MCP upstream integration library for Pyloros'
+
+dependencies {
+    api project(':pyloros-server')
+
+    implementation "io.vertx:vertx-core:${vertxVersion}"
+    implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+}

@@ -1,22 +1,23 @@
 package com.aresstack.pyloros;
 
 import com.aresstack.pyloros.config.PylorosConfig;
+import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
 import com.aresstack.pyloros.http.MetadataRoutes;
 import com.aresstack.pyloros.http.OAuthRoutes;
-import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
-import com.aresstack.pyloros.upstream.github.GitHubMcpClient;
 import com.aresstack.pyloros.upstream.github.GitHubMcpConfig;
 import com.aresstack.pyloros.upstream.github.GitHubToolProvider;
-import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
+import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
+import com.aresstack.pyloros.upstream.intellijindex.IntellijIndexToolProvider;
+import com.aresstack.pyloros.upstream.mcp.McpUpstreamConfig;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
@@ -43,27 +44,39 @@ public final class PylorosApplication extends AbstractVerticle {
     public void start() {
         PylorosConfig config = PylorosConfig.load();
         OAuthService oauthService = new OAuthService(config);
-        // Setup IDEA MCP client and provider skeleton (001-B). Client is started only if enabled.
+
         IdeaMcpConfig ideaConfig = config.ideaMcpConfig();
         IdeaMcpClient ideaMcpClient = new IdeaMcpClient(vertx, ideaConfig);
         if (ideaConfig.enabled()) {
             ideaMcpClient.start();
+            log.info("[MCP-UPSTREAM] provider=intellij transport=sse enabled endpoint=http://{}:{}{}",
+                    ideaConfig.host(), ideaConfig.port(), ideaConfig.ssePath());
+        } else {
+            log.info("[MCP-UPSTREAM] provider=intellij disabled");
         }
 
-        // GitHub MCP upstream (optional, does not prevent startup if token is missing)
         GitHubMcpConfig githubConfig = config.githubMcpConfig();
-        GitHubMcpClient githubMcpClient = new GitHubMcpClient(vertx, githubConfig);
-        GitHubToolProvider githubToolProvider = new GitHubToolProvider(githubConfig, githubMcpClient);
+        ToolProvider githubProvider = new GitHubToolProvider(vertx, githubConfig);
         if (githubConfig.enabled() && githubConfig.token() != null && !githubConfig.token().isBlank()) {
-            log.info("[MCP-UPSTREAM] provider=github enabled url={}", githubConfig.url());
+            log.info("[MCP-UPSTREAM] provider=github transport=streamable-http enabled url={}", githubConfig.url());
         } else {
-            log.info("[MCP-UPSTREAM] provider=github disabled (set GITHUB_MCP_ENABLED=true and GITHUB_MCP_TOKEN to enable)");
+            log.info("[MCP-UPSTREAM] provider=github disabled (set PYLOROS_UPSTREAM_GITHUB_ENABLED=true and GITHUB_MCP_TOKEN)");
+        }
+
+        McpUpstreamConfig intellijIndexConfig = config.intellijIndexUpstreamConfig();
+        ToolProvider intellijIndexProvider = new IntellijIndexToolProvider(vertx, intellijIndexConfig);
+        if (intellijIndexConfig.enabled()) {
+            log.info("[MCP-UPSTREAM] provider=intellij-index transport={} enabled url={}",
+                    intellijIndexConfig.transport(), intellijIndexConfig.url());
+        } else {
+            log.info("[MCP-UPSTREAM] provider=intellij-index disabled");
         }
 
         List<ToolProvider> providers = new ArrayList<>();
         providers.add(new PylorosPingToolProvider());
         providers.add(new IdeaToolProvider(ideaConfig, ideaMcpClient));
-        providers.add(githubToolProvider);
+        providers.add(githubProvider);
+        providers.add(intellijIndexProvider);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);

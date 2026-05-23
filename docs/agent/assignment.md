@@ -1,279 +1,117 @@
 # Current Assignment
 
-Task: 009-B - Prove multi-MCP upstream aggregation with GitHub MCP
+Task: 009-C - Local MCP Aggregation Smoke Test
 
 Read AGENTS.md first. Use this file as the single source of truth.
 
-## High-Level Architecture Source
-
-Use `docs/requirements/005-acp-extension.md` as the high-level architecture for this phase.
-
-Pyloros is a headless Agent Capability Gateway:
-
-```text
-External clients speak MCP to Pyloros.
-Internally Pyloros aggregates ToolProviders.
-ToolProviders may be real MCP upstreams, virtual ACP providers, native Java providers, or later other adapters.
-```
-
-This task proves the first real aggregation milestone:
-
-```text
-ChatGPT
-  -> Pyloros
-    -> Native Pyloros tools
-    -> IntelliJ MCP upstream
-    -> GitHub MCP upstream
-```
-
-Do not implement ACP in this task.
-
-## Context
-
-Task 009-A introduced the ToolCatalog architecture:
-
-```text
-ProviderRegistry
-ToolCatalog
-ToolCatalogEntry
-ToolAddress
-ToolRouter
-```
-
-Now prove that the architecture supports more than one real MCP upstream.
-
-Available GitHub MCP upstream configuration example:
-
-```json
-"github": {
-  "type": "http",
-  "url": "https://api.githubcopilot.com/mcp/",
-  "requestInit": {
-    "headers": {
-      "Authorization": "Bearer XXX"
-    }
-  }
-}
-```
-
-The token must never be committed, logged, or written into tracked files.
-
 ## Goal
 
-Add GitHub MCP as a second real MCP upstream provider and prove that Pyloros exposes one aggregated MCP tool catalog containing native, IntelliJ, and GitHub tools.
-
-## Product Requirement
-
-The public client must see one MCP server: Pyloros.
-
-`tools/list` should contain tools from multiple providers, for example:
-
-```text
-pyloros__ping
-intellij/get_project_modules
-github/search_repositories
-github/list_issues
-```
-
-Actual GitHub tool names may differ. Preserve upstream tool names under the `github/` namespace.
+Implement a local smoke test for MCP aggregation that can run independently of the ChatGPT connector layer.
+This verifies that Pyloros correctly routes and dispatches GitHub tools/call without relying on ChatGPT's toolcall layer.
 
 ## Scope
 
-### 1. Introduce generic MCP upstream abstractions if needed
+### 1. Smoke Test Implementation
 
-The existing IntelliJ upstream classes may still be IDEA-specific.
+Created: `pyloros-app/src/main/java/com/aresstack/pyloros/smoke/McpAggregationSmokeTest.java`
 
-For this task, either:
+- Standalone Java CLI test class
+- No JUnit, no embedded server
+- Tests against a running Pyloros server
+- Reads Bearer token from `PYLOROS_SMOKE_ACCESS_TOKEN` environment variable
+- Reads MCP endpoint from `PYLOROS_SMOKE_MCP_URL` (default: http://127.0.0.1:8081/sse)
 
-- minimally generalize the current upstream client/provider so it can support GitHub too, or
-- introduce generic classes and keep IntelliJ as a configuration/specialization.
+### 2. Test Sequence
 
-Preferred target names if practical:
+1. `tools/list` – Aggregate all tools, count by provider
+2. Validate: `pyloros__ping`, `intellij/get_project_modules`, at least 1 `github/*` tool
+3. `tools/call pyloros__ping` – Native provider test
+4. `tools/call intellij/get_project_modules` – IntelliJ upstream test
+5. `tools/call github/<selected>` – GitHub upstream test
+   - Auto-select read-only GitHub tool: `get_me`, `search_repositories`, etc.
+   - Use safe arguments (e.g., topic:mcp for search)
+6. Summary: total tools, GitHub count, test results
 
-```text
-McpUpstreamConfig
-McpUpstreamClient
-McpSseSession / McpHttpTransport as needed
-McpJsonRpcClient
-McpUpstreamToolProvider
+### 3. Gradle Integration
+
+Added task to `pyloros-app/build.gradle`:
+
+```bash
+gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
 ```
 
-Do not over-refactor. The goal is working two-upstream aggregation.
+Environment variables (passed through from shell):
+- `PYLOROS_SMOKE_ACCESS_TOKEN` (required)
+- `PYLOROS_SMOKE_MCP_URL` (optional, default: http://127.0.0.1:8081/sse)
 
-### 2. Support GitHub HTTP MCP upstream
+### 4. Usage
 
-GitHub endpoint:
-
-```text
-https://api.githubcopilot.com/mcp/
-```
-
-GitHub authorization:
-
-```text
-Authorization: Bearer <token>
-```
-
-The token must come from environment variable or local uncommitted config only.
-
-Recommended environment variable:
-
-```text
-GITHUB_MCP_TOKEN
-```
-
-Optional additional config variables:
-
-```text
-GITHUB_MCP_ENABLED=true
-GITHUB_MCP_URL=https://api.githubcopilot.com/mcp/
-GITHUB_MCP_TOOL_PREFIX=github/
-GITHUB_MCP_CONNECT_TIMEOUT_MS=5000
-GITHUB_MCP_RESPONSE_TIMEOUT_MS=60000
-```
-
-If the token is missing, Pyloros must still start. The GitHub provider may be disabled or report unavailable, but it must not break IntelliJ or native tools.
-
-### 3. Register providers
-
-The app should register at least:
-
-```text
-native/pyloros provider
-intellij provider
-github provider when enabled/configured
-```
-
-### 4. ToolCatalog behavior
-
-The ToolCatalog must aggregate tools from all available providers.
-
-Rules:
-
-```text
-- IntelliJ tools keep the intellij/ namespace.
-- GitHub tools use the github/ namespace.
-- Native Pyloros tools keep existing names, including pyloros__ping.
-- Collisions must fail clearly; no silent overwrite.
-- One unavailable provider must not remove all tools from other providers.
-```
-
-### 5. Tool call routing
-
-`tools/call` must route based on the ToolCatalog entry:
-
-```text
-intellij/get_project_modules -> IntelliJ MCP upstream
-github/<tool>                -> GitHub MCP upstream
-pyloros__ping                -> native provider
-```
-
-### 6. Transport compatibility
-
-IntelliJ MCP currently uses local SSE/message flow.
-GitHub MCP may use streamable HTTP or HTTP MCP behavior.
-
-Implement the smallest compatible transport needed for GitHub MCP. Do not break IntelliJ. If GitHub transport requires a separate code path, keep it isolated behind the generic MCP upstream abstraction.
-
-### 7. Logging
-
-Log provider lifecycle and tool discovery without secrets:
-
-```text
-[MCP-UPSTREAM] provider=github connecting url=https://api.githubcopilot.com/mcp/
-[MCP-UPSTREAM] provider=github tools/list returned N tools
-[MCP-UPSTREAM] provider=github unavailable reason=...
-```
-
-Never log Authorization header values or tokens.
-
-## Configuration
-
-Do not commit secrets.
-
-Recommended local PowerShell setup:
+Start Pyloros with a known access token:
 
 ```powershell
-$env:GITHUB_MCP_TOKEN = '<real token here>'
+$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
+$env:OAUTH_ACCESS_TOKEN = 'test-token-xyz'
 $env:GITHUB_MCP_ENABLED = 'true'
+$env:GITHUB_MCP_TOKEN = '<your-github-token>'
+
+# Option A: Via fat JAR
+java -jar .\pyloros-app\build\libs\pyloros.jar
+
+# Option B: Via Gradle run
+.\gradlew.bat :pyloros-app:run
 ```
 
-If an example config is added, use only placeholders and default GitHub disabled:
-
-```properties
-github.mcp.enabled=false
-github.mcp.url=https://api.githubcopilot.com/mcp/
-github.mcp.tool.prefix=github/
-github.mcp.token=
-```
-
-Prefer env for token.
-
-## Acceptance Criteria
-
-- `gradlew.bat clean build` is green.
-- `gradlew.bat :pyloros-app:shadowJar` is green.
-- Fat JAR still exists at `pyloros-app/build/libs/pyloros.jar`.
-- Starting the fat JAR still works:
+Then in another terminal:
 
 ```powershell
-& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar
+$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
+$env:PYLOROS_SMOKE_ACCESS_TOKEN = 'test-token-xyz'
+.\gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
 ```
 
-- `GET http://127.0.0.1:8081/health` returns `200 {"status":"ok"}`.
-- With GitHub token missing, Pyloros still starts and IntelliJ/native tools still work.
-- With GitHub token configured, `tools/list` contains:
+## Acceptance
 
-```text
-pyloros__ping
-intellij/get_project_modules
-at least one github/... tool
-```
+- `gradlew.bat clean build` is green
+- Smoke test runs and reports all providers
+- GitHub tool call is tested independently of ChatGPT connector
+- No token values logged in output
+- No secrets committed
+- Report updated with results
 
-- `tools/call intellij/get_project_modules` still works.
-- At least one safe/read-only GitHub tool call works, if an appropriate tool exists in the GitHub MCP catalog.
-- No token values are logged.
-- No runtime data or secrets are committed.
-- No ACP implementation is added.
-- No Maven Central publish is attempted.
+## Notes on OAuth Token
 
-## Verification Notes
+The smoke test requires a Bearer token that Pyloros accepts. Options:
 
-Use a safe GitHub tool for runtime verification. Prefer read-only tools such as listing/searching repositories, reading current user, or listing issues, depending on the GitHub MCP tool catalog returned.
+1. **Quickest (for testing):** Start Pyloros with `OAUTH_ACCESS_TOKEN=<value>`
+   - This is a fixed token that the server will accept on every request
+   - Set before starting the server, e.g., `$env:OAUTH_ACCESS_TOKEN='test-token-abc123'`
 
-If no safe GitHub tool can be called due to token permissions, still verify that `tools/list` includes `github/...` tools and document the permission limitation clearly.
+2. **Via OAuth flow (production):**
+   - POST `/oauth/authorize` with PKCE → redirect with code
+   - POST `/oauth/token` with code → get access_token
+   - Use access_token in Bearer header
+
+For 009-C, use option 1 (fixed token) for simplicity.
+
+## Report
+
+Overwrite `docs/agent/report.md` completely with:
+
+- Smoke test implementation details
+- Test sequence results
+- GitHub tool selection and call result
+- Tool counts per provider
+- Exact Gradle command used
+- Exact environment setup
+- Build result: successful
+- Result: successful or failed
+- If failed: token issues or other errors
+
+---
 
 ## Not Allowed
 
-- No ACP implementation.
-- No virtual provider implementation.
-- No GitHub token in committed files.
-- No token logging.
-- No OAuth behavior changes for the public ChatGPT -> Pyloros connection.
-- No changes that break IntelliJ forwarding.
-- No Maven Central publishing.
-- No broad rewrite beyond what is needed to prove two MCP upstreams.
-
-## Commit Message
-
-`Add GitHub MCP upstream aggregation`
-
-## Final Report
-
-Overwrite `docs/agent/report.md` completely.
-
-Include:
-
-- Files changed
-- New classes/interfaces introduced
-- Whether the MCP upstream abstraction was generalized
-- GitHub config keys used
-- Build result
-- Shadow JAR result
-- Healthcheck result
-- tools/list aggregation result, including counts per provider if available
-- IntelliJ tool call verification
-- GitHub tool list verification
-- GitHub tool call verification or clear reason why it could not be called
-- Exact commit hash
-- Whether push was performed
+- No code changes to Pyloros core (test-only code)
+- No remote publish
+- No ACP implementation
+- No token values in output or committed files
