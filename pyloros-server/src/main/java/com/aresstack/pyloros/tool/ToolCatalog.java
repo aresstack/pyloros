@@ -7,15 +7,22 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class ToolCatalog {
 
     private final ProviderRegistry providerRegistry;
+    private final ToolNameFormatter toolNameFormatter;
     private volatile ToolCatalogSnapshot snapshot = ToolCatalogSnapshot.empty();
 
     public ToolCatalog(ProviderRegistry providerRegistry) {
-        this.providerRegistry = providerRegistry;
+        this(providerRegistry, ToolNameFormatter.defaultFormatter());
+    }
+
+    public ToolCatalog(ProviderRegistry providerRegistry, ToolNameFormatter toolNameFormatter) {
+        this.providerRegistry = Objects.requireNonNull(providerRegistry, "providerRegistry must not be null");
+        this.toolNameFormatter = Objects.requireNonNull(toolNameFormatter, "toolNameFormatter must not be null");
     }
 
     public Future<List<Map<String, Object>>> listTools() {
@@ -100,7 +107,7 @@ public final class ToolCatalog {
 
         String externalName = provider.preservesUpstreamToolName()
                 ? upstreamToolName
-                : providerId + "__" + upstreamToolName;
+                : toolNameFormatter.externalName(providerId, upstreamToolName);
         ToolAddress address = new ToolAddress(providerId, upstreamToolName);
 
         LinkedHashMap<String, Object> descriptor = new LinkedHashMap<>(tool);

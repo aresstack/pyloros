@@ -1,65 +1,64 @@
-# Report – Assignment 009-G
+# Report – Assignment 009-H
 
-## Was wurde verifiziert, geaendert oder implementiert?
-- Implementiert: Externe Tool-Namensbildung zentral im `ToolCatalog` von `providerId + "/" + upstreamToolName` auf `providerId + "__" + upstreamToolName` umgestellt (nur fuer nicht-native Provider).
-- Unveraendert gelassen:
-  - interne Adressierung ueber `ToolAddress(providerId, upstreamToolName)`
-  - exaktes Router-Lookup per `toolsByExternalName.get(requestToolName)`
-  - Provider-Dispatch per `callTool(upstreamToolName, arguments)`
-  - keine Prefix-/Split-Heuristik eingefuehrt.
-- Tests angepasst auf `__`-Namen inkl. Routing-Verifikation fuer `intellij-index`.
-- Zusatzlich Smoke-Test-Konstanten auf `__`-Namen aktualisiert, damit der A/B-Test-Slice konsistent ist.
+## What was verified, changed or implemented?
+- `docs/agent/assignment.md` was replaced with the new slice `009-H` for configurable external tool-name separators.
+- Added central formatter `ToolNameFormatter` with `externalName(providerId, upstreamToolName)` and default separator constant `__`.
+- `ToolCatalog` now receives `ToolNameFormatter` (constructor injection) and uses it for external names of non-preserved tools.
+- `PylorosApplication` wiring updated:
+  - resolves separator via new `ToolNameSeparatorResolver`
+  - applies priority CLI `--tool-name-separator=...` > JVM `-Dmcp.tool-name-separator=...` > default `__`
+  - passes formatter into `ToolCatalog`
+- `ToolAddress` and `ToolRouter` architecture stayed unchanged (exact map lookup, no split/prefix routing).
+- Tests updated/added:
+  - default `__` naming still covered
+  - slash override (`/`) covered for tools/list and routing
+  - internal address invariance covered (`ToolAddress(providerId, upstreamToolName)`)
+  - separator priority behavior covered in app config tests
+- README updated to document separator default/overrides and `/` compatibility-test mode note.
 
-## Welche Dateien wurden geaendert oder neu erstellt?
-- Geaendert:
-  - `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
-  - `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
-  - `pyloros-server/src/test/java/com/aresstack/pyloros/http/ToolCallRequestResolverTest.java`
-  - `pyloros-app/src/main/java/com/aresstack/pyloros/smoke/McpAggregationSmokeTest.java`
-  - `docs/agent/report.md` (dieser Report, vollstaendig ueberschrieben)
-- Neu erstellt: keine
+## Which files were changed or newly created?
+Changed:
+- `README.md`
+- `docs/agent/assignment.md`
+- `pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
+- `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
 
-## Welche Architekturentscheidung wurde beruehrt?
-- Externe Tool-Benennung (`tools/list`/oeffentliche Namen) fuer den kontrollierten 009-G A/B-Test wurde auf resource-safe Delimiter `__` umgestellt.
-- Interne Architekturgrenzen bleiben unveraendert (Adresse, Lookup, Dispatch exakt map-basiert).
-- Hinweis: Dies ist explizit ein A/B-Test-Slice und keine dauerhafte Architekturfestlegung.
+Created:
+- `pyloros-app/src/main/java/com/aresstack/pyloros/config/ToolNameSeparatorResolver.java`
+- `pyloros-app/src/test/java/com/aresstack/pyloros/config/ToolNameSeparatorResolverTest.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolNameFormatter.java`
 
-## Welche Tests, Builds und Runtime-Checks wurden ausgefuehrt?
-1. (Fehlversuch, Umgebung)
-   - Kommando:
-     - `.\gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --console=plain`
-   - Ergebnis: **fehlgeschlagen**, da Gradle mit JVM 8 lief (`Gradle requires JVM 17 or later... configured to use JVM 8`).
+## Which architecture decision was touched?
+- External tool-name formatting is now centralized and configurable.
+- Internal routing contract was preserved:
+  - `ToolAddress(providerId, upstreamToolName)` unchanged
+  - router lookup remains exact: `toolsByExternalName.get(requestToolName)`
+  - no split/prefix/path-based routing introduced
+  - providers remain responsible only for upstream names/calls
 
-2. Relevante Tests mit Java 21
-   - Kommando:
-     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --console=plain`
-   - Ergebnis: **BUILD SUCCESSFUL**.
+## Which tests, builds and runtime checks were executed?
+Executed with Java 21 (`C:\Program Files\Zulu\zulu-21`):
+1. `java -version`
+   - result: `openjdk version "21.0.5" ...`
+2. `./gradlew.bat clean build --no-daemon`
+   - result: **failed** at `:pyloros-app:clean` due locked `pyloros.jar` in `pyloros-app/build/libs`
+3. `./gradlew.bat build --no-daemon`
+   - result: **successful** (`BUILD SUCCESSFUL`)
+4. `./gradlew.bat :pyloros-server:test --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest --no-daemon`
+   - result: **successful**
+5. `./gradlew.bat :pyloros-app:test --tests com.aresstack.pyloros.config.ToolNameSeparatorResolverTest --no-daemon`
+   - result: **successful**
 
-3. Build (zunaechst mit clean)
-   - Kommando:
-     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat clean build --console=plain`
-   - Ergebnis: **fehlgeschlagen** wegen Dateisperre beim Loeschen von `pyloros-app/build/libs/pyloros.jar`.
+## Result: successful or failed
+- **Successful** for implementation and required verification scope.
 
-4. Build ohne clean (relevanter Gesamtbuild)
-   - Kommando:
-     - `$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; .\gradlew.bat build --console=plain`
-   - Ergebnis: **BUILD SUCCESSFUL** (mit bestehenden Javadoc-Warnungen, keine neuen Fehler).
+## If failed: exact error and recommended next step
+- One command failed:
+  - `./gradlew.bat clean build --no-daemon`
+  - error: `Unable to delete directory 'C:\Projects\pyloros\pyloros-app\build' ... pyloros.jar`
+- Recommended next step:
+  - stop process locking `pyloros-app/build/libs/pyloros.jar` (likely running app/JAR), then rerun `clean build`.
 
-5. IDE-Fehlerpruefung geaenderter Dateien
-   - Ergebnis: keine Compile-Fehler in den geaenderten Dateien (nur vorhandene Test-Style-Warnungen).
-
-## Ergebnis: erfolgreich oder fehlgeschlagen
-- **Erfolgreich**: 009-G wurde umgesetzt, relevante Tests und Build sind gruen (mit Java 21).
-
-## Falls fehlgeschlagen: exakter Fehler und empfohlener naechster Schritt
-- Nicht zutreffend fuer Endergebnis.
-- Dokumentierte Zwischenfehler:
-  - JVM 8 statt Java 21 -> durch explizites Setzen von `JAVA_HOME` auf Zulu 21 behoben.
-  - `clean build` Dateisperre auf `pyloros.jar` -> durch Build ohne clean umgangen; bei Bedarf Lock-Prozess beenden und `clean build` erneut ausfuehren.
-
-## Exakter Commit-Hash oder kein Commit
-- **No commit created**.
-
-## Zusatzhinweis Workflow/Tooling
-- Der geforderte `local-code-search` Subagent wurde versucht, war in dieser Umgebung jedoch nicht lauffaehig (`Model "qwen2.5-coder:14b" not found`).
-- Daher wurde die Codebasisanalyse mit lokalen Workspace-Search/Read-Tools durchgefuehrt.
+## Exact commit hash, or No commit created
+- No commit created

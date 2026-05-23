@@ -55,6 +55,27 @@ class ToolCatalogRoutingTest {
     }
 
     @Test
+    void listToolsUsesSlashNamesWhenSeparatorIsOverridden() {
+        RecordingProvider github = new RecordingProvider("github", false, "get_me");
+        RecordingProvider intellij = new RecordingProvider("intellij", false, "get_project_modules");
+        ToolCatalog toolCatalog = new ToolCatalog(
+                new ProviderRegistry(List.of(new PylorosPingToolProvider(), intellij, github)),
+                new ToolNameFormatter("/")
+        );
+
+        List<Map<String, Object>> tools = await(toolCatalog.listTools());
+        Set<String> names = toolNames(tools);
+
+        assertTrue(names.contains("github/get_me"));
+        assertTrue(names.contains("intellij/get_project_modules"));
+
+        ToolCatalogSnapshot snapshot = toolCatalog.snapshot();
+        ToolCatalogEntry githubEntry = snapshot.toolsByExternalName().get("github/get_me");
+        assertNotNull(githubEntry);
+        assertEquals(new ToolAddress("github", "get_me"), githubEntry.address());
+    }
+
+    @Test
     void routerRoutesGithubDoubleUnderscoreNameToProviderAndUpstreamTool() {
         RecordingProvider github = new RecordingProvider("github", false, "get_me");
         ToolRouter toolRouter = routerWithCatalog(github);
@@ -90,6 +111,19 @@ class ToolCatalogRoutingTest {
 
         assertEquals("ide_index_status", index.lastUpstreamToolName);
         assertEquals(arguments, index.lastArguments);
+        assertFalse(Boolean.TRUE.equals(result.get("isError")));
+    }
+
+    @Test
+    void routerRoutesSlashNameWhenSeparatorIsOverridden() {
+        RecordingProvider github = new RecordingProvider("github", false, "get_me");
+        ToolRouter toolRouter = routerWithCatalog(github, new ToolNameFormatter("/"));
+        JsonNode arguments = JSON.createObjectNode().put("viewer", true);
+
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github/get_me", arguments)));
+
+        assertEquals("get_me", github.lastUpstreamToolName);
+        assertEquals(arguments, github.lastArguments);
         assertFalse(Boolean.TRUE.equals(result.get("isError")));
     }
 
@@ -138,8 +172,12 @@ class ToolCatalogRoutingTest {
     }
 
     private static ToolRouter routerWithCatalog(ToolProvider provider) {
+        return routerWithCatalog(provider, ToolNameFormatter.defaultFormatter());
+    }
+
+    private static ToolRouter routerWithCatalog(ToolProvider provider, ToolNameFormatter formatter) {
         ProviderRegistry providerRegistry = new ProviderRegistry(List.of(provider));
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, formatter);
         await(toolCatalog.listTools());
         return new ToolRouter(providerRegistry, toolCatalog);
     }

@@ -6,22 +6,31 @@ Pyloros is a headless Java 21 / Vert.x agent capability gateway that exposes loc
 
 - loads MCP upstreams from a Copilot-style `mcp.json`
 - aggregates tools from multiple upstreams into one MCP catalog
-- keeps canonical MCP tool names as `provider/tool`
+- formats external MCP tool names as `provider<separator>tool` (default separator `__`)
 - routes `tools/call` by exact tool name through a map-backed catalog
 - keeps optional upstreams non-fatal so Pyloros can still start with native tools only
 
-## Canonical tool naming
+## External tool naming
 
-External MCP tool names remain canonical slash names:
-- `intellij/get_project_modules`
-- `github/get_me`
-- `intellij-index/ide_index_status`
+Default external MCP tool names use `__`:
+- `intellij__get_project_modules`
+- `github__get_me`
+- `intellij-index__ide_index_status`
+
+Override priority for separator:
+1. `--tool-name-separator=...`
+2. `-Dmcp.tool-name-separator=...`
+3. default `__`
+
+Example compatibility/test mode:
+- `--tool-name-separator=/` (or `-Dmcp.tool-name-separator=/`)
+- yields names like `intellij/get_project_modules`
+- `/` mode is intended for test/compatibility only
 
 Important:
-- slash is intentionally preserved
-- slash is part of the MCP tool name
-- slash is **not** treated as a resource hierarchy separator
-- Pyloros routes exact tool names, not path fragments
+- external names are still routed by exact string match only
+- internal routing address remains `ToolAddress(providerId, upstreamToolName)`
+- no split/prefix/path-fragment routing is used
 
 Native tools may intentionally keep their own names, for example:
 - `pyloros__ping`
@@ -170,7 +179,7 @@ When `mcp.json` changes or Pyloros restarts:
 - restart Pyloros
 - refresh or update the ChatGPT / Copilot connector view
 - call `tools/list` again
-- use the refreshed canonical slash names returned by Pyloros
+- use the refreshed exact names returned by Pyloros (`__` by default)
 
 ## Local smoke test vs real ChatGPT / `api_tool` invocation
 
@@ -180,9 +189,9 @@ The local smoke test verifies only the local Pyloros router and local MCP endpoi
 
 It checks exact tool names such as:
 - `pyloros__ping`
-- `intellij/get_project_modules`
-- `github/get_me`
-- `intellij-index/ide_index_status`
+- `intellij__get_project_modules`
+- `github__get_me`
+- `intellij-index__ide_index_status`
 
 Run:
 
@@ -206,6 +215,6 @@ A real ChatGPT / connector invocation test validates the external client layer a
 - `PylorosApplication`: bootstrap and wiring only
 - `ProviderRegistry`: deterministic provider registration by `providerId`
 - `ToolCatalog`: immutable map-backed snapshots
-- `ToolRouter`: exact-name routing by canonical MCP tool name
+- `ToolRouter`: exact-name routing by external MCP tool name
 - `OAuthService`: OAuth token handling for the public Pyloros endpoint
 - external upstreams are discovered from `mcp.json`

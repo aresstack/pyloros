@@ -3,6 +3,7 @@ package com.aresstack.pyloros;
 import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
+import com.aresstack.pyloros.config.ToolNameSeparatorResolver;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
 import com.aresstack.pyloros.http.MetadataRoutes;
@@ -11,6 +12,7 @@ import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
+import com.aresstack.pyloros.tool.ToolNameFormatter;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
 import com.aresstack.pyloros.upstream.github.GitHubToolProvider;
@@ -60,12 +62,16 @@ public final class PylorosApplication extends AbstractVerticle {
         PylorosConfig config = PylorosConfig.load();
         OAuthService oauthService = new OAuthService(config);
 
+        String toolNameSeparator = new ToolNameSeparatorResolver().resolve(launchArgs);
+        ToolNameFormatter toolNameFormatter = new ToolNameFormatter(toolNameSeparator);
+        log.info("[MCP-TOOLS] external-name-separator={}", toolNameSeparator);
+
         List<ToolProvider> providers = new ArrayList<>();
         providers.add(new PylorosPingToolProvider());
         registerExternalProviders(providers);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
         Router router = Router.router(vertx);

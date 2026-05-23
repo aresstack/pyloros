@@ -1,60 +1,38 @@
-009-G - Test resource-safe external tool names
+009-H - Konfigurierbarer Separator für externe Toolnamen
 
 Ziel:
-Empirisch pruefen, ob ChatGPT/api_tool nur an Slash-Namen im Resource-Pfad scheitert.
+Externe Toolnamen zentral formatieren mit konfigurierbarem Separator, ohne die interne Routing-Architektur zu ändern.
 
-Aenderung:
-Externer Toolname wird temporaer von `provider/tool` auf `provider__tool` umgestellt.
+Anforderungen:
+- Default-Separator ist `__`.
+- Override-Priorität:
+  1. CLI `--tool-name-separator=...`
+  2. JVM Property `-Dmcp.tool-name-separator=...`
+  3. Default `__`
+- Separator betrifft nur externe Toolnamen (Darstellung in `tools/list` und Lookup-Key), nicht interne Adressierung.
 
-Beispiele:
-- intellij__get_project_modules
-- github__get_me
-- intellij-index__ide_index_status
-
-Nicht aendern:
-- ProviderRegistry
-- ToolAddress
-- Upstream tool names
-- GenericMcpToolProvider
-- mcp.json Loader
-- Transports
-
-Architekturgrenzen:
-- Nur externe `tools/list`-Benennung aendern.
-- Intern bleibt alles map-basiert und exakt:
-  - ToolAddress(providerId, upstreamToolName)
-  - Router: toolsByExternalName.get(requestToolName)
-  - Provider: callTool(upstreamToolName, arguments)
-- Kein split("/")
-- Kein startsWith/prefix routing
+Nicht ändern:
+- `ToolAddress` bleibt `ToolAddress(providerId, upstreamToolName)`.
+- `ToolRouter` bleibt exakter Lookup via `toolsByExternalName.get(requestToolName)`.
+- Kein Split-/Prefix-Routing.
+- Keine Änderungen in Providern bzgl. Namebildung der Upstream-Tools.
 
 Umsetzung:
-1. Externen Name zentral im ToolCatalog/Name-Builder bilden als:
-   externalName = providerId + "__" + upstreamToolName
-2. Tests anpassen/erweitern:
-   - Toolliste enthaelt die `__`-Namen
-   - Routing mappt `intellij-index__ide_index_status` auf
-     providerId=intellij-index und upstreamToolName=ide_index_status
-   - Unbekannte Namen liefern sauberen Fehler
-3. Logging-/Diagnosekette beibehalten.
+1. Neue zentrale Komponente `ToolNameFormatter` (oder gleichwertig) mit API:
+   - `externalName(providerId, upstreamToolName)`
+2. Konfig-Auflösung des Separators gemäß Priorität (CLI > JVM Property > Default).
+3. Wiring in App/Bootstrap, sodass `ToolCatalog` den Formatter/Separator nutzt.
+4. `ToolCatalog` auf Formatter umstellen.
+5. Tests anpassen/ergänzen:
+   - Default `__`-Namen.
+   - Override `/` zeigt Slash-Namen in list und Routing funktioniert lokal.
+   - Interne Address bleibt gleich.
+6. README knapp aktualisieren:
+   - neuer Separator-Override inkl. Default `__`
+   - Hinweis, dass `/` nur Test/Kompatibilitätsmodus ist.
 
 Akzeptanz:
-1. Build gruen.
-2. Pyloros neu starten.
-3. ChatGPT Connector aktualisieren.
-4. Toolliste enthaelt:
-   - intellij__get_project_modules
-   - github__get_me
-   - intellij-index__ide_index_status
-5. api_tool.call_tool testbar auf:
-   - /.../intellij__get_project_modules
-   - /.../github__get_me
-   - /.../intellij-index__ide_index_status
-6. Pyloros-Log zeigt bei Erfolg:
-   - [MCP] ... method=tools/call ... name=intellij-index__ide_index_status
-   - [TOOL-ROUTER] catalog lookup ... hit=true
-   - [TOOL-ROUTER] provider dispatch providerId=intellij-index upstreamToolName=ide_index_status
-
-Hinweise:
-- Das ist ein kontrollierter A/B-Test-Slice, keine dauerhafte Architekturentscheidung.
-- Kein Commit ohne explizite Freigabe.
+1. Build grün.
+2. Relevante Tests grün.
+3. Kein Scope-Creep über diesen Slice hinaus.
+4. Kein Commit ohne explizite Freigabe.
