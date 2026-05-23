@@ -1,11 +1,11 @@
 package com.aresstack.pyloros.upstream.intellijindex;
 
-import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.upstream.mcp.GenericMcpToolProvider;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamClient;
-import com.aresstack.pyloros.upstream.mcp.McpUpstreamConfig;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamClients;
+import com.aresstack.pyloros.upstream.mcp.McpUpstreamConfig;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
@@ -27,22 +27,12 @@ public final class IntellijIndexToolProvider implements ToolProvider {
     }
 
     @Override
-    public String nativeToolName(String exposedToolName) {
-        return delegate.nativeToolName(exposedToolName);
-    }
-
-    @Override
     public Future<List<Map<String, Object>>> listTools() {
         return delegate.listTools();
     }
 
     @Override
-    public boolean supports(String toolName) {
-        return delegate.supports(toolName);
-    }
-
-    @Override
-    public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
-        return delegate.callTool(toolCall);
+    public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments) {
+        return delegate.callTool(upstreamToolName, arguments);
     }
 }

@@ -12,35 +12,29 @@ import java.util.Optional;
 public final class ToolCatalog {
 
     private final ProviderRegistry providerRegistry;
-    private volatile Map<String, ToolCatalogEntry> entriesByExposedName = Map.of();
+    private volatile ToolCatalogSnapshot snapshot = ToolCatalogSnapshot.empty();
 
     public ToolCatalog(ProviderRegistry providerRegistry) {
         this.providerRegistry = providerRegistry;
     }
 
     public Future<List<Map<String, Object>>> listTools() {
-        return buildCatalog().map(entries -> {
-            List<Map<String, Object>> descriptors = new ArrayList<>(entries.size());
-            for (ToolCatalogEntry entry : entries.values()) {
-                descriptors.add(entry.descriptor());
-            }
-            return descriptors;
-        });
+        return refresh().map(ToolCatalogSnapshot::descriptors);
     }
 
-    public Optional<ToolAddress> resolve(String exposedName) {
-        if (exposedName == null) {
-            return Optional.empty();
-        }
-        ToolCatalogEntry entry = entriesByExposedName.get(exposedName);
-        return entry == null ? Optional.empty() : Optional.of(entry.address());
+    public Optional<ToolCatalogEntry> findByExternalName(String externalName) {
+        return snapshot.findByExternalName(externalName);
     }
 
-    private Future<Map<String, ToolCatalogEntry>> buildCatalog() {
+    public ToolCatalogSnapshot snapshot() {
+        return snapshot;
+    }
+
+    private Future<ToolCatalogSnapshot> refresh() {
         List<ToolProvider> providers = providerRegistry.providers();
         if (providers.isEmpty()) {
-            entriesByExposedName = Map.of();
-            return Future.succeededFuture(entriesByExposedName);
+            snapshot = ToolCatalogSnapshot.empty();
+            return Future.succeededFuture(snapshot);
         }
 
         List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();
@@ -49,7 +43,9 @@ public final class ToolCatalog {
         }
 
         return Future.all(new ArrayList<>(futures)).map(composite -> {
-            Map<String, ToolCatalogEntry> entries = new LinkedHashMap<>();
+            Map<String, ToolCatalogEntry> toolsByExternalName = new LinkedHashMap<>();
+            Map<ToolAddress, ToolCatalogEntry> toolsByAddress = new LinkedHashMap<>();
+            Map<String, List<ToolCatalogEntry>> toolsByProviderId = new LinkedHashMap<>();
 
             for (int providerIndex = 0; providerIndex < providers.size(); providerIndex++) {
                 ToolProvider provider = providers.get(providerIndex);
@@ -60,26 +56,55 @@ public final class ToolCatalog {
                 }
 
                 for (Map<String, Object> tool : tools) {
-                    Object nameObj = tool.get("name");
-                    if (!(nameObj instanceof String exposedName) || exposedName.isBlank()) {
+                    ToolCatalogEntry entry = toEntry(provider, providerId, tool);
+                    if (entry == null) {
                         continue;
                     }
 
-                    String nativeToolName = provider.nativeToolName(exposedName);
-                    ToolCatalogEntry entry = new ToolCatalogEntry(exposedName, providerId, nativeToolName, tool);
-                    ToolCatalogEntry existing = entries.putIfAbsent(exposedName, entry);
-                    if (existing != null) {
+                    ToolCatalogEntry existingExternal = toolsByExternalName.putIfAbsent(entry.externalName(), entry);
+                    if (existingExternal != null) {
                         throw new IllegalStateException(
-                                "Tool name collision for '" + exposedName + "' between providers '"
-                                        + existing.providerId() + "' and '" + providerId + "'");
+                                "Duplicate external tool name: " + entry.externalName());
                     }
+
+                    ToolCatalogEntry existingAddress = toolsByAddress.putIfAbsent(entry.address(), entry);
+                    if (existingAddress != null) {
+                        throw new IllegalStateException(
+                                "Duplicate tool address: providerId=" + entry.address().providerId()
+                                        + ", upstreamToolName=" + entry.address().upstreamToolName());
+                    }
+
+                    toolsByProviderId.computeIfAbsent(providerId, ignored -> new ArrayList<>()).add(entry);
                 }
             }
 
-            Map<String, ToolCatalogEntry> snapshot = Map.copyOf(entries);
-            entriesByExposedName = snapshot;
-            return snapshot;
+            ToolCatalogSnapshot refreshed = new ToolCatalogSnapshot(
+                    toolsByExternalName,
+                    toolsByAddress,
+                    toolsByProviderId
+            );
+            snapshot = refreshed;
+            return refreshed;
         });
     }
-}
 
+    private ToolCatalogEntry toEntry(ToolProvider provider, String providerId, Map<String, Object> tool) {
+        if (tool == null) {
+            return null;
+        }
+
+        Object nameObj = tool.get("name");
+        if (!(nameObj instanceof String upstreamToolName) || upstreamToolName.isBlank()) {
+            return null;
+        }
+
+        String externalName = provider.preservesUpstreamToolName()
+                ? upstreamToolName
+                : providerId + "/" + upstreamToolName;
+        ToolAddress address = new ToolAddress(providerId, upstreamToolName);
+
+        LinkedHashMap<String, Object> descriptor = new LinkedHashMap<>(tool);
+        descriptor.put("name", externalName);
+        return new ToolCatalogEntry(externalName, address, descriptor);
+    }
+}

@@ -28,7 +28,6 @@ public final class IdeaMcpClient {
 
     private final IdeaSseSession sseSession;
     private final IdeaJsonRpcClient jsonRpcClient;
-    private final IdeaToolNameMapper toolNameMapper;
     private final AtomicReference<List<Map<String, Object>>> cachedTools = new AtomicReference<>();
     private final AtomicReference<Set<String>> knownOriginalToolNames = new AtomicReference<>(Set.of());
     private final AtomicBoolean toolsRefreshScheduled = new AtomicBoolean(false);
@@ -40,7 +39,6 @@ public final class IdeaMcpClient {
         this.config = config;
         this.sseSession = new IdeaSseSession(vertx, config);
         this.jsonRpcClient = new IdeaJsonRpcClient(vertx, config, sseSession);
-        this.toolNameMapper = new IdeaToolNameMapper(config.toolPrefix());
         this.sseSession.setDisconnectHandler(reason -> {
             log.info("IdeaMcpClient: upstream disconnected ({}), marking session state stale", reason);
             initialized = false;
@@ -201,7 +199,6 @@ public final class IdeaMcpClient {
             Object nameObj = map.get("name");
             if (nameObj instanceof String originalName && !originalName.isBlank()) {
                 knownOriginal.add(originalName);
-                map.put("name", toolNameMapper.publicName(originalName));
             }
 
             tools.add(map);
@@ -221,4 +218,3 @@ public final class IdeaMcpClient {
         return sseSession.stop();
     }
 }
-

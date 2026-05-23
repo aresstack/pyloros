@@ -1,117 +1,145 @@
 # Current Assignment
 
-Task: 009-C - Local MCP Aggregation Smoke Test
+Task: 009-E - Replace fragile ToolProvider routing with map-backed ToolCatalog routing
 
 Read AGENTS.md first. Use this file as the single source of truth.
 
+## Problem
+
+The current ToolProvider / ToolCatalog implementation is too fragile. Aggregated tool names with slash are visible in `tools/list`, but invocation is still vulnerable to prefix / path parsing logic.
+
+Tool names are MCP tool names, not resource paths.
+
+## Architecture decision
+
+- `provider/tool` remains the canonical external MCP tool name.
+- No renaming to `provider__tool`.
+- Slash is part of the MCP tool name, not a resource hierarchy separator.
+
 ## Goal
 
-Implement a local smoke test for MCP aggregation that can run independently of the ChatGPT connector layer.
-This verifies that Pyloros correctly routes and dispatches GitHub tools/call without relying on ChatGPT's toolcall layer.
+Replace tool routing with stable map-based routing built from catalog snapshots.
 
-## Scope
+## Implementation
 
-### 1. Smoke Test Implementation
+### 1. ToolCatalogSnapshot
 
-Created: `pyloros-app/src/main/java/com/aresstack/pyloros/smoke/McpAggregationSmokeTest.java`
+Introduce or stabilize immutable snapshot data:
+- `Map<String, ToolCatalogEntry> toolsByExternalName`
+- `Map<ToolAddress, ToolCatalogEntry> toolsByAddress`
+- optional `Map<String, List<ToolCatalogEntry>> toolsByProviderId`
 
-- Standalone Java CLI test class
-- No JUnit, no embedded server
-- Tests against a running Pyloros server
-- Reads Bearer token from `PYLOROS_SMOKE_ACCESS_TOKEN` environment variable
-- Reads MCP endpoint from `PYLOROS_SMOKE_MCP_URL` (default: http://127.0.0.1:8081/sse)
+Snapshot replacement must be atomic.
 
-### 2. Test Sequence
+### 2. ToolAddress
 
-1. `tools/list` – Aggregate all tools, count by provider
-2. Validate: `pyloros__ping`, `intellij/get_project_modules`, at least 1 `github/*` tool
-3. `tools/call pyloros__ping` – Native provider test
-4. `tools/call intellij/get_project_modules` – IntelliJ upstream test
-5. `tools/call github/<selected>` – GitHub upstream test
-   - Auto-select read-only GitHub tool: `get_me`, `search_repositories`, etc.
-   - Use safe arguments (e.g., topic:mcp for search)
-6. Summary: total tools, GitHub count, test results
+`ToolAddress` must contain:
+- `providerId`
+- `upstreamToolName`
 
-### 3. Gradle Integration
+It is a value object. No string splitting logic in router.
 
-Added task to `pyloros-app/build.gradle`:
+### 3. ToolCatalogEntry
 
-```bash
-gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
-```
+`ToolCatalogEntry` must contain:
+- `externalName` (example: `github/get_me`)
+- `address` (example: `providerId=github`, `upstreamToolName=get_me`)
+- original MCP tool definition / schema
+- optional provider metadata if needed
 
-Environment variables (passed through from shell):
-- `PYLOROS_SMOKE_ACCESS_TOKEN` (required)
-- `PYLOROS_SMOKE_MCP_URL` (optional, default: http://127.0.0.1:8081/sse)
+### 4. ProviderRegistry
 
-### 4. Usage
+Provider registry must be map-backed:
+- `Map<String, ToolProvider> providersById`
+- duplicate `providerId` must fail fast
+- registration must be stable and deterministic
 
-Start Pyloros with a known access token:
+### 5. ToolCatalog refresh
 
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
-$env:OAUTH_ACCESS_TOKEN = 'test-token-xyz'
-$env:GITHUB_MCP_ENABLED = 'true'
-$env:GITHUB_MCP_TOKEN = '<your-github-token>'
+For each provider:
+- call `tools/list`
+- form external name exactly once:
+  - `externalName = providerId + "/" + upstreamToolName`
+- store entry in snapshot maps
+- duplicate external names must fail fast
+- replace snapshot atomically
 
-# Option A: Via fat JAR
-java -jar .\pyloros-app\build\libs\pyloros.jar
+Native tools that intentionally do not use slash (for example `pyloros__ping`) may stay as-is, but must still be represented by stable catalog entries without router string parsing.
 
-# Option B: Via Gradle run
-.\gradlew.bat :pyloros-app:run
-```
+### 6. ToolRouter
 
-Then in another terminal:
+`tools/call` routing must work like this:
+- read `request.params.name` as exact string
+- `entry = toolsByExternalName.get(name)`
+- if missing: clean MCP tool-not-found style error
+- provider lookup by `entry.address.providerId`
+- provider call with `entry.address.upstreamToolName`
+- no `split("/")`
+- no `startsWith()`
+- no resource path thinking
 
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
-$env:PYLOROS_SMOKE_ACCESS_TOKEN = 'test-token-xyz'
-.\gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
-```
+### 7. ToolProvider contract
+
+Provider must be dumb:
+- `listTools()` returns upstream tool definitions with upstream names
+- `callTool(upstreamToolName, args)`
+- provider does not know or parse external prefix names
+
+### 8. Tests
+
+Add automated tests for at least:
+- `github/get_me` routes to `providerId=github`, `upstreamToolName=get_me`
+- `intellij-index/ide_index_status` routes to `providerId=intellij-index`, `upstreamToolName=ide_index_status`
+- `intellij/get_project_modules` routes to `providerId=intellij`, `upstreamToolName=get_project_modules`
+- unknown tool name returns clean MCP error result
+- duplicate external name fails fast
+- duplicate provider id fails fast
+- provider ids with hyphen work
+- slash names stay visible in `tools/list`
+
+### 9. Smoke test
+
+Adapt smoke test so it continues to test slash-based names:
+- `pyloros__ping`
+- `intellij/get_project_modules`
+- `github/get_me`
+- `intellij-index/ide_index_status`
+
+The smoke test may only prove that the local Pyloros router works locally. It must not claim that the ChatGPT tool layer works.
+
+### 10. README
+
+Update `README.md` to describe:
+- Pyloros as headless agent capability gateway
+- transport matrix:
+  - `intellij = SSE`
+  - `github = Streamable HTTP`
+  - `intellij-index = Streamable HTTP`
+- canonical tool naming:
+  - `provider/tool`
+  - slash intentionally preserved
+- startup with upstream env vars
+- connector refresh after restart
+- difference between:
+  - local smoke test
+  - real ChatGPT / `api_tool` invocation test
 
 ## Acceptance
 
-- `gradlew.bat clean build` is green
-- Smoke test runs and reports all providers
-- GitHub tool call is tested independently of ChatGPT connector
-- No token values logged in output
-- No secrets committed
-- Report updated with results
-
-## Notes on OAuth Token
-
-The smoke test requires a Bearer token that Pyloros accepts. Options:
-
-1. **Quickest (for testing):** Start Pyloros with `OAUTH_ACCESS_TOKEN=<value>`
-   - This is a fixed token that the server will accept on every request
-   - Set before starting the server, e.g., `$env:OAUTH_ACCESS_TOKEN='test-token-abc123'`
-
-2. **Via OAuth flow (production):**
-   - POST `/oauth/authorize` with PKCE → redirect with code
-   - POST `/oauth/token` with code → get access_token
-   - Use access_token in Bearer header
-
-For 009-C, use option 1 (fixed token) for simplicity.
-
-## Report
-
-Overwrite `docs/agent/report.md` completely with:
-
-- Smoke test implementation details
-- Test sequence results
-- GitHub tool selection and call result
-- Tool counts per provider
-- Exact Gradle command used
-- Exact environment setup
-- Build result: successful
-- Result: successful or failed
-- If failed: token issues or other errors
-
----
+- `gradlew.bat clean build` green
+- fat jar builds
+- Pyloros starts with intellij, github, intellij-index
+- `tools/list` contains slash names:
+  - `intellij/get_project_modules`
+  - `github/get_me`
+  - `intellij-index/ide_index_status`
+- `tools/call` via local MCP endpoint works with these exact slash names
+- `README.md` updated
+- `docs/agent/report.md` updated
+- Commit only after explicit approval
 
 ## Not Allowed
 
-- No code changes to Pyloros core (test-only code)
+- No ACP work
 - No remote publish
-- No ACP implementation
-- No token values in output or committed files
+- No secrets in files or report

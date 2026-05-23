@@ -1,6 +1,6 @@
 package com.aresstack.pyloros.tool;
 
-import com.aresstack.pyloros.domain.tool.McpToolCall;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 
 import java.util.List;
@@ -12,13 +12,11 @@ public interface ToolProvider {
         return getClass().getName();
     }
 
-    default String nativeToolName(String exposedToolName) {
-        return exposedToolName;
+    default boolean preservesUpstreamToolName() {
+        return false;
     }
 
     Future<List<Map<String, Object>>> listTools();
 
-    boolean supports(String toolName);
-
-    Future<Map<String, Object>> callTool(McpToolCall toolCall);
+    Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments);
 }

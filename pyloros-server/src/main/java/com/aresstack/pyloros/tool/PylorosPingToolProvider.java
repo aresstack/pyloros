@@ -1,11 +1,10 @@
 package com.aresstack.pyloros.tool;
 
-import com.aresstack.pyloros.domain.tool.McpToolCall;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public final class PylorosPingToolProvider implements ToolProvider {
 
@@ -17,27 +16,26 @@ public final class PylorosPingToolProvider implements ToolProvider {
     }
 
     @Override
+    public boolean preservesUpstreamToolName() {
+        return true;
+    }
+
+    @Override
     public Future<List<Map<String, Object>>> listTools() {
         return Future.succeededFuture(List.of(toolDefinition()));
     }
 
     @Override
-    public boolean supports(String toolName) {
-        return TOOL_NAME.equals(toolName);
-    }
-
-    @Override
-    public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
-        // Defensive: ensure toolCall is not null
-        if (toolCall == null) {
+    public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments) {
+        if (!TOOL_NAME.equals(upstreamToolName)) {
             return Future.succeededFuture(Map.of(
-                    "content", new Object[]{Map.of("type", "text", "text", "Invalid tool call: null")},
+                    "content", List.of(Map.of("type", "text", "text", "Tool not found: " + upstreamToolName)),
                     "isError", true
             ));
         }
 
         return Future.succeededFuture(Map.of(
-                "content", new Object[]{Map.of("type", "text", "text", "Pyloros Java gateway is alive.")},
+                "content", List.of(Map.of("type", "text", "text", "Pyloros Java gateway is alive.")),
                 "isError", false
         ));
     }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="GradleMigrationSettings" migrationVersion="1" />
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
@@ -7,6 +8,10 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/pyloros-app" />
+            <option value="$PROJECT_DIR$/pyloros-server" />
+            <option value="$PROJECT_DIR$/pyloros-upstream-github" />
+            <option value="$PROJECT_DIR$/pyloros-upstream-idea" />
           </set>
         </option>
       </GradleProjectSettings>

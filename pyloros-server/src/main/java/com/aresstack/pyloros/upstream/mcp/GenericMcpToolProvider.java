@@ -1,12 +1,13 @@
 package com.aresstack.pyloros.upstream.mcp;
 
-import com.aresstack.pyloros.domain.tool.McpToolCall;
-import com.aresstack.pyloros.tool.ToolProvider;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.aresstack.pyloros.tool.ToolProvider;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -31,15 +32,6 @@ public final class GenericMcpToolProvider implements ToolProvider {
     }
 
     @Override
-    public String nativeToolName(String exposedToolName) {
-        String prefix = config.normalizedPrefix();
-        if (exposedToolName != null && exposedToolName.startsWith(prefix)) {
-            return exposedToolName.substring(prefix.length());
-        }
-        return exposedToolName;
-    }
-
-    @Override
     public Future<List<Map<String, Object>>> listTools() {
         if (!config.isEnabled()) {
             return Future.succeededFuture(List.of());
@@ -50,20 +42,14 @@ public final class GenericMcpToolProvider implements ToolProvider {
         }
 
         return client.listTools().map(tools -> {
-            List<Map<String, Object>> exposed = new ArrayList<>();
-            String prefix = config.normalizedPrefix();
+            List<Map<String, Object>> upstreamTools = new ArrayList<>();
             for (Map<String, Object> item : tools) {
                 if (item == null) {
                     continue;
                 }
-                LinkedHashMap<String, Object> copy = new LinkedHashMap<>(item);
-                Object nameObj = copy.get("name");
-                if (nameObj instanceof String name && !name.isBlank()) {
-                    copy.put("name", prefix + name);
-                }
-                exposed.add(copy);
+                upstreamTools.add(new LinkedHashMap<>(item));
             }
-            return exposed;
+            return upstreamTools;
         }).recover(err -> {
             log.warn("[MCP-UPSTREAM] provider={} unavailable reason={}", config.providerId(), err.getMessage());
             return Future.succeededFuture(List.of());
@@ -71,15 +57,7 @@ public final class GenericMcpToolProvider implements ToolProvider {
     }
 
     @Override
-    public boolean supports(String toolName) {
-        return config.isEnabled()
-                && (!config.requiresToken() || config.hasToken())
-                && toolName != null
-                && toolName.startsWith(config.normalizedPrefix());
-    }
-
-    @Override
-    public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
+    public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode argumentsNode) {
         if (!config.isEnabled()) {
             return Future.succeededFuture(errorResult("Provider is disabled: " + config.providerId()));
         }
@@ -87,22 +65,21 @@ public final class GenericMcpToolProvider implements ToolProvider {
             return Future.succeededFuture(errorResult("Provider token not configured: " + config.providerId()));
         }
 
-        String requested = toolCall.name() == null ? "" : toolCall.name();
-        String nativeName = nativeToolName(requested);
+        String requested = upstreamToolName == null ? "" : upstreamToolName;
 
         JsonObject arguments;
         try {
-            arguments = new JsonObject(toolCall.arguments() == null ? "{}" : toolCall.arguments().toString());
+            arguments = new JsonObject(argumentsNode == null ? "{}" : argumentsNode.toString());
         } catch (Exception ex) {
             arguments = new JsonObject();
         }
 
-        log.info("[MCP-UPSTREAM] provider={} tools/call {} -> {}", config.providerId(), requested, nativeName);
+        log.info("[MCP-UPSTREAM] provider={} tools/call {}", config.providerId(), requested);
 
-        return client.callTool(nativeName, arguments)
+        return client.callTool(requested, arguments)
                 .map(this::normalizeCallResult)
                 .recover(err -> {
-                    log.warn("[MCP-UPSTREAM] provider={} tools/call {} failed: {}", config.providerId(), nativeName, err.getMessage());
+                    log.warn("[MCP-UPSTREAM] provider={} tools/call {} failed: {}", config.providerId(), requested, err.getMessage());
                     return Future.succeededFuture(errorResult(err.getMessage()));
                 });
     }

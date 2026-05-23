@@ -4,8 +4,8 @@ import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import io.vertx.core.Future;
 
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public final class ToolRouter {
 
@@ -18,33 +18,25 @@ public final class ToolRouter {
     }
 
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
-        if (toolCall == null || toolCall.name() == null) {
-            return unsupportedTool("null");
+        if (toolCall == null || toolCall.name() == null || toolCall.name().isBlank()) {
+            return toolNotFound("null");
         }
 
-        Optional<ToolAddress> resolved = toolCatalog.resolve(toolCall.name());
-        if (resolved.isPresent()) {
-            ToolAddress address = resolved.get();
-            return providerRegistry.findById(address.providerId())
-                    .map(provider -> provider.callTool(new McpToolCall(address.nativeToolName(), toolCall.arguments())))
-                    .orElseGet(() -> unsupportedTool(toolCall.name()));
+        ToolCatalogEntry entry = toolCatalog.findByExternalName(toolCall.name()).orElse(null);
+        if (entry == null) {
+            return toolNotFound(toolCall.name());
         }
 
-        // Transitional compatibility path for aliases that are callable but not listed in tools/list.
-        for (ToolProvider provider : providerRegistry.providers()) {
-            if (provider.supports(toolCall.name())) {
-                return provider.callTool(toolCall);
-            }
-        }
-
-        return unsupportedTool(toolCall.name());
+        ToolAddress address = entry.address();
+        return providerRegistry.findById(address.providerId())
+                .map(provider -> provider.callTool(address.upstreamToolName(), toolCall.arguments()))
+                .orElseGet(() -> toolNotFound(toolCall.name()));
     }
 
-    private static Future<Map<String, Object>> unsupportedTool(String toolName) {
+    private static Future<Map<String, Object>> toolNotFound(String toolName) {
         return Future.succeededFuture(Map.of(
-                "content", new Object[]{Map.of("type", "text", "text", "Unsupported tool: " + toolName)},
+                "content", List.of(Map.of("type", "text", "text", "Tool not found: " + toolName)),
                 "isError", true
         ));
     }
 }
-

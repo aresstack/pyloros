@@ -1,155 +1,158 @@
 # Pyloros
 
-Reactive Java / Vert.x gateway guarding and routing MCP tool access for AI-assisted development.
+Headless Java 21 / Vert.x gateway for exposing local and remote MCP tool capabilities behind one MCP endpoint.
 
-## Features
+## What it is
 
-- **OAuth 2.0 with Refresh Token Rotation**: Secure token handling with automatic refresh and optional rotation
-- **MCP Tool Forwarding**: Route and guard access to multiple MCP upstream providers (IntelliJ IDEA, etc.)
-- **Async HTTP Backend**: Built on Vert.x for high-performance async I/O
-- **Tool Prefix Isolation**: Namespace tools from different upstreams (e.g., `idea__get_all_open_file_paths`)
+Pyloros is a capability gateway:
+- aggregates tools from multiple upstream providers;
+- keeps `PylorosApplication` as bootstrap and wiring only;
+- routes tool calls through `ToolProvider`, `ProviderRegistry`, `ToolCatalog`, and `ToolRouter`;
+- tolerates optional upstream outages so startup is not blocked.
+
+## Transport matrix
+
+| Provider | Transport | Notes |
+| --- | --- | --- |
+| `intellij` | SSE | Local IntelliJ MCP bridge |
+| `github` | Streamable HTTP | GitHub MCP upstream |
+| `intellij-index` | Streamable HTTP | IntelliJ index MCP upstream |
+| `pyloros` | local/native | Built-in gateway tools |
+
+## Canonical tool naming
+
+External MCP tool names are canonicalized as:
+- `provider/tool`
+- slash is intentionally preserved
+- slash is part of the MCP tool name, not a resource path
+
+Examples:
+- `github/get_me`
+- `intellij/get_project_modules`
+- `intellij-index/ide_index_status`
+
+Native tools may intentionally keep their own non-slash name, for example:
+- `pyloros__ping`
 
 ## Requirements
 
-- Java 21+ (tested with Zulu)
-- Gradle (wrapper included)
+- Java 21
+- Gradle wrapper included
 
-## Starten / Getting Started
+## Build
 
-### Runtime artifact (fat Shadow JAR)
+```powershell
+Set-Location 'C:\Projects\pyloros'
+.\gradlew.bat clean build
+.\gradlew.bat :pyloros-app:shadowJar
+```
 
-```ps1
+Fat jar output:
+- `pyloros-app\build\libs\pyloros.jar`
+
+## Startup
+
+Set the required OAuth variables and any upstream variables before starting.
+
+### Minimum local start
+
+```powershell
 Set-Location 'C:\Projects\pyloros'
 
-# Build runnable fat jar
-.\gradlew.bat clean :pyloros-app:shadowJar
-
-# Start runtime artifact
-java -jar .\pyloros-app\build\libs\pyloros.jar
-```
-
-```
-$env:OAUTH_CLIENT_ID     = '<your-client-id>'
-$env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
-
-$env:GITHUB_MCP_ENABLED = 'true'
-$env:GITHUB_MCP_TOKEN = '<real token>'
-
-Set-Location C:\Projects\pyloros
-& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar
-```
-
-
-The fat JAR is the primary runtime target.
-
-### Development run (Gradle)
-
-```ps1
-Set-Location 'C:\Projects\pyloros'
-
-$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-
-# Server configuration
-$env:SERVER_PORT = '64343'
-$env:PUBLIC_ORIGIN = 'https://<your-domain>'
-
-# OAuth configuration (get credentials from your OAuth provider)
 $env:OAUTH_CLIENT_ID = '<your-client-id>'
 $env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
 
-# Optional: IntelliJ IDEA upstream
-$env:IDEA_TOOL_PREFIX = 'idea'
-
-.\gradlew.bat --no-daemon :pyloros-app:run --stacktrace
+java -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
-### Optional: Configure short TTLs
+### Start with upstreams enabled
 
-For testing:
-```ps1
-$env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="300"
-$env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="3600"
-$env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="false"
-```
-For production:
-```ps1
-$env:OAUTH_ACCESS_TOKEN_TTL_SECONDS="3600"
-$env:OAUTH_REFRESH_TOKEN_TTL_SECONDS="2592000"
-$env:OAUTH_REFRESH_TOKEN_ROTATION_ENABLED="true"
-```
+```powershell
+Set-Location 'C:\Projects\pyloros'
 
-## Running Pyloros locally on Windows
-
-Runtime target is the fat JAR (`java -jar`). Existing scripts in `scripts/` are optional convenience helpers.
-
-**Requirements:** Java 21+ (e.g. Zulu 21 at `C:\Program Files\Zulu\zulu-21`)
-
-> Pyloros listens on HTTP (`http://127.0.0.1:8081` by default).  
-> HTTPS is terminated by Apache, which proxies to the HTTP backend.  
-> Do not expose the HTTP port directly to the internet.
-
-### Start
-
-```ps1
-.\scripts\start-pyloros.ps1
-```
-
-Optional: override port:
-
-```ps1
-.\scripts\start-pyloros.ps1 -Port 8082
-```
-
-Set secrets before starting (never hardcoded in the script):
-
-```ps1
-$env:OAUTH_CLIENT_ID     = '<your-client-id>'
+$env:OAUTH_CLIENT_ID = '<your-client-id>'
 $env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
-.\scripts\start-pyloros.ps1
+
+$env:IDEA_MCP_ENABLED = 'true'
+$env:IDEA_MCP_HOST = '127.0.0.1'
+$env:IDEA_MCP_PORT = '64343'
+$env:IDEA_MCP_SSE_PATH = '/sse'
+
+$env:PYLOROS_UPSTREAM_GITHUB_ENABLED = 'true'
+$env:GITHUB_MCP_TOKEN = '<real token>'
+$env:PYLOROS_UPSTREAM_GITHUB_URL = 'https://api.githubcopilot.com/mcp/'
+
+$env:PYLOROS_UPSTREAM_INTELLIJ_INDEX_ENABLED = 'true'
+$env:PYLOROS_UPSTREAM_INTELLIJ_INDEX_URL = 'http://127.0.0.1:29170/index-mcp/streamable-http'
+
+java -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
-### Stop
+Relevant optional variables:
+- `SERVER_PORT`
+- `PUBLIC_ORIGIN`
+- `MCP_PUBLIC_PATH`
+- `IDEA_MCP_ENABLED`
+- `IDEA_MCP_HOST`
+- `IDEA_MCP_PORT`
+- `IDEA_MCP_SSE_PATH`
+- `PYLOROS_UPSTREAM_GITHUB_ENABLED`
+- `PYLOROS_UPSTREAM_GITHUB_URL`
+- `GITHUB_MCP_TOKEN`
+- `PYLOROS_UPSTREAM_INTELLIJ_INDEX_ENABLED`
+- `PYLOROS_UPSTREAM_INTELLIJ_INDEX_URL`
 
-```ps1
-.\scripts\stop-pyloros.ps1
-# or with immediate kill:
-.\scripts\stop-pyloros.ps1 -Force
+## Connector refresh behavior
+
+Pyloros builds a tool catalog snapshot from upstream `tools/list` responses.
+
+If an upstream connector or Pyloros itself restarts, or if an upstream tool set changes:
+- restart or reconnect the upstream as needed;
+- refresh or update the connector/client view after the restart;
+- call `tools/list` again through Pyloros to refresh the aggregated snapshot;
+- use the refreshed canonical tool names returned by Pyloros.
+
+## Local checks
+
+Health endpoint:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8081/health | Select-Object -ExpandProperty Content
 ```
 
-### Check status
+Expected response:
 
-```ps1
-.\scripts\check-pyloros.ps1
+```json
+{"status":"ok"}
 ```
 
-Performs a port check and an HTTP call to `GET /health` → `{"status":"ok"}`.
+## Smoke test vs real ChatGPT tool invocation
 
----
+### Local smoke test
+
+`McpAggregationSmokeTest` verifies the local Pyloros MCP router only:
+- `tools/list` on the local Pyloros endpoint;
+- exact tool names such as `pyloros__ping`, `intellij/get_project_modules`, `github/get_me`, `intellij-index/ide_index_status`;
+- local `tools/call` routing through Pyloros.
+
+Run:
+
+```powershell
+$env:PYLOROS_SMOKE_ACCESS_TOKEN = '<pyloros access token>'
+$env:PYLOROS_SMOKE_MCP_URL = 'http://127.0.0.1:8081/sse'
+.\gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
+```
+
+### Real ChatGPT / `api_tool` invocation test
+
+This is separate from the local smoke test.
+It requires a real ChatGPT tool integration path and should be treated as an end-to-end client validation, not as proof of local router correctness.
 
 ## Architecture
 
-- `PylorosApplication`: Bootstrap and Vert.x wiring only
-- `OAuthService`: Token management, refresh, and rotation
-- `IdeaToolProvider`: MCP tool forwarding to IntelliJ IDEA upstream
-- `ToolRegistry` + `ToolProvider`: Tool aggregation from multiple upstreams
-- `McpRoutes`, `OAuthRoutes`, `MetadataRoutes`: HTTP endpoint handlers
-
-## Development
-
-Build and test:
-```ps1
-.\gradlew.bat clean build
-.\gradlew.bat :pyloros-app:shadowJar
-java -jar .\pyloros-app\build\libs\pyloros.jar
-.\gradlew.bat --no-daemon :pyloros-app:run --stacktrace
-```
-
-## Status
-
-- OAuth refresh token handling: ✅ implemented (002-A … 002-I)
-- IDEA tool forwarding: ✅ implemented
-- HTTP backend: ✅ implemented
-- .gitignore: ✅ configured
-- Windows operator scripts: ✅ scripts/start-pyloros.ps1, stop-pyloros.ps1, check-pyloros.ps1
-- RFC 6750 auth failure signalling: ✅ implemented (002-H)
+- `PylorosApplication`: bootstrap and wiring only
+- `OAuthService`: OAuth token management
+- `ProviderRegistry`: deterministic provider registration by provider id
+- `ToolCatalog`: immutable catalog snapshots for external tool names and routed addresses
+- `ToolRouter`: exact-name `tools/call` routing
+- provider implementations: upstream-specific MCP connectors

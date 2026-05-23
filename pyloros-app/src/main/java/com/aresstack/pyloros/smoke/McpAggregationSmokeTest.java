@@ -7,12 +7,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Local smoke test for MCP aggregation.
- * Tests that Pyloros correctly aggregates tools from multiple providers.
+ * Verifies only the local Pyloros MCP router and upstream aggregation behavior.
+ * It does not verify the ChatGPT api_tool layer.
  *
  * Run: gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
  *
@@ -24,6 +25,10 @@ public class McpAggregationSmokeTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String DEFAULT_MCP_URL = "http://127.0.0.1:8081/sse";
+    private static final String PYLOROS_PING = "pyloros__ping";
+    private static final String INTELLIJ_TOOL = "intellij/get_project_modules";
+    private static final String GITHUB_TOOL = "github/get_me";
+    private static final String INTELLIJ_INDEX_TOOL = "intellij-index/ide_index_status";
 
     private final String mcpUrl;
     private final String accessToken;
@@ -62,8 +67,8 @@ public class McpAggregationSmokeTest {
     private void run() {
         System.out.println("[SMOKE] Starting MCP Aggregation Smoke Test");
         System.out.println("[SMOKE] MCP URL: " + mcpUrl);
+        System.out.println("[SMOKE] Scope: local Pyloros router only (not ChatGPT api_tool)");
 
-        // Step 1: List all tools
         System.out.println();
         System.out.println("[SMOKE] Step 1: Listing all tools...");
         JsonNode toolsResponse = rpcCall("tools/list", "{}");
@@ -78,152 +83,60 @@ public class McpAggregationSmokeTest {
             return;
         }
 
-        // Analyze tools by namespace
-        List<String> pylorosTools = new ArrayList<>();
-        List<String> ideaTools = new ArrayList<>();
-        List<String> githubTools = new ArrayList<>();
-
+        Set<String> availableTools = new LinkedHashSet<>();
         for (JsonNode tool : toolsArray) {
-            String name = tool.path("name").asText();
-            if (name.startsWith("github/")) {
-                githubTools.add(name);
-            } else if (name.startsWith("idea") || name.startsWith("intellij/")) {
-                ideaTools.add(name);
-            } else if (name.contains("pyloros")) {
-                pylorosTools.add(name);
-            }
+            availableTools.add(tool.path("name").asText());
         }
 
         int totalTools = toolsArray.size();
         System.out.println("[SMOKE] Total tools: " + totalTools);
-        System.out.println("[SMOKE]   Native Pyloros: " + pylorosTools.size() + " tools");
-        System.out.println("[SMOKE]   IntelliJ: " + ideaTools.size() + " tools");
-        System.out.println("[SMOKE]   GitHub: " + githubTools.size() + " tools");
 
-        // Step 2: Validate required tools
         System.out.println();
-        System.out.println("[SMOKE] Step 2: Validating required tools...");
+        System.out.println("[SMOKE] Step 2: Validating required canonical tool names...");
+        requireTool(availableTools, PYLOROS_PING);
+        requireTool(availableTools, INTELLIJ_TOOL);
+        requireTool(availableTools, GITHUB_TOOL);
+        requireTool(availableTools, INTELLIJ_INDEX_TOOL);
 
-        boolean hasPyloros = pylorosTools.stream().anyMatch(t -> t.equals("pyloros__ping"));
-        boolean hasIdea = ideaTools.stream().anyMatch(t -> t.equals("idea__get_project_modules") || t.equals("intellij/get_project_modules"));
-        boolean hasGithub = !githubTools.isEmpty();
-
-        if (hasPyloros) {
-            pass("pyloros__ping found");
-        } else {
-            fail("pyloros__ping NOT found");
-        }
-
-        if (hasIdea) {
-            pass("intellij/get_project_modules found");
-        } else {
-            fail("intellij/get_project_modules NOT found");
-        }
-
-        if (hasGithub) {
-            pass("GitHub tools found: " + githubTools.size());
-        } else {
-            fail("No GitHub tools found (GitHub provider may be disabled)");
-        }
-
-        // Step 3: Test pyloros__ping call
         System.out.println();
-        System.out.println("[SMOKE] Step 3: Testing pyloros__ping call...");
-        JsonNode pingResponse = rpcCallTool("pyloros__ping", "{}");
-        if (pingResponse != null) {
-            pass("pyloros__ping call succeeded");
-        } else {
-            fail("pyloros__ping call failed");
-        }
+        System.out.println("[SMOKE] Step 3: Testing " + PYLOROS_PING + "...");
+        checkToolCall(PYLOROS_PING, "{}");
 
-        // Step 4: Test intellij/get_project_modules call
         System.out.println();
-        System.out.println("[SMOKE] Step 4: Testing intellij/get_project_modules call...");
-        String ideaTool = selectIntellijTool(ideaTools);
-        JsonNode ideaResponse = rpcCallTool(ideaTool, "{}");
-        if (ideaResponse != null) {
-            pass(ideaTool + " call succeeded");
-        } else {
-            fail(ideaTool + " call failed");
-        }
+        System.out.println("[SMOKE] Step 4: Testing " + INTELLIJ_TOOL + "...");
+        checkToolCall(INTELLIJ_TOOL, "{}");
 
-        // Step 5: Test GitHub tool call
         System.out.println();
-        System.out.println("[SMOKE] Step 5: Testing GitHub tool call...");
-        if (!githubTools.isEmpty()) {
-            String selectedGithubTool = selectReadOnlyGithubTool(githubTools);
-            System.out.println("[SMOKE] Selected GitHub tool: " + selectedGithubTool);
+        System.out.println("[SMOKE] Step 5: Testing " + GITHUB_TOOL + "...");
+        checkToolCall(GITHUB_TOOL, "{}");
 
-            JsonNode githubResponse = rpcCallTool(selectedGithubTool, buildGithubToolArguments(selectedGithubTool));
-            if (githubResponse != null) {
-                pass(selectedGithubTool + " call succeeded");
-            } else {
-                fail(selectedGithubTool + " call failed");
-            }
-        } else {
-            System.out.println("[WARN] No GitHub tools available to test (provider may be disabled)");
-        }
+        System.out.println();
+        System.out.println("[SMOKE] Step 6: Testing " + INTELLIJ_INDEX_TOOL + "...");
+        checkToolCall(INTELLIJ_INDEX_TOOL, "{}");
 
-        // Summary
         System.out.println();
         System.out.println("[SMOKE] ========== SUMMARY ==========");
         System.out.println("[SMOKE] Total tools: " + totalTools);
-        System.out.println("[SMOKE] GitHub tools: " + githubTools.size());
         System.out.println("[SMOKE] Tests passed: " + testsPassed);
         System.out.println("[SMOKE] Tests failed: " + testsFailed);
         System.out.println("[SMOKE] Result: " + (success ? "SUCCESS" : "FAILED"));
     }
 
-    private String selectReadOnlyGithubTool(List<String> availableTools) {
-        // Prefer safe read-only tools
-        String[] safeTools = {
-            "github/get_me",
-            "github/search_repositories",
-            "github/get_file_contents",
-            "github/list_branches",
-            "github/list_issues",
-            "github/search_issues",
-            "github/search_pull_requests",
-            "github/search_code"
-        };
-
-        for (String safe : safeTools) {
-            if (availableTools.contains(safe)) {
-                return safe;
-            }
+    private void requireTool(Set<String> availableTools, String toolName) {
+        if (availableTools.contains(toolName)) {
+            pass(toolName + " found");
+            return;
         }
-
-        // Fall back to first available
-        return availableTools.get(0);
+        fail(toolName + " NOT found");
     }
 
-    private String selectIntellijTool(List<String> availableTools) {
-        String[] preferred = {
-            "intellij/get_project_modules",
-            "idea__get_project_modules"
-        };
-
-        for (String tool : preferred) {
-            if (availableTools.contains(tool)) {
-                return tool;
-            }
+    private void checkToolCall(String toolName, String arguments) {
+        JsonNode response = rpcCallTool(toolName, arguments);
+        if (response != null) {
+            pass(toolName + " call succeeded");
+            return;
         }
-
-        return availableTools.isEmpty() ? "intellij/get_project_modules" : availableTools.get(0);
-    }
-
-    private String buildGithubToolArguments(String toolName) {
-        return switch (toolName) {
-            case "github/get_me" -> "{}";
-            case "github/search_repositories" -> "{\"query\":\"topic:mcp\"}";
-            case "github/list_branches" -> "{\"owner\":\"github\",\"repo\":\"github-mcp-server\"}";
-            case "github/get_file_contents" -> "{\"owner\":\"github\",\"repo\":\"github-mcp-server\",\"path\":\"README.md\"}";
-            case "github/list_issues" -> "{\"owner\":\"github\",\"repo\":\"github-mcp-server\"}";
-            case "github/search_issues" -> "{\"query\":\"repo:github/github-mcp-server is:issue\"}";
-            case "github/search_pull_requests" -> "{\"query\":\"repo:github/github-mcp-server is:pr\"}";
-            case "github/search_code" -> "{\"query\":\"mcp in:file language:json repo:github/github-mcp-server\"}";
-            default -> "{}";
-        };
+        fail(toolName + " call failed");
     }
 
     private JsonNode rpcCall(String method, String params) {
