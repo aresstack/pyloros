@@ -1,71 +1,91 @@
-# Task 008-A Report - Split Gradle modules for Maven Central readiness
+# Task 008-B Report - Maven Central publishing readiness metadata
 
 ## What was verified, changed or implemented
-- Converted the single-module build into a Gradle multi-project with:
+- Added Maven publication metadata and local publication readiness for library modules only:
   - `pyloros-server`
   - `pyloros-upstream-idea`
-  - `pyloros-app`
-- Preserved runtime behavior and wiring:
-  - OAuth logic remains in `OAuthService`.
-  - IDEA forwarding classes remain unchanged functionally.
-  - `PylorosApplication` remains bootstrap/wiring only.
-- Added server-side config contract `ServerConfig` to avoid `pyloros-server -> pyloros-app` dependency.
-- Added `HealthRoutes` class in server module and mounted it from app.
-- Kept Shadow fat JAR generation only in `pyloros-app` with stable name `pyloros.jar`.
-- Moved `application.properties` to `pyloros-app/src/main/resources/application.properties`.
-- Moved tests to the proper module (`pyloros-server`).
+- Added `maven-publish` plugin to both library modules.
+- Enabled `withSourcesJar()` and `withJavadocJar()` in both library modules.
+- Configured `MavenPublication` POM metadata fields in both modules:
+  - `group` (inherited from root: `com.aresstack`)
+  - `version` (inherited from root: `0.1.0-SNAPSHOT`)
+  - `description`
+  - `url`
+  - `license`
+  - `developers`
+  - `scm`
+- Kept signing disabled/not required.
+- Kept `pyloros-app` unchanged as application/fat-jar artifact (no library publication setup).
+- No runtime behavior changes made.
 
-## Final module layout
-- `pyloros-server`: reusable library (HTTP/OAuth/domain/tool registry logic)
-- `pyloros-upstream-idea`: IDEA MCP adapter (`dependsOn :pyloros-server`)
-- `pyloros-app`: runnable app module (`dependsOn :pyloros-server, :pyloros-upstream-idea`, Shadow jar)
+## Files changed
+- `pyloros-server/build.gradle`
+- `pyloros-upstream-idea/build.gradle`
 
-## Files changed or newly created
-- Updated:
-  - `settings.gradle`
-  - `build.gradle` (root)
-  - `README.md`
-  - Java sources moved into module directories
-- Created:
-  - `pyloros-server/build.gradle`
-  - `pyloros-upstream-idea/build.gradle`
-  - `pyloros-app/build.gradle`
-  - `pyloros-server/src/main/java/com/aresstack/pyloros/config/ServerConfig.java`
-  - `pyloros-server/src/main/java/com/aresstack/pyloros/http/HealthRoutes.java`
-- Moved/adjusted:
-  - app bootstrap/config to `pyloros-app`
-  - generic HTTP/OAuth/domain/tool code to `pyloros-server`
-  - IDEA upstream code to `pyloros-upstream-idea`
-  - OAuth replay test to `pyloros-server`
+## Publication metadata summary
+- Shared coordinates:
+  - `groupId`: `com.aresstack`
+  - `version`: `0.1.0-SNAPSHOT`
+- `pyloros-server`:
+  - `artifactId`: `pyloros-server`
+  - `name`: `pyloros-server`
+  - `description`: `Core Vert.x server library for Pyloros`
+- `pyloros-upstream-idea`:
+  - `artifactId`: `pyloros-upstream-idea`
+  - `name`: `pyloros-upstream-idea`
+  - `description`: `IDEA upstream integration library for Pyloros`
+- Shared POM metadata:
+  - `url`: `https://github.com/aresstack/pyloros`
+  - license: Apache-2.0
+  - developer: `aresstack` / `Ares Stack`
+  - scm connection + developerConnection + url configured
 
 ## Architecture decision touched
-- Separated reusable server library concerns from runtime application packaging to prepare for Maven Central readiness, while keeping only app-module fat JAR packaging.
+- Libraries are publishable as Maven artifacts with metadata; app module remains runtime distribution via Shadow fat JAR only.
 
 ## Tests, builds and runtime checks executed
-1. `gradlew.bat clean build` -> **SUCCESS**
-2. `gradlew.bat :pyloros-app:shadowJar` -> **SUCCESS**
-3. Runtime command tested:
-   - `java -jar .\\pyloros-app\\build\\libs\\pyloros.jar` (failed with system default Java 8)
-   - `& "C:\\Program Files\\Zulu\\zulu-21\\bin\\java.exe" -jar .\\pyloros-app\\build\\libs\\pyloros.jar` -> started
-4. Health check:
-   - `GET http://127.0.0.1:8081/health` -> `200 {"status":"ok"}`
+Commands executed:
+1. `gradlew.bat clean build`
+   - Initial failures due local environment locks/JVM selection.
+   - Successful run executed as:
+   - `gradlew.bat --no-daemon clean build`
+2. `gradlew.bat :pyloros-server:publishToMavenLocal :pyloros-upstream-idea:publishToMavenLocal`
+   - Successful run executed as:
+   - `gradlew.bat --no-daemon :pyloros-server:publishToMavenLocal :pyloros-upstream-idea:publishToMavenLocal`
+3. `gradlew.bat :pyloros-app:shadowJar`
+   - Successful run executed as:
+   - `gradlew.bat --no-daemon :pyloros-app:shadowJar`
 
-## Shadow JAR result
-- Exact path: `C:\\Projects\\pyloros\\pyloros-app\\build\\libs\\pyloros.jar`
+Result:
+- Build: **SUCCESS**
+- Local publish for both library modules: **SUCCESS**
+- App fat JAR task (`:pyloros-app:shadowJar`): **SUCCESS**
 
-## Public connector / intellij/get_project_modules verification
-- Not verifiable in this local run (requires reachable IntelliJ MCP upstream session + valid bearer token).
-- Next-step command:
-  - `Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8081/sse' -Headers @{ Authorization = 'Bearer <ACCESS_TOKEN>' } -ContentType 'application/json' -Body '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"intellij/get_project_modules","arguments":{"projectPath":"C:\\\\Projects\\\\pyloros"}}}'`
+## Generated artifact coordinates in ~/.m2
+Base path:
+- `C:\Users\angel\.m2\repository\com\aresstack`
+
+Coordinates and artifacts:
+- `com.aresstack:pyloros-server:0.1.0-SNAPSHOT`
+  - `...\pyloros-server-0.1.0-SNAPSHOT.jar`
+  - `...\pyloros-server-0.1.0-SNAPSHOT-sources.jar`
+  - `...\pyloros-server-0.1.0-SNAPSHOT-javadoc.jar`
+  - `...\pyloros-server-0.1.0-SNAPSHOT.pom`
+- `com.aresstack:pyloros-upstream-idea:0.1.0-SNAPSHOT`
+  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT.jar`
+  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT-sources.jar`
+  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT-javadoc.jar`
+  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT.pom`
 
 ## Result
 - **Successful**
 
 ## Exact commit hash
-- `36d1d08`
+- `07704de`
 
 ## Push performed
 - **Yes** (`main -> origin/main`)
 
-## Notes
-- Attempt to use the mandated `local-code-search` subagent failed in this environment due unavailable model (`qwen2.5-coder:14b` not found); implementation proceeded with direct workspace inspection tools.
+## Conflicts / caveats
+- Mandated `local-code-search` subagent could not be used due environment model availability error: `Model "qwen2.5-coder:14b" not found in available models`.
+- `clean` initially failed because running local `pyloros.jar` processes locked `pyloros-app/build/libs/pyloros.jar`; processes were stopped before rerun.
