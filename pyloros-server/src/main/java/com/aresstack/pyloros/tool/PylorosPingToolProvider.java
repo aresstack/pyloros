@@ -1,5 +1,6 @@
 package com.aresstack.pyloros.tool;
 
+import com.aresstack.pyloros.provider.ProviderType;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 
@@ -13,6 +14,11 @@ public final class PylorosPingToolProvider implements ToolProvider {
     @Override
     public String providerId() {
         return "pyloros";
+    }
+
+    @Override
+    public ProviderType providerType() {
+        return ProviderType.NATIVE;
     }
 
     @Override

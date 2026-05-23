@@ -7,6 +7,7 @@ import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.aresstack.pyloros.provider.ProviderType;
 import com.aresstack.pyloros.tool.ToolProvider;
 
 import java.util.ArrayList;
@@ -29,6 +30,11 @@ public final class GenericMcpToolProvider implements ToolProvider {
     @Override
     public String providerId() {
         return config.providerId();
+    }
+
+    @Override
+    public ProviderType providerType() {
+        return ProviderType.MCP;
     }
 
     @Override

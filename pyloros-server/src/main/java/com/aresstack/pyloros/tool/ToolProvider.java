@@ -1,5 +1,6 @@
 package com.aresstack.pyloros.tool;
 
+import com.aresstack.pyloros.provider.ProviderType;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 
@@ -10,6 +11,14 @@ public interface ToolProvider {
 
     default String providerId() {
         return getClass().getName();
+    }
+
+    default ProviderType providerType() {
+        return ProviderType.UNKNOWN;
+    }
+
+    default List<ToolView> exposedViews() {
+        return List.of(ToolView.PUBLIC);
     }
 
     default boolean preservesUpstreamToolName() {
