@@ -41,7 +41,7 @@
 - **Successful** for Task 007 scope (fat runnable Shadow JAR + documented commands + healthcheck).
 
 ## Exact commit hash
-- Pending commit at report-write time.
+- `e398cca`
 
 ## Push performed
-- Pending at report-write time.
+- **Yes** (`main -> origin/main`)
