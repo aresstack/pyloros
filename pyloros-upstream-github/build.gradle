@@ -1,0 +1,14 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'GitHub MCP upstream integration library for Pyloros'
+
+dependencies {
+    api project(':pyloros-server')
+
+    implementation "io.vertx:vertx-core:${vertxVersion}"
+    implementation "io.vertx:vertx-web-client:${vertxVersion}"
+    implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+}
+

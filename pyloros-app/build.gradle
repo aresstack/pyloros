@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation project(':pyloros-server')
     implementation project(':pyloros-upstream-idea')
+    implementation project(':pyloros-upstream-github')
 
     implementation "io.vertx:vertx-core:${vertxVersion}"
     implementation "io.vertx:vertx-web:${vertxVersion}"

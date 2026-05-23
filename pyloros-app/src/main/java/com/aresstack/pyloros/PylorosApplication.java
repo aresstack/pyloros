@@ -11,6 +11,9 @@ import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
+import com.aresstack.pyloros.upstream.github.GitHubMcpClient;
+import com.aresstack.pyloros.upstream.github.GitHubMcpConfig;
+import com.aresstack.pyloros.upstream.github.GitHubToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
@@ -21,6 +24,7 @@ import io.vertx.ext.web.handler.BodyHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public final class PylorosApplication extends AbstractVerticle {
@@ -46,10 +50,21 @@ public final class PylorosApplication extends AbstractVerticle {
             ideaMcpClient.start();
         }
 
-        List<ToolProvider> providers = List.of(
-                new PylorosPingToolProvider(),
-                new IdeaToolProvider(ideaConfig, ideaMcpClient)
-        );
+        // GitHub MCP upstream (optional, does not prevent startup if token is missing)
+        GitHubMcpConfig githubConfig = config.githubMcpConfig();
+        GitHubMcpClient githubMcpClient = new GitHubMcpClient(vertx, githubConfig);
+        GitHubToolProvider githubToolProvider = new GitHubToolProvider(githubConfig, githubMcpClient);
+        if (githubConfig.enabled() && githubConfig.token() != null && !githubConfig.token().isBlank()) {
+            log.info("[MCP-UPSTREAM] provider=github enabled url={}", githubConfig.url());
+        } else {
+            log.info("[MCP-UPSTREAM] provider=github disabled (set GITHUB_MCP_ENABLED=true and GITHUB_MCP_TOKEN to enable)");
+        }
+
+        List<ToolProvider> providers = new ArrayList<>();
+        providers.add(new PylorosPingToolProvider());
+        providers.add(new IdeaToolProvider(ideaConfig, ideaMcpClient));
+        providers.add(githubToolProvider);
+
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);

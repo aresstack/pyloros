@@ -1,6 +1,7 @@
 package com.aresstack.pyloros.config;
 
 import com.aresstack.pyloros.PylorosApplication;
+import com.aresstack.pyloros.upstream.github.GitHubMcpConfig;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
 
 import java.io.InputStream;
@@ -67,6 +68,32 @@ public record PylorosConfig(
         String toolPrefix = value("idea.mcp.tool.prefix", "IDEA_MCP_TOOL_PREFIX", properties, "idea__");
 
         return new IdeaMcpConfig(enabled, host, port, ssePath, connectTimeout, responseTimeout, toolPrefix);
+    }
+
+    /**
+     * Build GitHubMcpConfig from application.properties / environment variables.
+     * Token is read exclusively from the GITHUB_MCP_TOKEN environment variable.
+     */
+    public GitHubMcpConfig githubMcpConfig() {
+        Properties properties = new Properties();
+        try (InputStream inputStream = PylorosApplication.class.getClassLoader().getResourceAsStream("application.properties")) {
+            if (inputStream != null) {
+                properties.load(inputStream);
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not load application.properties", exception);
+        }
+
+        boolean enabled = Boolean.parseBoolean(value("github.mcp.enabled", "GITHUB_MCP_ENABLED", properties, "false"));
+        String url = value("github.mcp.url", "GITHUB_MCP_URL", properties, "https://api.githubcopilot.com/mcp/");
+        // Token must come from environment only; never from committed properties
+        String token = System.getenv("GITHUB_MCP_TOKEN");
+        if (token == null) token = "";
+        String toolPrefix = value("github.mcp.tool.prefix", "GITHUB_MCP_TOOL_PREFIX", properties, "github/");
+        int connectTimeout = intValue("github.mcp.connect.timeout.ms", "GITHUB_MCP_CONNECT_TIMEOUT_MS", properties, 5000);
+        int responseTimeout = intValue("github.mcp.response.timeout.ms", "GITHUB_MCP_RESPONSE_TIMEOUT_MS", properties, 60000);
+
+        return new GitHubMcpConfig(enabled, url, token, toolPrefix, connectTimeout, responseTimeout);
     }
 
     private static int intValue(String propertyName, String environmentName, Properties properties, int defaultValue) {
