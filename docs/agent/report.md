@@ -1,41 +1,59 @@
 Was wurde verifiziert, geändert oder implementiert?
-- Analysiert wurde der Unterschied zwischen lokalem `tools/call` (JSON-RPC auf `/sse`) und Connector-/`api_tool`-ähnlicher Resource-Auflösung (POST auf `/sse/<toolName>`). Ursache für `Resource not found .../intellij-index/ide_index_status` war fehlendes HTTP-Routing für path-basierte Tool-Invocation.
-- Implementiert wurde eine robuste HTTP-Kompatibilität im Pyloros-Layer:
-  - zusätzlicher POST-Wildcard-Route-Mount für `/sse/*`
-  - Resolver für Toolnamen aus dem Pfad (inkl. URL-Decoding, Slash bleibt Bestandteil des Namens)
-  - Fallback-Mapping für RPC-Requests ohne `params.name` auf den Toolnamen aus dem Pfad
-  - direkte path-basierte Invocation ohne `method` wird auf `ToolRouter` gemappt
-- Kanonische Toolnamen wurden nicht geändert (`provider/tool` bleibt unverändert), Routing erfolgt weiterhin über `ToolCatalog`/`ToolRouter`.
-- Konfliktprüfung: Kein inhaltlicher Konflikt zur Assignment-Datei beim Routing-Teil; Implementierung bleibt mit den Assignment-Regeln „exact key routing / kein Prefix-Split“ konsistent.
+- E2E-Diagnostik für den Unterschied "gelistet != aufrufbar" umgesetzt, damit klar trennbar ist:
+  - (A) Call erreicht Pyloros nicht (kein passender MCP-POST-/tools/call-Logeintrag)
+  - (B) Call erreicht Pyloros, scheitert im Routing/Dispatch (Router-/Provider-Logs zeigen Hit/Miss und Ziel)
+- `McpRoutes` erweitert:
+  - MCP-POST-Logging mit `path`, `method`, `source` (`rpc`/`path`), `resolvedToolName`
+  - `tools/call`-Detail-Logging mit `name` und `argumentKeys` (nur Keys, keine Secret-Werte)
+- `ToolRouter` erweitert:
+  - exakter Catalog-Lookup-Log `externalName`, `hit=true/false`
+  - bei Hit zusätzlich `providerId` und `upstreamToolName`
+  - Dispatch-Log vor Provider-Aufruf
+- `GenericMcpToolProvider` Dispatch-Logs präzisiert auf `providerId` + `upstreamToolName`.
+- Routingsemantik unverändert belassen:
+  - externer Name bleibt `provider/tool`
+  - Provider erhält weiterhin nur `upstreamToolName`.
 
 Welche Dateien wurden geändert oder neu erstellt?
 - Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/http/ToolCallRequestResolver.java`
-- Neu/Geändert: `pyloros-server/src/test/java/com/aresstack/pyloros/http/ToolCallRequestResolverTest.java`
+- Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolRouter.java`
+- Geändert: `pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/GenericMcpToolProvider.java`
+- Geändert: `pyloros-server/src/test/java/com/aresstack/pyloros/http/ToolCallRequestResolverTest.java`
+- Geändert: `pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogRoutingTest.java`
 - Geändert: `docs/agent/report.md`
 
 Welche Architekturentscheidung wurde berührt?
-- HTTP-Transport-Kompatibilität wurde erweitert, ohne die zentrale Architektur zu ändern:
-  - Tool-Aggregation bleibt über `ToolProvider`/`ProviderRegistry`/`ToolCatalog`
-  - Tool-Invocation bleibt über `ToolRouter`
-  - Slash-Namen bleiben kanonisch und werden als exakte Namen behandelt, nicht als Resource-Hierarchie.
+- Keine neue Architektur; bestehende Entscheidung bestätigt:
+  - Routing über exakten Toolnamen via `ToolCatalog`/`ToolRouter`
+  - kein Prefix-/Split-Routing
+  - Slash bleibt kanonischer Bestandteil des Toolnamens
+  - Provider-API bleibt `callTool(upstreamToolName, args)`.
 
 Welche Tests, Builds und Runtime-Checks wurden ausgeführt?
+- Tests:
+  - `:pyloros-server:test --tests com.aresstack.pyloros.http.ToolCallRequestResolverTest --tests com.aresstack.pyloros.tool.ToolCatalogRoutingTest` -> erfolgreich.
 - Build:
-  - `gradlew.bat clean build --no-daemon --console=plain` (mit Java 21) → erfolgreich.
-- Unit-Tests:
-  - Neue Tests in `ToolCallRequestResolverTest` liefen im Gradle-Build mit.
-- Reproduzierbarer lokaler Invocation-Check für betroffenen Toolnamen:
-  1. Pyloros lokal gestartet (mit `OAUTH_ACCESS_TOKEN=smoke-token`).
-  2. `tools/list` auf `http://127.0.0.1:8081/sse` erfolgreich (HTTP 200).
-  3. Path-basierte Invocation auf `http://127.0.0.1:8081/sse/intellij-index/ide_index_status` mit JSON-Body `{"arguments":{}}` erfolgreich (HTTP 200, `isError=false`).
-  4. Gegencheck klassisch per JSON-RPC `tools/call` mit `name=intellij-index/ide_index_status` ebenfalls erfolgreich (HTTP 200, `isError=false`).
+  - `build` mit Java 21 (`JAVA_HOME=C:\Program Files\Zulu\zulu-21`) -> erfolgreich.
+  - `clean build` mit Java 21 -> fehlgeschlagen wegen Dateisperre beim Löschen von `pyloros-app/build/libs/pyloros.jar`.
+- Lokale Verifizierbarkeit mit neuer Diagnosekette:
+  - Für einen `tools/call` oder `POST /sse/<provider/tool>` sind jetzt die geforderten Logs für Nameauflösung, Catalog-Hit/Miss und Upstream-Dispatch vorhanden.
 
-Result: successful
+Result: failed
 
 If failed: exact error and recommended next step
-- Nicht zutreffend.
+- Exakter Build-Fehler bei `clean build`:
+  - `Execution failed for task ':pyloros-app:clean'.`
+  - `java.io.IOException: Unable to delete directory 'C:\Projects\pyloros\pyloros-app\build'`
+  - Ursache: `pyloros-app/build/libs/pyloros.jar` war gelockt (offener Prozess/Handle).
+- Zudem ist die zentrale Akzeptanz (echter ChatGPT/api_tool-End-to-End-Call) noch nicht final nachgewiesen.
+- Empfohlene nächste Schritte:
+  1. Laufenden Pyloros-/Java-Prozess beenden, der `pyloros.jar` lockt.
+  2. `clean build` erneut ausführen.
+  3. ChatGPT Connector "Aktualisieren" und den echten `api_tool.call_tool` auf `intellij-index/ide_index_status` ausführen.
+  4. Pyloros-Logs prüfen:
+     - Wenn kein `[MCP] tools/call ... name=intellij-index/ide_index_status` erscheint -> Fehler vor Pyloros (Connector-Mapping).
+     - Wenn Log erscheint und danach `hit=false`/Dispatch-Fehler -> Fehler in Pyloros-Routing/Upstream.
 
 Exact commit hash, or No commit created
 - No commit created
-- Current HEAD reference: `54a70cc3e18a542a95fec42a116af43e78e55f41`
+- Current HEAD reference: `5f48f2be9137b96ea854c33b36efd93b8df97c7b`

@@ -14,6 +14,9 @@ import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 public final class McpRoutes {
@@ -75,6 +78,8 @@ public final class McpRoutes {
 
         if (ToolCallRequestResolver.isDirectPathInvocation(request, pathToolName)) {
             McpToolCall toolCall = ToolCallRequestResolver.resolvePathInvocationToolCall(request, pathToolName);
+            logMcpPost(context, request, "path", toolCall.name());
+            logToolsCall("path", toolCall);
             toolRouter.callTool(toolCall)
                     .onSuccess(result -> HttpJson.send(context, 200, result))
                     .onFailure(error -> HttpJson.send(context, 500, Map.of("error", error.getMessage())));
@@ -83,6 +88,10 @@ public final class McpRoutes {
 
         JsonNode id = request.get("id");
         String method = request.hasNonNull("method") ? request.get("method").asText() : null;
+        boolean rpcToolCall = "tools/call".equals(method) || "call_tool".equals(method);
+        if (!rpcToolCall) {
+            logMcpPost(context, request, "rpc", null);
+        }
 
         if (id == null || id.isNull()) {
             HttpJson.send(context, 202, Map.of("status", "accepted"));
@@ -115,9 +124,43 @@ public final class McpRoutes {
 
     private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName) {
         McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, fallbackToolName);
+        logMcpPost(context, request, "rpc", toolCall.name());
+        logToolsCall("rpc", toolCall);
         toolRouter.callTool(toolCall)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+    }
+
+    private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {
+        String method = request != null && request.hasNonNull("method") ? request.get("method").asText() : "";
+        String toolName = resolvedToolName == null ? "" : resolvedToolName;
+        log.info("[MCP] post path={} method={} source={} resolvedToolName={}",
+                context.request().path(),
+                method,
+                source,
+                toolName);
+    }
+
+    private void logToolsCall(String source, McpToolCall toolCall) {
+        if (toolCall == null) {
+            return;
+        }
+        log.info("[MCP] tools/call source={} name={} argumentKeys={}",
+                source,
+                toolCall.name(),
+                argumentKeys(toolCall.arguments()));
+    }
+
+    private static List<String> argumentKeys(JsonNode arguments) {
+        if (arguments == null || !arguments.isObject()) {
+            return List.of();
+        }
+        List<String> keys = new ArrayList<>();
+        Iterator<String> fieldNames = arguments.fieldNames();
+        while (fieldNames.hasNext()) {
+            keys.add(fieldNames.next());
+        }
+        return keys;
     }
 
 

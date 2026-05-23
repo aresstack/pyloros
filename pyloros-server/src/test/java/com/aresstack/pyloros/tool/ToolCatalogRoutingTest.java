@@ -94,6 +94,17 @@ class ToolCatalogRoutingTest {
     }
 
     @Test
+    void routerRequiresExactExternalNameWithoutPrefixHeuristics() {
+        RecordingProvider index = new RecordingProvider("intellij-index", false, "ide_index_status");
+        ToolRouter toolRouter = routerWithCatalog(index);
+
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("ide_index_status", JSON.createObjectNode())));
+
+        assertEquals(Boolean.TRUE, result.get("isError"));
+        assertEquals("Tool not found: ide_index_status", firstText(result));
+    }
+
+    @Test
     void unknownToolNameReturnsCleanErrorResult() {
         RecordingProvider github = new RecordingProvider("github", false, "get_me");
         ToolRouter toolRouter = routerWithCatalog(github);

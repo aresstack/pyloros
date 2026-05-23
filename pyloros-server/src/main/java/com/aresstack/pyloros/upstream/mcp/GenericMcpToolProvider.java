@@ -59,12 +59,15 @@ public final class GenericMcpToolProvider implements ToolProvider {
             arguments = new JsonObject();
         }
 
-        log.info("[MCP-UPSTREAM] provider={} tools/call {}", config.providerId(), requested);
+        log.info("[MCP-UPSTREAM] provider dispatch providerId={} upstreamToolName={}", config.providerId(), requested);
 
         return client.callTool(requested, arguments)
                 .map(this::normalizeCallResult)
                 .recover(err -> {
-                    log.warn("[MCP-UPSTREAM] provider={} tools/call {} failed: {}", config.providerId(), requested, err.getMessage());
+                    log.warn("[MCP-UPSTREAM] provider dispatch failed providerId={} upstreamToolName={} reason={}",
+                            config.providerId(),
+                            requested,
+                            err.getMessage());
                     return Future.succeededFuture(errorResult(err.getMessage()));
                 });
     }

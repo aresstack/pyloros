@@ -31,6 +31,17 @@ class ToolCallRequestResolverTest {
     }
 
     @Test
+    void resolveRpcToolCallUsesExplicitNameWhenPresent() throws Exception {
+        McpToolCall call = ToolCallRequestResolver.resolveRpcToolCall(
+                JSON.readTree("{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"intellij-index/ide_index_status\",\"arguments\":{\"projectPath\":\"C:/Projects/pyloros\"}}}"),
+                "intellij/other_tool"
+        );
+
+        assertEquals("intellij-index/ide_index_status", call.name());
+        assertEquals("C:/Projects/pyloros", call.arguments().path("projectPath").asText());
+    }
+
+    @Test
     void directPathInvocationDetectedWhenMethodMissing() throws Exception {
         assertTrue(ToolCallRequestResolver.isDirectPathInvocation(
                 JSON.readTree("{\"projectPath\":\"C:/Projects/pyloros\"}"),
