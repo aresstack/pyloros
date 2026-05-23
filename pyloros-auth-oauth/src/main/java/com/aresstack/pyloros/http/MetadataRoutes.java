@@ -1,6 +1,6 @@
 package com.aresstack.pyloros.http;
 
-import com.aresstack.pyloros.config.ServerConfig;
+import com.aresstack.pyloros.oauth.OAuthConfig;
 import io.vertx.ext.web.Router;
 
 import java.util.Map;
@@ -9,9 +9,9 @@ public final class MetadataRoutes {
 
     private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
 
-    private final ServerConfig config;
+    private final OAuthConfig config;
 
-    public MetadataRoutes(ServerConfig config) {
+    public MetadataRoutes(OAuthConfig config) {
         this.config = config;
     }
 

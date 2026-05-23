@@ -1,6 +1,7 @@
 package com.aresstack.pyloros.config;
 
 import com.aresstack.pyloros.PylorosApplication;
+import com.aresstack.pyloros.oauth.OAuthConfig;
 
 import java.io.InputStream;
 import java.util.Properties;
@@ -10,6 +11,7 @@ public record PylorosConfig(
         String publicOrigin,
         String mcpPublicPath,
         String mcpProtocolVersion,
+        String securityMode,
         String oauthClientId,
         String oauthClientSecret,
         String fixedAccessToken,
@@ -17,7 +19,7 @@ public record PylorosConfig(
         int oauthRefreshTokenTtlSeconds,
         boolean oauthRefreshTokenRotationEnabled,
         String oauthRefreshTokenStorePath
-) implements ServerConfig {
+) implements ServerConfig, OAuthConfig {
 
     public static PylorosConfig load() {
         Properties properties = loadProperties();
@@ -27,6 +29,7 @@ public record PylorosConfig(
                 normalizeOrigin(value("public.origin", "PUBLIC_ORIGIN", properties, "https://current-car.com")),
                 value("mcp.public.path", "MCP_PUBLIC_PATH", properties, "/pyloros"),
                 value("mcp.protocol.version", "MCP_VERSION_CHATGPT", properties, "2025-03-26"),
+                value("security.mode", "SECURITY_MODE", properties, "oauth"),
                 value("oauth.client.id", "OAUTH_CLIENT_ID", properties, value("oauth.client.id", "BASIC_AUTH_USER", properties, "")),
                 value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),
                 value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, ""),

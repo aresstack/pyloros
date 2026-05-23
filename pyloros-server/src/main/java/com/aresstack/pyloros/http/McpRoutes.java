@@ -1,9 +1,10 @@
 package com.aresstack.pyloros.http;
 
 import com.aresstack.pyloros.config.ServerConfig;
-import com.aresstack.pyloros.domain.oauth.BearerAuthResult;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
-import com.aresstack.pyloros.oauth.OAuthService;
+import com.aresstack.pyloros.security.AuthenticationRequest;
+import com.aresstack.pyloros.security.AuthenticationResult;
+import com.aresstack.pyloros.security.RequestAuthenticator;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolRouter;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -24,17 +25,14 @@ public final class McpRoutes {
     private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
     private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
 
-    private static final String WWW_AUTHENTICATE_INVALID_TOKEN =
-            "Bearer error=\"invalid_token\", error_description=\"The access token is invalid or expired\"";
-
     private final ServerConfig config;
-    private final OAuthService oauthService;
+    private final RequestAuthenticator authenticator;
     private final ToolCatalog toolCatalog;
     private final ToolRouter toolRouter;
 
-    public McpRoutes(ServerConfig config, OAuthService oauthService, ToolCatalog toolCatalog, ToolRouter toolRouter) {
+    public McpRoutes(ServerConfig config, RequestAuthenticator authenticator, ToolCatalog toolCatalog, ToolRouter toolRouter) {
         this.config = config;
-        this.oauthService = oauthService;
+        this.authenticator = authenticator;
         this.toolCatalog = toolCatalog;
         this.toolRouter = toolRouter;
     }
@@ -62,9 +60,9 @@ public final class McpRoutes {
     }
 
     private void mcpSse(RoutingContext context) {
-        BearerAuthResult authResult = oauthService.checkBearerAuth(context.request().getHeader(HttpHeaders.AUTHORIZATION));
-        if (authResult != BearerAuthResult.OK) {
-            unauthorized(context, authResult);
+        AuthenticationResult authentication = authenticator.authenticate(authenticationRequest(context));
+        if (!authentication.isAuthenticated()) {
+            unauthorized(context, authentication);
             return;
         }
 
@@ -77,9 +75,9 @@ public final class McpRoutes {
     }
 
     private void mcpPost(RoutingContext context) {
-        BearerAuthResult authResult = oauthService.checkBearerAuth(context.request().getHeader(HttpHeaders.AUTHORIZATION));
-        if (authResult != BearerAuthResult.OK) {
-            unauthorized(context, authResult);
+        AuthenticationResult authentication = authenticator.authenticate(authenticationRequest(context));
+        if (!authentication.isAuthenticated()) {
+            unauthorized(context, authentication);
             return;
         }
 
@@ -191,22 +189,22 @@ public final class McpRoutes {
     }
 
 
-    private void unauthorized(RoutingContext context, BearerAuthResult reason) {
-        String reasonStr = switch (reason) {
-            case MISSING_TOKEN -> "missing_token";
-            case INVALID_TOKEN -> "invalid_token";
-            case EXPIRED_TOKEN -> "expired_token";
-            default -> "unknown";
-        };
-        log.info("[MCP] auth rejected reason={}", reasonStr);
+    private AuthenticationRequest authenticationRequest(RoutingContext context) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        context.request().headers().forEach(header -> headers.put(header.getKey(), header.getValue()));
+        return new AuthenticationRequest(context.request().method().name(), context.request().path(), headers);
+    }
+
+    private void unauthorized(RoutingContext context, AuthenticationResult authentication) {
+        log.info("[MCP] auth rejected reason={}", authentication.errorCode());
         try {
             context.response()
-                    .setStatusCode(401)
+                    .setStatusCode(authentication.statusCode())
                     .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                     .putHeader(HttpHeaders.CACHE_CONTROL, "no-store")
-                    .putHeader("Pragma", "no-cache")
-                    .putHeader("WWW-Authenticate", WWW_AUTHENTICATE_INVALID_TOKEN)
-                    .end("{\"error\":\"invalid_token\"}");
+                    .putHeader("Pragma", "no-cache");
+            authentication.responseHeaders().forEach((name, value) -> context.response().putHeader(name, value));
+            context.response().end("{\"error\":\"" + authentication.errorCode() + "\"}");
         } catch (Exception ex) {
             context.fail(ex);
         }

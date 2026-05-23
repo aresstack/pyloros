@@ -1,0 +1,19 @@
+plugins {
+        id 'java-library'
+    }
+    
+    description = 'OAuth authentication module for Pyloros'
+    
+    dependencies {
+        api project(':pyloros-security')
+        implementation project(':pyloros-server')
+    
+        implementation "io.vertx:vertx-core:${vertxVersion}"
+        implementation "io.vertx:vertx-web:${vertxVersion}"
+        implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+        implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+    
+        testImplementation project(':pyloros-server')
+        testImplementation "ch.qos.logback:logback-classic:${logbackVersion}"
+    }
+    

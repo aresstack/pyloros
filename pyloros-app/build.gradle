@@ -5,6 +5,8 @@ plugins {
 
 dependencies {
     implementation project(':pyloros-server')
+    implementation project(':pyloros-security')
+    implementation project(':pyloros-auth-oauth')
     implementation project(':pyloros-upstream-idea')
     implementation project(':pyloros-upstream-github')
     implementation project(':pyloros-upstream-intellij-index')

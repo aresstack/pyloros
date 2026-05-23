@@ -1,6 +1,5 @@
 package com.aresstack.pyloros.oauth;
 
-import com.aresstack.pyloros.config.ServerConfig;
 import com.aresstack.pyloros.domain.oauth.AccessToken;
 import com.aresstack.pyloros.domain.oauth.AuthorizationCode;
 import com.aresstack.pyloros.domain.oauth.BearerAuthResult;
@@ -34,7 +33,7 @@ public final class OAuthService {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int REFRESH_STORE_VERSION = 1;
 
-    private final ServerConfig config;
+    private final OAuthConfig config;
     private final Clock clock;
     private final Map<String, AuthorizationCode> authorizationCodes = new LinkedHashMap<>();
     private final Map<String, AccessToken> accessTokens = new LinkedHashMap<>();
@@ -44,11 +43,11 @@ public final class OAuthService {
 
     private static final int REPLAY_CACHE_TTL_SECONDS = 10;
 
-    public OAuthService(ServerConfig config) {
+    public OAuthService(OAuthConfig config) {
         this(config, Clock.systemUTC());
     }
 
-    OAuthService(ServerConfig config, Clock clock) {
+    OAuthService(OAuthConfig config, Clock clock) {
         this.config = config;
         this.clock = clock;
         loadRefreshTokensFromStore();

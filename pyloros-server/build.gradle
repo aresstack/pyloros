@@ -11,6 +11,8 @@ java {
 }
 
 dependencies {
+    api project(':pyloros-security')
+
     api "io.vertx:vertx-core:${vertxVersion}"
     api "io.vertx:vertx-web:${vertxVersion}"
     api "io.vertx:vertx-web-client:${vertxVersion}"

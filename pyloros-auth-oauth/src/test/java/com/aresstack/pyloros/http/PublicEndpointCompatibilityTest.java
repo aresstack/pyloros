@@ -4,6 +4,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.aresstack.pyloros.config.ServerConfig;
+import com.aresstack.pyloros.oauth.OAuthConfig;
+import com.aresstack.pyloros.oauth.OAuthRequestAuthenticator;
 import com.aresstack.pyloros.oauth.OAuthService;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.tool.ToolCatalog;
@@ -59,7 +61,7 @@ class PublicEndpointCompatibilityTest {
         mcpLogs.start();
         logger.addAppender(mcpLogs);
 
-        ServerConfig config = new TestServerConfig(
+        TestServerConfig config = new TestServerConfig(
                 "https://current-car.com",
                 CANONICAL_PATH,
                 "2025-03-26",
@@ -80,7 +82,7 @@ class PublicEndpointCompatibilityTest {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
         new MetadataRoutes(config).mount(router);
-        new McpRoutes(config, oauthService, toolCatalog, toolRouter).mount(router);
+        new McpRoutes(config, new OAuthRequestAuthenticator(oauthService), toolCatalog, toolRouter).mount(router);
 
         server = await(vertx.createHttpServer().requestHandler(router).listen(0));
         baseUrl = "http://127.0.0.1:" + server.actualPort();
@@ -221,7 +223,7 @@ class PublicEndpointCompatibilityTest {
             int oauthRefreshTokenTtlSeconds,
             boolean oauthRefreshTokenRotationEnabled,
             String oauthRefreshTokenStorePath
-    ) implements ServerConfig {
+    ) implements ServerConfig, OAuthConfig {
     }
 
     private static final class TestToolProvider implements ToolProvider {

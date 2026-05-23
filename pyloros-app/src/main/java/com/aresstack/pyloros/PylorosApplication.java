@@ -6,10 +6,10 @@ import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.config.ToolNameSeparatorResolver;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
-import com.aresstack.pyloros.http.MetadataRoutes;
-import com.aresstack.pyloros.http.OAuthRoutes;
-import com.aresstack.pyloros.oauth.OAuthService;
+import com.aresstack.pyloros.oauth.OAuthSecurityModule;
 import com.aresstack.pyloros.provider.ProviderRegistry;
+import com.aresstack.pyloros.security.NoSecurityModule;
+import com.aresstack.pyloros.security.SecurityModule;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolNameFormatter;
@@ -60,7 +60,7 @@ public final class PylorosApplication extends AbstractVerticle {
     @Override
     public void start() {
         PylorosConfig config = PylorosConfig.load();
-        OAuthService oauthService = new OAuthService(config);
+        SecurityModule securityModule = createSecurityModule(config);
 
         String toolNameSeparator = new ToolNameSeparatorResolver().resolve(launchArgs);
         ToolNameFormatter toolNameFormatter = new ToolNameFormatter(toolNameSeparator);
@@ -77,10 +77,9 @@ public final class PylorosApplication extends AbstractVerticle {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
 
-        new MetadataRoutes(config).mount(router);
         new HealthRoutes().mount(router);
-        new OAuthRoutes(oauthService).mount(router);
-        new McpRoutes(config, oauthService, toolCatalog, toolRouter).mount(router);
+        securityModule.mountRoutes(router);
+        new McpRoutes(config, securityModule.authenticator(), toolCatalog, toolRouter).mount(router);
 
         vertx.createHttpServer()
                 .requestHandler(router)
@@ -92,6 +91,18 @@ public final class PylorosApplication extends AbstractVerticle {
                         config.mcpPublicPath()
                 ))
                 .onFailure(error -> log.error("Could not start HTTP server", error));
+    }
+
+    private SecurityModule createSecurityModule(PylorosConfig config) {
+        if ("none".equalsIgnoreCase(config.securityMode())) {
+            log.info("[SECURITY] mode=none");
+            return new NoSecurityModule();
+        }
+        if ("oauth".equalsIgnoreCase(config.securityMode())) {
+            log.info("[SECURITY] mode=oauth");
+            return new OAuthSecurityModule(config);
+        }
+        throw new IllegalArgumentException("Unsupported security mode: " + config.securityMode());
     }
 
     private void registerExternalProviders(List<ToolProvider> providers) {

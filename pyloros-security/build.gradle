@@ -1,0 +1,10 @@
+plugins {
+        id 'java-library'
+    }
+    
+    description = 'Authentication abstraction library for Pyloros'
+    
+    dependencies {
+        api "io.vertx:vertx-web:${vertxVersion}"
+    }
+    

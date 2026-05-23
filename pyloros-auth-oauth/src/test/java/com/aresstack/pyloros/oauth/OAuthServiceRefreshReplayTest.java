@@ -1,6 +1,5 @@
 package com.aresstack.pyloros.oauth;
 
-import com.aresstack.pyloros.config.ServerConfig;
 import com.aresstack.pyloros.domain.oauth.ClientCredentials;
 import com.aresstack.pyloros.domain.oauth.OAuthException;
 import com.aresstack.pyloros.domain.oauth.TokenResponse;
@@ -133,7 +132,7 @@ class OAuthServiceRefreshReplayTest {
         throw new AssertionError("Authorization code missing from redirect");
     }
 
-    private static ServerConfig config(boolean rotationEnabled, Path storePath) {
+    private static OAuthConfig config(boolean rotationEnabled, Path storePath) {
         return new TestServerConfig(
                 "https://current-car.com",
                 "/pyloros",
@@ -159,7 +158,7 @@ class OAuthServiceRefreshReplayTest {
             int oauthRefreshTokenTtlSeconds,
             boolean oauthRefreshTokenRotationEnabled,
             String oauthRefreshTokenStorePath
-    ) implements ServerConfig {
+    ) implements OAuthConfig {
     }
 
     private static final class MutableClock extends Clock {
