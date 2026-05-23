@@ -4,7 +4,8 @@ import com.aresstack.pyloros.config.ServerConfig;
 import com.aresstack.pyloros.domain.oauth.BearerAuthResult;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.oauth.OAuthService;
-import com.aresstack.pyloros.tool.ToolRegistry;
+import com.aresstack.pyloros.tool.ToolCatalog;
+import com.aresstack.pyloros.tool.ToolRouter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
@@ -24,12 +25,14 @@ public final class McpRoutes {
 
     private final ServerConfig config;
     private final OAuthService oauthService;
-    private final ToolRegistry toolRegistry;
+    private final ToolCatalog toolCatalog;
+    private final ToolRouter toolRouter;
 
-    public McpRoutes(ServerConfig config, OAuthService oauthService, ToolRegistry toolRegistry) {
+    public McpRoutes(ServerConfig config, OAuthService oauthService, ToolCatalog toolCatalog, ToolRouter toolRouter) {
         this.config = config;
         this.oauthService = oauthService;
-        this.toolRegistry = toolRegistry;
+        this.toolCatalog = toolCatalog;
+        this.toolRouter = toolRouter;
     }
 
     public void mount(Router router) {
@@ -94,14 +97,14 @@ public final class McpRoutes {
     }
 
     private void listTools(RoutingContext context, JsonNode id) {
-        toolRegistry.listTools()
+        toolCatalog.listTools()
                 .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
     private void callTool(RoutingContext context, JsonNode id, JsonNode request) {
         McpToolCall toolCall = extractToolCall(request);
-        toolRegistry.callTool(toolCall)
+        toolRouter.callTool(toolCall)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }

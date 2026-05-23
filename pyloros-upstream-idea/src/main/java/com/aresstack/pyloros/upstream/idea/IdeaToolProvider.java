@@ -31,6 +31,16 @@ public final class IdeaToolProvider implements ToolProvider {
     }
 
     @Override
+    public String providerId() {
+        return "intellij";
+    }
+
+    @Override
+    public String nativeToolName(String exposedToolName) {
+        return toolNameMapper.toOriginalName(exposedToolName);
+    }
+
+    @Override
     public Future<List<Map<String, Object>>> listTools() {
         if (!config.enabled()) {
             return Future.succeededFuture(List.of());
@@ -54,7 +64,7 @@ public final class IdeaToolProvider implements ToolProvider {
         }
 
         // Always claim namespaced IDEA aliases so outage handling happens in callTool()
-        // with a controlled provider error instead of ToolRegistry unsupported fallback.
+        // with a controlled provider error instead of generic unsupported fallback.
         if (toolNameMapper.isNamespacedAlias(toolName)) {
             return true;
         }

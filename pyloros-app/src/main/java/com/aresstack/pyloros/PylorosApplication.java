@@ -6,8 +6,11 @@ import com.aresstack.pyloros.http.MetadataRoutes;
 import com.aresstack.pyloros.http.OAuthRoutes;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.oauth.OAuthService;
+import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.tool.PylorosPingToolProvider;
-import com.aresstack.pyloros.tool.ToolRegistry;
+import com.aresstack.pyloros.tool.ToolCatalog;
+import com.aresstack.pyloros.tool.ToolProvider;
+import com.aresstack.pyloros.tool.ToolRouter;
 import com.aresstack.pyloros.upstream.idea.IdeaToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
@@ -43,10 +46,13 @@ public final class PylorosApplication extends AbstractVerticle {
             ideaMcpClient.start();
         }
 
-        ToolRegistry toolRegistry = new ToolRegistry(List.of(
+        List<ToolProvider> providers = List.of(
                 new PylorosPingToolProvider(),
                 new IdeaToolProvider(ideaConfig, ideaMcpClient)
-        ));
+        );
+        ProviderRegistry providerRegistry = new ProviderRegistry(providers);
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
+        ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
@@ -54,7 +60,7 @@ public final class PylorosApplication extends AbstractVerticle {
         new MetadataRoutes(config).mount(router);
         new HealthRoutes().mount(router);
         new OAuthRoutes(oauthService).mount(router);
-        new McpRoutes(config, oauthService, toolRegistry).mount(router);
+        new McpRoutes(config, oauthService, toolCatalog, toolRouter).mount(router);
 
         vertx.createHttpServer()
                 .requestHandler(router)

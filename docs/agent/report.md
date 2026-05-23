@@ -1,91 +1,78 @@
-# Task 008-B Report - Maven Central publishing readiness metadata
+# Task Report - 009-A
 
-## What was verified, changed or implemented
-- Added Maven publication metadata and local publication readiness for library modules only:
-  - `pyloros-server`
-  - `pyloros-upstream-idea`
-- Added `maven-publish` plugin to both library modules.
-- Enabled `withSourcesJar()` and `withJavadocJar()` in both library modules.
-- Configured `MavenPublication` POM metadata fields in both modules:
-  - `group` (inherited from root: `com.aresstack`)
-  - `version` (inherited from root: `0.1.0-SNAPSHOT`)
-  - `description`
-  - `url`
-  - `license`
-  - `developers`
-  - `scm`
-- Kept signing disabled/not required.
-- Kept `pyloros-app` unchanged as application/fat-jar artifact (no library publication setup).
-- No runtime behavior changes made.
+## What was verified, changed or implemented?
+- Implemented architecture split in `pyloros-server`:
+  - `ProviderRegistry`
+  - `ToolCatalog`
+  - `ToolCatalogEntry`
+  - `ToolAddress`
+  - `ToolRouter`
+- Kept `ToolProvider` interface compatible by adding default methods (`providerId`, `nativeToolName`) so existing providers still work.
+- Updated `McpRoutes` integration:
+  - `tools/list` now uses `ToolCatalog`
+  - `tools/call` now uses `ToolRouter`
+- Updated bootstrap wiring in `PylorosApplication` to construct and inject `ProviderRegistry`, `ToolCatalog`, and `ToolRouter`.
+- Kept `ToolRegistry` as a **transitional wrapper** (deprecated/commented) delegating to the new architecture.
+- Added collision detection in catalog build (`ToolCatalog` throws on duplicate exposed tool names).
+- Preserved naming/compatibility behavior:
+  - `pyloros__ping` unchanged
+  - IntelliJ tools exposed as `intellij/...`
+  - legacy aliases remain callable via router compatibility fallback (`provider.supports(...)` path)
+- OAuth behavior unchanged.
+- IntelliJ forwarding semantics unchanged.
 
-## Files changed
-- `pyloros-server/build.gradle`
-- `pyloros-upstream-idea/build.gradle`
+## Files changed / created
+### Changed
+- `pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolProvider.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/PylorosPingToolProvider.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolRegistry.java`
+- `pyloros-upstream-idea/src/main/java/com/aresstack/pyloros/upstream/idea/IdeaToolProvider.java`
 
-## Publication metadata summary
-- Shared coordinates:
-  - `groupId`: `com.aresstack`
-  - `version`: `0.1.0-SNAPSHOT`
-- `pyloros-server`:
-  - `artifactId`: `pyloros-server`
-  - `name`: `pyloros-server`
-  - `description`: `Core Vert.x server library for Pyloros`
-- `pyloros-upstream-idea`:
-  - `artifactId`: `pyloros-upstream-idea`
-  - `name`: `pyloros-upstream-idea`
-  - `description`: `IDEA upstream integration library for Pyloros`
-- Shared POM metadata:
-  - `url`: `https://github.com/aresstack/pyloros`
-  - license: Apache-2.0
-  - developer: `aresstack` / `Ares Stack`
-  - scm connection + developerConnection + url configured
+### New
+- `pyloros-server/src/main/java/com/aresstack/pyloros/provider/ProviderRegistry.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalogEntry.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolAddress.java`
+- `pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolRouter.java`
 
 ## Architecture decision touched
-- Libraries are publishable as Maven artifacts with metadata; app module remains runtime distribution via Shadow fat JAR only.
+- Split former monolithic tool handling (`ToolRegistry`) into separate concerns:
+  - provider registration (`ProviderRegistry`)
+  - MCP-visible catalog/read model (`ToolCatalog` + `ToolCatalogEntry`)
+  - call routing (`ToolRouter`)
+- `ToolRegistry` retained only as transitional compatibility abstraction.
 
-## Tests, builds and runtime checks executed
-Commands executed:
-1. `gradlew.bat clean build`
-   - Initial failures due local environment locks/JVM selection.
-   - Successful run executed as:
-   - `gradlew.bat --no-daemon clean build`
-2. `gradlew.bat :pyloros-server:publishToMavenLocal :pyloros-upstream-idea:publishToMavenLocal`
-   - Successful run executed as:
-   - `gradlew.bat --no-daemon :pyloros-server:publishToMavenLocal :pyloros-upstream-idea:publishToMavenLocal`
-3. `gradlew.bat :pyloros-app:shadowJar`
-   - Successful run executed as:
-   - `gradlew.bat --no-daemon :pyloros-app:shadowJar`
-
-Result:
-- Build: **SUCCESS**
-- Local publish for both library modules: **SUCCESS**
-- App fat JAR task (`:pyloros-app:shadowJar`): **SUCCESS**
-
-## Generated artifact coordinates in ~/.m2
-Base path:
-- `C:\Users\angel\.m2\repository\com\aresstack`
-
-Coordinates and artifacts:
-- `com.aresstack:pyloros-server:0.1.0-SNAPSHOT`
-  - `...\pyloros-server-0.1.0-SNAPSHOT.jar`
-  - `...\pyloros-server-0.1.0-SNAPSHOT-sources.jar`
-  - `...\pyloros-server-0.1.0-SNAPSHOT-javadoc.jar`
-  - `...\pyloros-server-0.1.0-SNAPSHOT.pom`
-- `com.aresstack:pyloros-upstream-idea:0.1.0-SNAPSHOT`
-  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT.jar`
-  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT-sources.jar`
-  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT-javadoc.jar`
-  - `...\pyloros-upstream-idea-0.1.0-SNAPSHOT.pom`
+## Verification: tests, builds, runtime checks
+1. Build:
+   - Command: `gradlew.bat clean build`
+   - Result: ✅ success (after setting Java 21 and clearing prior jar lock)
+2. Shadow jar:
+   - Command: `gradlew.bat :pyloros-app:shadowJar`
+   - Result: ✅ success
+3. Runtime start:
+   - Command: `& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar`
+   - Result: ✅ started (run with `OAUTH_ACCESS_TOKEN=local-test-token` for local MCP auth)
+4. Healthcheck:
+   - Command: `GET http://127.0.0.1:8081/health`
+   - Result: ✅ `200 {"status":"ok"}`
+5. `tools/list`:
+   - Command: MCP JSON-RPC `tools/list` POST to `/sse` with bearer token
+   - Result: ✅ includes `pyloros__ping` and `intellij/get_project_modules`
+6. `tools/call pyloros__ping`:
+   - Result: ✅ success, returned alive message
+7. `tools/call intellij/get_project_modules`:
+   - Result: ✅ success, returned module list via IntelliJ forwarding
 
 ## Result
-- **Successful**
+✅ successful
 
-## Exact commit hash
-- `07704de`
+## Failure notes / recommended next step
+- Initial local-code-search subagent invocation failed because model `qwen2.5-coder:14b` was unavailable in this environment.
+- Continued with direct workspace analysis tools to complete assignment.
 
-## Push performed
-- **Yes** (`main -> origin/main`)
-
-## Conflicts / caveats
-- Mandated `local-code-search` subagent could not be used due environment model availability error: `Model "qwen2.5-coder:14b" not found in available models`.
-- `clean` initially failed because running local `pyloros.jar` processes locked `pyloros-app/build/libs/pyloros.jar`; processes were stopped before rerun.
+## Commit / push
+- Commit message used: `Introduce tool catalog architecture`
+- Exact commit hash: `93a67c6`
+- Push performed: `yes` (`origin/main`)

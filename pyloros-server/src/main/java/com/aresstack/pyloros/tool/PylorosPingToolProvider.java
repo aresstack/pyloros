@@ -12,6 +12,11 @@ public final class PylorosPingToolProvider implements ToolProvider {
     public static final String TOOL_NAME = "pyloros__ping";
 
     @Override
+    public String providerId() {
+        return "pyloros";
+    }
+
+    @Override
     public Future<List<Map<String, Object>>> listTools() {
         return Future.succeededFuture(List.of(toolDefinition()));
     }
