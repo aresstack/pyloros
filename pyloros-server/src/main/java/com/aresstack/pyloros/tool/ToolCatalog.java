@@ -26,7 +26,12 @@ public final class ToolCatalog {
     }
 
     public Future<List<Map<String, Object>>> listTools() {
-        return refresh().map(ToolCatalogSnapshot::descriptors);
+        return listTools(ToolView.PUBLIC);
+    }
+
+    public Future<List<Map<String, Object>>> listTools(ToolView toolView) {
+        return refresh(Objects.requireNonNull(toolView, "toolView must not be null"))
+                .map(ToolCatalogSnapshot::descriptors);
     }
 
     public Optional<ToolCatalogEntry> findByExternalName(String externalName) {
@@ -37,7 +42,7 @@ public final class ToolCatalog {
         return snapshot;
     }
 
-    private Future<ToolCatalogSnapshot> refresh() {
+    private Future<ToolCatalogSnapshot> refresh(ToolView toolView) {
         List<ToolProvider> providers = providerRegistry.providers();
         if (providers.isEmpty()) {
             snapshot = ToolCatalogSnapshot.empty();
@@ -46,7 +51,7 @@ public final class ToolCatalog {
 
         List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();
         for (ToolProvider provider : providers) {
-            futures.add(provider.listTools());
+            futures.add(provider.listTools(toolView));
         }
 
         return Future.all(new ArrayList<>(futures)).map(composite -> {

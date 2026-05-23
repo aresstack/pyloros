@@ -18,5 +18,10 @@ public interface ToolProvider {
 
     Future<List<Map<String, Object>>> listTools();
 
+    default Future<List<Map<String, Object>>> listTools(ToolView toolView) {
+        return listTools();
+    }
+
     Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments);
 }
+    

@@ -7,6 +7,7 @@ import com.aresstack.pyloros.security.AuthenticationResult;
 import com.aresstack.pyloros.security.RequestAuthenticator;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolRouter;
+import com.aresstack.pyloros.tool.ToolView;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
@@ -132,7 +133,7 @@ public final class McpRoutes {
     }
 
     private void listTools(RoutingContext context, JsonNode id) {
-        toolCatalog.listTools()
+        toolCatalog.listTools(ToolView.PUBLIC)
                 .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
