@@ -1,5 +1,13 @@
 plugins {
     id 'java-library'
+    id 'maven-publish'
+}
+
+description = 'Core Vert.x server library for Pyloros'
+
+java {
+    withSourcesJar()
+    withJavadocJar()
 }
 
 dependencies {
@@ -11,5 +19,40 @@ dependencies {
     implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
 
     api "org.slf4j:slf4j-api:${slf4jVersion}"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            pom {
+                name = 'pyloros-server'
+                description = project.description
+                url = 'https://github.com/aresstack/pyloros'
+
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id = 'aresstack'
+                        name = 'Ares Stack'
+                    }
+                }
+
+                scm {
+                    connection = 'scm:git:https://github.com/aresstack/pyloros.git'
+                    developerConnection = 'scm:git:ssh://git@github.com:aresstack/pyloros.git'
+                    url = 'https://github.com/aresstack/pyloros'
+                }
+            }
+        }
+    }
 }
 
