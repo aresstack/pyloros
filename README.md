@@ -22,10 +22,10 @@ Reactive Java / Vert.x gateway guarding and routing MCP tool access for AI-assis
 Set-Location 'C:\Projects\pyloros'
 
 # Build runnable fat jar
-.\gradlew.bat clean shadowJar
+.\gradlew.bat clean :pyloros-app:shadowJar
 
 # Start runtime artifact
-java -jar .\build\libs\pyloros.jar
+java -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
 The fat JAR is the primary runtime target.
@@ -49,7 +49,7 @@ $env:OAUTH_CLIENT_SECRET = '<your-client-secret>'
 # Optional: IntelliJ IDEA upstream
 $env:IDEA_TOOL_PREFIX = 'idea'
 
-.\gradlew.bat --no-daemon run --stacktrace
+.\gradlew.bat --no-daemon :pyloros-app:run --stacktrace
 ```
 
 ### Optional: Configure short TTLs
@@ -128,9 +128,9 @@ Performs a port check and an HTTP call to `GET /health` → `{"status":"ok"}`.
 Build and test:
 ```ps1
 .\gradlew.bat clean build
-.\gradlew.bat clean shadowJar
-.\java -jar .\build\libs\pyloros.jar
-.\gradlew.bat --no-daemon run --stacktrace
+.\gradlew.bat :pyloros-app:shadowJar
+java -jar .\pyloros-app\build\libs\pyloros.jar
+.\gradlew.bat --no-daemon :pyloros-app:run --stacktrace
 ```
 
 ## Status

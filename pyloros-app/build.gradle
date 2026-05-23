@@ -1,0 +1,26 @@
+plugins {
+    id 'application'
+    id 'com.gradleup.shadow' version '9.0.0'
+}
+
+dependencies {
+    implementation project(':pyloros-server')
+    implementation project(':pyloros-upstream-idea')
+
+    implementation "io.vertx:vertx-core:${vertxVersion}"
+    implementation "io.vertx:vertx-web:${vertxVersion}"
+
+    runtimeOnly "ch.qos.logback:logback-classic:${logbackVersion}"
+}
+
+application {
+    mainClass = 'com.aresstack.pyloros.PylorosApplication'
+}
+
+tasks.named('shadowJar') {
+    archiveFileName = 'pyloros.jar'
+    manifest {
+        attributes('Main-Class': application.mainClass.get())
+    }
+}
+

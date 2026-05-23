@@ -1,0 +1,12 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    api project(':pyloros-server')
+
+    implementation "io.vertx:vertx-core:${vertxVersion}"
+    implementation "io.vertx:vertx-web-client:${vertxVersion}"
+    implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+}
+
