@@ -28,6 +28,15 @@ Set-Location 'C:\Projects\pyloros'
 java -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
+```
+$env:GITHUB_MCP_ENABLED = 'true'
+$env:GITHUB_MCP_TOKEN = '<real token>'
+
+Set-Location C:\Projects\pyloros
+& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar
+```
+
+
 The fat JAR is the primary runtime target.
 
 ### Development run (Gradle)
