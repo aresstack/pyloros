@@ -33,6 +33,22 @@ class AgentToolViewValidatorTest {
         assertEquals("agentToolView must not reference another ACP provider: other-acp", exception.getMessage());
     }
 
+    @Test
+    void testRejectsPublicView() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> AgentToolViewValidator.validate(config("copilot", "public"), Set.of("copilot")));
+
+        assertEquals("agentToolView must not be 'public' — ACP agents must not see the public tool view: public", exception.getMessage());
+    }
+
+    @Test
+    void testRejectsPublicViewCaseInsensitive() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> AgentToolViewValidator.validate(config("copilot", "Public"), Set.of("copilot")));
+
+        assertEquals("agentToolView must not be 'public' — ACP agents must not see the public tool view: Public", exception.getMessage());
+    }
+
     private static AcpProviderConfiguration config(String providerId, String agentToolView) {
         return new AcpProviderConfiguration(
                 providerId,

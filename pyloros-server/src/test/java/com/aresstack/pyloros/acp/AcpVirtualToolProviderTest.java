@@ -191,15 +191,17 @@ class AcpVirtualToolProviderTest {
     }
 
     @Test
-    void testCancelAlreadyCompletedTaskReturnsError() throws Exception {
+    void testCancelAlreadyCompletedTaskIsIdempotent() throws Exception {
         try (ProviderContext context = newProvider("success")) {
             JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
 
             Map<String, Object> result = call(context.provider(), "cancel_task", objectNode().put("taskId", started.get("taskId").asText()));
             JsonNode response = responsePayload(result);
 
-            assertEquals(Boolean.TRUE, result.get("isError"));
-            assertEquals("Cannot transition task from COMPLETED to CANCELLED", response.get("error").asText());
+            assertEquals(Boolean.FALSE, result.get("isError"));
+            assertEquals("COMPLETED", response.get("state").asText());
+            assertFalse(response.get("cancellationRequested").asBoolean());
+            assertNotNull(response.get("message"));
         }
     }
 

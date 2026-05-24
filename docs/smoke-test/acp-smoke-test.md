@@ -175,4 +175,16 @@ Expected: response contains `state: "CANCELLED"`.
 
 ## Testing with Fake Agent
 
-For development without a real ACP agent, the `AcpVirtualToolProvider` returns placeholder results. Integration tests use this mode to validate the full MCP flow without external dependencies.
+For development without a real ACP agent, integration tests use `FakeAcpAgent` — a test fixture that communicates via piped stdin/stdout using JSON-RPC. It simulates success, error, timeout, permission requests, and large output scenarios. The `AcpVirtualToolProvider` performs the real ACP flow (process launch, JSON-RPC session, event processing) in all cases; no placeholder or stub results are used in production.
+
+## Permission Flow (Release 3 Scope)
+
+Release 3 implements **permission visibility only**:
+
+- ACP `session/update` events with `stopReason: "permission_required"` are detected
+- The task transitions to `WAITING_FOR_PERMISSION` state
+- Pending permissions are exposed via `get_task_status` response
+- **No `approve_permission` or `reject_permission` tools are provided in Release 3**
+- The agent remains blocked until the permission is externally resolved or the task times out
+
+Future releases may add explicit permission approval/rejection tools.

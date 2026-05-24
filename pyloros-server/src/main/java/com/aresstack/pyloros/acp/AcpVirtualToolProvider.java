@@ -303,6 +303,15 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         }
         AgentTask task = taskLookup.task();
 
+        if (isTerminal(task.state())) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("taskId", task.taskId().value());
+            payload.put("state", task.state().name());
+            payload.put("cancellationRequested", task.cancellationRequested());
+            payload.put("message", "Task already in terminal state: " + task.state().name());
+            return successResult(payload);
+        }
+
         try {
             task.addEvent("Cancellation requested");
             task.cancel();
@@ -312,7 +321,12 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 processHandle.destroy();
             }
         } catch (IllegalStateException exception) {
-            return errorResult(exception.getMessage());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("taskId", task.taskId().value());
+            payload.put("state", task.state().name());
+            payload.put("cancellationRequested", task.cancellationRequested());
+            payload.put("message", "Task transitioned to terminal state concurrently: " + task.state().name());
+            return successResult(payload);
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
