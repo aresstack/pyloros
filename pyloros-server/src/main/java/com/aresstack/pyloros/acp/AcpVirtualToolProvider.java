@@ -24,7 +24,7 @@ import java.util.concurrent.TimeoutException;
 
 public final class AcpVirtualToolProvider implements ToolProvider {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final long EVENT_POLL_MILLIS = 200L;
     private static final int STDERR_PREVIEW_CHARS = 512;
     private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -147,16 +147,25 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         ScheduledFuture<?> timeoutFuture = null;
 
         try {
+            if (isTerminal(task.state())) {
+                return;
+            }
             processHandle = processLauncher.launch(processConfigurationFor(request.cwd()));
             activeProcesses.put(task.taskId(), processHandle);
             timeoutFuture = scheduleTimeout(task, processHandle, request.timeoutSeconds());
 
             try (AcpJsonRpcConnection connection = new AcpJsonRpcConnection(processHandle.stdout(), processHandle.stdin());
                  AcpAgentClient client = new AcpAgentClient(processHandle, connection)) {
+                if (isTerminal(task.state())) {
+                    return;
+                }
                 String sessionId = client.createSession(resolveSessionCwd(request.cwd())).join();
                 task.setAcpSessionId(sessionId);
                 agentTaskRepository.save(task);
 
+                if (isTerminal(task.state())) {
+                    return;
+                }
                 client.sendPrompt(sessionId, request.prompt()).join();
                 agentTaskRepository.save(task);
 

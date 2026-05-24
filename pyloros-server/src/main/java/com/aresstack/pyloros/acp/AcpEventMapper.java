@@ -24,6 +24,13 @@ public final class AcpEventMapper {
             throw new IllegalStateException("ACP session/update event is missing params");
         }
 
+        // Handle stopReason-only events (e.g., permission_required, end_turn)
+        String stopReason = text(params, "stopReason");
+        if (stopReason != null) {
+            handleStopReason(task, stopReason, params, maxEventTextChars);
+            return;
+        }
+
         String type = text(params, "type");
         if (type == null) {
             throw new IllegalStateException("ACP session/update event is missing type");
@@ -52,6 +59,41 @@ public final class AcpEventMapper {
                         Instant.now()));
             }
             default -> {
+            }
+        }
+    }
+
+    private static void handleStopReason(AgentTask task, String stopReason, JsonNode params, int maxEventTextChars) {
+        switch (stopReason) {
+            case "permission_required" -> {
+                if (task.state() == AgentTaskState.CREATED) {
+                    task.markRunning();
+                }
+                String description = text(params, "description");
+                if (description == null) {
+                    description = text(params, "message");
+                }
+                if (description == null) {
+                    description = "Permission required";
+                }
+                task.requestPermission(new PendingPermission(
+                        permissionId(params),
+                        truncate(description, maxEventTextChars),
+                        Instant.now()));
+            }
+            case "end_turn" -> {
+                markRunning(task);
+                String result = text(params, "result");
+                if (result == null) {
+                    result = text(params, "text");
+                }
+                if (result == null) {
+                    result = "Task completed";
+                }
+                task.complete(truncate(result, maxEventTextChars));
+            }
+            default -> {
+                // Other stopReasons are informational only
             }
         }
     }
