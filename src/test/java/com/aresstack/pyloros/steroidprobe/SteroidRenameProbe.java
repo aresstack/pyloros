@@ -1,0 +1,1 @@
+package com.aresstack.pyloros.steroidprobe; final class SteroidRenameProbe { String formatGreeting(String name) { return name; } String call() { return formatGreeting("x"); } }
