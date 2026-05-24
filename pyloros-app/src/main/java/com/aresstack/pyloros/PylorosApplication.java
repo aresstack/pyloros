@@ -1,5 +1,6 @@
 package com.aresstack.pyloros;
 
+import com.aresstack.pyloros.config.AcpProviderFactory;
 import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
@@ -128,9 +129,10 @@ public final class PylorosApplication extends AbstractVerticle {
         }
 
         LoadedMcpJsonConfig mcpJson = loaded.get();
-        log.info("[MCP-CONFIG] loaded mcp.json path={} serverCount={}",
+        log.info("[MCP-CONFIG] loaded mcp.json path={} serverCount={} acpProviderCount={}",
                 mcpJson.path(),
-                mcpJson.config().servers() == null ? 0 : mcpJson.config().servers().size());
+                mcpJson.config().servers() == null ? 0 : mcpJson.config().servers().size(),
+                mcpJson.config().acpProviders() == null ? 0 : mcpJson.config().acpProviders().size());
 
         for (McpUpstreamConfig upstream : loader.resolveUpstreams(mcpJson)) {
             ToolProvider provider = createProvider(upstream);
@@ -138,6 +140,9 @@ public final class PylorosApplication extends AbstractVerticle {
                 providers.add(provider);
             }
         }
+
+        List<ToolProvider> acpProviders = AcpProviderFactory.createProviders(mcpJson.config().acpProviders(), vertx);
+        providers.addAll(acpProviders);
     }
 
     private ToolProvider createProvider(McpUpstreamConfig upstream) {
