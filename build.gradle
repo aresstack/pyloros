@@ -1,3 +1,8 @@
+plugins {
+    id 'com.gradleup.nmcp'             version '0.1.5' apply false
+    id 'com.gradleup.nmcp.aggregation'  version '0.1.5' apply false
+}
+
 ext {
     vertxVersion = '5.0.5'
     jacksonVersion = '2.18.2'
@@ -5,22 +10,58 @@ ext {
     slf4jVersion = '2.0.16'
     junitVersion = '5.11.4'
     junitPlatformVersion = '1.11.4'
+
+    // External AresStack repositories Pyloros depends on. Empty for now
+    // (Pyloros has no cross-repo aresstack dependencies). Add coordinates
+    // like 'com.aresstack:win-directml-java' here when needed, and use
+    // the `releaseBuild` switch below in the consuming subproject's
+    // build.gradle to flip between a local composite build and the
+    // Maven Central coordinate. See docs/RELEASING.md.
+    externalAresstackVersions = [:]
+}
+
+// ── Release vs. local dev switch ────────────────────────────────────
+// `-PreleaseBuild=true`  → publishable subprojects MUST resolve all
+//                          external AresStack deps from Maven Central
+//                          (no composite/file paths in the published POM).
+// default                → local dev; composite builds are allowed.
+ext.releaseBuild = providers.gradleProperty('releaseBuild').orNull == 'true'
+
+// ── Publishable Pyloros subprojects ─────────────────────────────────
+// These get published to Maven Central as separate artifacts in one
+// aggregated upload. `pyloros-app` is a runtime application (shadowJar)
+// shipped via GitHub Releases, not Maven Central.
+ext.publishableModules = [
+        'pyloros-security',
+        'pyloros-server',
+        'pyloros-auth-oauth',
+        'pyloros-upstream-idea',
+        'pyloros-upstream-github',
+        'pyloros-upstream-intellij-index',
+        'pyloros-intellij-mcp',
+]
+
+allprojects {
+    group = 'com.aresstack'
+    // `-Pversion=<x.y.z>` (set by the release workflow). Without it Gradle
+    // exposes `version` as the literal string 'unspecified', which would
+    // produce broken POMs. Fall back to a SNAPSHOT for local dev.
+    version = (project.findProperty('version') == 'unspecified' || project.findProperty('version') == null)
+            ? '0.1.0-SNAPSHOT'
+            : project.version
+
+    repositories {
+        mavenCentral()
+    }
 }
 
 subprojects {
-    group = 'com.aresstack'
-    version = '0.1.0-SNAPSHOT'
-
     apply plugin: 'java'
 
     java {
         toolchain {
             languageVersion = JavaLanguageVersion.of(21)
         }
-    }
-
-    repositories {
-        mavenCentral()
     }
 
     dependencies {
@@ -35,5 +76,203 @@ subprojects {
 
     test {
         useJUnitPlatform()
+    }
+}
+
+// --------------------------------------------------------------------
+// Maven Central publishing (Sonatype Central Portal via nmcp)
+// --------------------------------------------------------------------
+//
+// Triggers:
+//   ./gradlew publishToMavenLocal -PreleaseBuild=true
+//       # install all publishable Pyloros modules into ~/.m2 for local
+//       # verification of the generated POMs.
+//
+//   ./gradlew -Pversion=<x.y.z> -PreleaseBuild=true \
+//             publishAggregationToCentralPortal
+//       # upload all publishable modules to the Sonatype Central Portal
+//       # in one aggregated transaction (used by the release workflow).
+//
+// Required environment / Gradle properties for a real release:
+//   ORG_GRADLE_PROJECT_centralUsername             Sonatype Central Portal user-token
+//   ORG_GRADLE_PROJECT_centralPassword             Sonatype Central Portal password-token
+//   ORG_GRADLE_PROJECT_signingInMemoryKey          ASCII-armored GPG private key
+//   ORG_GRADLE_PROJECT_signingInMemoryKeyPassword  GPG passphrase
+//
+// Signing is skipped automatically for SNAPSHOT builds and when the
+// signing key is absent (so `publishToMavenLocal` works without secrets).
+apply plugin: 'com.gradleup.nmcp.aggregation'
+
+ext.pomMetadata = { pom, prj ->
+    pom.name = provider { prj.findProperty('POM_NAME') ?: prj.name }
+    pom.description = provider {
+        prj.findProperty('POM_DESCRIPTION')
+                ?: (prj.description ?: 'Pyloros – headless Java 21 / Vert.x agent capability gateway.')
+    }
+    pom.url = 'https://github.com/aresstack/pyloros'
+    pom.licenses {
+        license {
+            name = 'MIT'
+            url = 'https://opensource.org/licenses/MIT'
+            distribution = 'repo'
+        }
+    }
+    pom.developers {
+        developer {
+            id = 'aresstack'
+            name = 'AresStack'
+        }
+    }
+    pom.scm {
+        connection = 'scm:git:git://github.com/aresstack/pyloros.git'
+        developerConnection = 'scm:git:ssh://git@github.com/aresstack/pyloros.git'
+        url = 'https://github.com/aresstack/pyloros'
+        tag = 'HEAD'
+    }
+    pom.issueManagement {
+        system = 'GitHub'
+        url = 'https://github.com/aresstack/pyloros/issues'
+    }
+}
+
+configure(subprojects.findAll { it.name in publishableModules }) {
+    apply plugin: 'maven-publish'
+    apply plugin: 'signing'
+
+    java {
+        withSourcesJar()
+        withJavadocJar()
+    }
+
+    // Bundle LICENSE into every published jar so downstream consumers see
+    // the attribution required by the MIT License.
+    tasks.withType(Jar).configureEach {
+        from(rootProject.file('LICENSE')) { into 'META-INF' }
+    }
+
+    // Pyloros has no public-API doclint contract yet, so run javadoc in
+    // lenient mode – analogous to win-directml-java.
+    tasks.withType(Javadoc).configureEach {
+        options.encoding = 'UTF-8'
+        if (options instanceof org.gradle.external.javadoc.StandardJavadocDocletOptions) {
+            options.addStringOption('Xdoclint:none', '-quiet')
+        }
+    }
+
+    afterEvaluate {
+        publishing {
+            publications {
+                // Single MavenPublication per module, artifactId = project name.
+                // Use `mavenJava` to keep compatibility with existing per-module
+                // publishing snippets that referenced this name.
+                mavenJava(MavenPublication) {
+                    from components.java
+                    artifactId = project.name
+                    pom { p ->
+                        rootProject.ext.pomMetadata(p, project)
+                    }
+                }
+            }
+        }
+
+        signing {
+            def signingKey = providers.gradleProperty('signingInMemoryKey').orNull
+            def signingPwd = providers.gradleProperty('signingInMemoryKeyPassword').orNull
+            required = {
+                gradle.taskGraph.allTasks.any { task ->
+                    task.name == 'publishAggregationToCentralPortal'
+                            || task.name == 'publishAllPublicationsToCentralPortal'
+                            || task.path.endsWith(':publishAllPublicationsToCentralPortal')
+                            || task.path.endsWith(':publishAggregationToCentralPortal')
+                } && !version.toString().endsWith('-SNAPSHOT')
+            }
+            if (signingKey != null) {
+                useInMemoryPgpKeys(signingKey, signingPwd)
+            }
+            sign publishing.publications.mavenJava
+        }
+    }
+}
+
+// Aggregate-publish all publishable modules to the Sonatype Central
+// Portal in one upload. Credentials come from
+// ORG_GRADLE_PROJECT_centralUsername / centralPassword.
+nmcpAggregation {
+    publishAllProjectsProbablyBreakingProjectIsolation {
+        username = providers.gradleProperty('centralUsername')
+        password = providers.gradleProperty('centralPassword')
+        // AUTOMATIC = release immediately after Central Portal validation.
+        // Switch to 'USER_MANAGED' if a manual sanity check in the Portal
+        // UI is desired before going live.
+        publishingType = 'AUTOMATIC'
+    }
+}
+
+// --------------------------------------------------------------------
+// POM validation
+// --------------------------------------------------------------------
+// `./gradlew verifyReleasePoms -PreleaseBuild=true` (also wired into
+// `check` when releaseBuild=true) scans all generated POMs for
+// patterns that would make them unusable on Maven Central.
+def releasePomBadPatterns = [
+        ~/<version>unspecified<\/version>/,
+        ~/<version>latest<\/version>/,
+        ~/<systemPath>/,
+        ~/file:\/\//,
+        ~/\.\.\//, // relative parent paths leaking from composite builds
+]
+
+tasks.register('verifyReleasePoms') {
+    group = 'verification'
+    description = 'Validates every generated Maven POM (publishable modules) ' +
+            'for forbidden patterns: unspecified, latest, local paths, file://, composite-build leakage.'
+
+    dependsOn subprojects
+            .findAll { it.name in publishableModules }
+            .collect { it.path + ':generatePomFileForMavenJavaPublication' }
+
+    doLast {
+        def failures = []
+        subprojects.findAll { it.name in publishableModules }.each { sp ->
+            def pomFile = sp.layout.buildDirectory
+                    .file('publications/mavenJava/pom-default.xml').get().asFile
+            if (!pomFile.exists()) {
+                failures << "${sp.name}: POM not generated at ${pomFile}"
+                return
+            }
+            def pom = pomFile.text
+            releasePomBadPatterns.each { pat ->
+                def m = pom =~ pat
+                if (m.find()) {
+                    failures << "${sp.name}: forbidden pattern '${pat}' in ${pomFile.name} → '${m.group()}'"
+                }
+            }
+            // Every <dependency> must carry a <version> – an unversioned
+            // dep would make the artifact unresolvable on Central.
+            def depMatcher = pom =~ /(?s)<dependency>(.*?)<\/dependency>/
+            while (depMatcher.find()) {
+                def depXml = depMatcher.group(1)
+                if (!(depXml =~ /<version>/)) {
+                    failures << "${sp.name}: dependency without <version> → ${depXml.trim().take(200)}"
+                }
+            }
+        }
+        if (!failures.isEmpty()) {
+            throw new GradleException(
+                    'Release POM validation failed:\n  - ' + failures.join('\n  - '))
+        }
+        logger.lifecycle("verifyReleasePoms: all publishable modules pass.")
+    }
+}
+
+// Wire into `check` only on release builds so day-to-day `./gradlew build`
+// stays fast.
+if (ext.releaseBuild) {
+    subprojects.findAll { it.name in publishableModules }.each { sp ->
+        sp.afterEvaluate {
+            sp.tasks.matching { it.name == 'check' }.configureEach {
+                it.dependsOn rootProject.tasks.named('verifyReleasePoms')
+            }
+        }
     }
 }

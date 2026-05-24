@@ -1,37 +1,41 @@
-010-B - Fix catalog consistency for /pyloros and /sse tool calls
+# Issue #43 — Prepare Maven Central publishing via GitHub Actions
 
-Befund:
-api_tool listet Tools wie pyloros__ping und intellij-index__ide_index_status.
-api_tool.call_tool auf exakt diese gelisteten Tools liefert aber:
-Tool not found: <toolName>
+## Ziel
 
-Ursache:
-ToolRouter.callTool las den ToolCatalog-Snapshot synchron ohne vorheriges Refresh.
-Wenn ChatGPT tools/call schickt, ohne zuvor in dieser Session tools/list aufgerufen
-zu haben (z.B. weil der Connector die Tool-Liste aus dem OpenAI-Cache verwendet),
-ist der Snapshot leer.
+Veroeffentlichung auf Maven Central via GitHub Actions vorbereiten,
+analog zu `../win-directml-java`. Es wird **noch kein Release**
+durchgefuehrt — der Workflow soll spaeter durch einen Tag-Push
+(`v<x.y.z>`) ausgeloest werden koennen.
 
-Ziel:
-Ein Tool, das über tools/list sichtbar ist, muss unmittelbar danach über tools/call
-aufrufbar sein – auch wenn tools/list nicht in derselben Session aufgerufen wurde.
+## Architekturregeln (aus Issue #43)
 
-Fix:
-ToolRouter.callTool ruft vor dem Catalog-Lookup immer toolCatalog.listTools() auf
-(was refresh() triggert und den Snapshot aktualisiert), bevor per dispatch()
-im frisch befüllten Snapshot nachgeschlagen wird.
+- Pyloros-interne `project(":pyloros-*")`-Abhaengigkeiten duerfen im
+  Multi-Project-Build bleiben. Im veroeffentlichten POM muessen daraus
+  `com.aresstack:<module>:<version>`-Eintraege werden.
+- Externe AresStack-Abhaengigkeiten (anderer Repos, z. B.
+  `win-directml-java`) duerfen im POM nur als feste Maven-Central-
+  Koordinaten erscheinen. **Aktueller Stand: Pyloros hat solche
+  Abhaengigkeiten nicht.**
+- `./gradlew clean build` muss lokal weiter funktionieren.
+- `./gradlew clean publishToMavenLocal -PreleaseBuild=true` muss
+  Maven-Central-kompatible POMs erzeugen.
 
-Akzeptanz:
-1. Connector-Refresh zeigt pyloros__ping.
-2. api_tool.call_tool pyloros__ping funktioniert.
-3. Connector-Refresh zeigt intellij-index__ide_index_status.
-4. api_tool.call_tool intellij-index__ide_index_status funktioniert.
-5. Pyloros-Log zeigt beim Call:
-   [MCP] ... method=tools/call ... name=intellij-index__ide_index_status
-   [TOOL-ROUTER] catalog lookup externalName=intellij-index__ide_index_status hit=true
-6. /pyloros und /sse nutzen exakt denselben ToolCatalog und ToolRouter.
-7. RPC tools/call und path-based invocation nutzen denselben Resolver.
-8. Kein getrennter Catalog pro Route.
-9. Keine Änderung am Separator.
-10. Build + clean build grün.
+## Akzeptanz
+
+1. Publishing-Setup analog zu `win-directml-java` (gradleup nmcp +
+   nmcp.aggregation, Sonatype Central Portal, Signing in-memory).
+2. Java 21 bleibt Standard.
+3. Publishable Pyloros-Subprojects sind explizit festgelegt.
+4. `./gradlew clean build` funktioniert lokal weiter.
+5. `./gradlew clean publishToMavenLocal -PreleaseBuild=true` erzeugt
+   gueltige POMs.
+6. POMs enthalten kein `unspecified`, `latest`, keine lokalen Pfade.
+7. Pyloros-interne Deps erscheinen als `com.aresstack:<module>:<version>`.
+8. Externe AresStack-Deps haetten feste Maven-Koordinaten (kein Fall
+   heute, aber Mechanik vorbereitet via `releaseBuild`-Schalter).
+9. GitHub-Actions-Workflow fuer Tag-Push und manuellen Dispatch.
+10. Benoetigte Secrets sind dokumentiert (auf Org-Ebene `aresstack`
+    bereits konfiguriert und vererbt).
+11. Release-Reihenfolge dokumentiert.
 
 Kein Commit ohne Freigabe.
