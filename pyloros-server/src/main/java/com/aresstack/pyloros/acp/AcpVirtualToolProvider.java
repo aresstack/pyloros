@@ -159,14 +159,18 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
-                String sessionId = client.createSession(resolveSessionCwd(request.cwd())).join();
+                String sessionId = client.createSession(resolveSessionCwd(request.cwd()))
+                        .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
+                        .join();
                 task.setAcpSessionId(sessionId);
                 agentTaskRepository.save(task);
 
                 if (isTerminal(task.state())) {
                     return;
                 }
-                client.sendPrompt(sessionId, request.prompt()).join();
+                client.sendPrompt(sessionId, request.prompt())
+                        .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
+                        .join();
                 agentTaskRepository.save(task);
 
                 waitForTerminalState(task, client, processHandle);
@@ -203,6 +207,9 @@ public final class AcpVirtualToolProvider implements ToolProvider {
 
     private void waitForTerminalState(AgentTask task, AcpAgentClient client, AcpProcessHandle processHandle) {
         while (!isTerminal(task.state())) {
+            if (isTerminal(task.state())) {
+                return;
+            }
             try {
                 JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
                 eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());

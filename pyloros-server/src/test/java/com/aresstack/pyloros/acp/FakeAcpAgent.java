@@ -74,6 +74,10 @@ public final class FakeAcpAgent implements AutoCloseable {
             while (!closed.get() && (line = reader.readLine()) != null) {
                 JsonNode request = mapper.readTree(line);
                 String method = text(request, "method");
+                if ("unresponsive".equals(behavior)) {
+                    // Intentionally do not respond to any requests
+                    continue;
+                }
                 if ("session/new".equals(method)) {
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {

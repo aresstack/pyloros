@@ -191,6 +191,32 @@ class AcpVirtualToolProviderTest {
     }
 
     @Test
+    void testCancelRaceWithUnresponsiveAgent() throws Exception {
+        try (ProviderContext context = newProvider("unresponsive", 10)) {
+            // Start task in background
+            JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
+            String taskId = started.get("taskId").asText();
+            
+            // Immediately cancel - should prevent hanging on createSession
+            Thread.sleep(50); // Small delay to ensure task execution has started
+            Map<String, Object> cancelResult = call(context.provider(), "cancel_task", objectNode().put("taskId", taskId));
+            JsonNode cancelResponse = responsePayload(cancelResult);
+            
+            assertEquals(Boolean.FALSE, cancelResult.get("isError"));
+            assertEquals("CANCELLED", cancelResponse.get("state").asText());
+            assertTrue(cancelResponse.get("cancellationRequested").asBoolean());
+            
+            // Wait a bit to ensure task doesn't hang
+            Thread.sleep(500);
+            
+            // Verify task is still cancelled and process was destroyed
+            Map<String, Object> statusResult = call(context.provider(), "get_task_status", objectNode().put("taskId", taskId));
+            JsonNode statusResponse = responsePayload(statusResult);
+            assertEquals("CANCELLED", statusResponse.get("state").asText());
+        }
+    }
+
+    @Test
     void testCancelAlreadyCompletedTaskIsIdempotent() throws Exception {
         try (ProviderContext context = newProvider("success")) {
             JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
