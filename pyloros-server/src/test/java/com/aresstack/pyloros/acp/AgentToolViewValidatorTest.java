@@ -49,6 +49,25 @@ class AgentToolViewValidatorTest {
         assertEquals("agentToolView must not be 'public' — ACP agents must not see the public tool view: Public", exception.getMessage());
     }
 
+    @Test
+    void testRejectsAgentToolViewInExposeInViews() {
+        AcpProviderConfiguration config = new AcpProviderConfiguration(
+                "copilot",
+                "copilot/",
+                "shared",
+                List.of("public", "shared"),
+                new AcpProcessConfiguration("fake-acp", List.of(), null, Map.of()),
+                new AcpExecutionConfiguration());
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> AgentToolViewValidator.validate(config, Set.of("copilot")));
+
+        assertEquals(
+                "agentToolView must not be a view where the ACP provider is exposed (would cause recursion): "
+                        + "provider=copilot agentToolView=shared exposeInViews=[public, shared]",
+                exception.getMessage());
+    }
+
     private static AcpProviderConfiguration config(String providerId, String agentToolView) {
         return new AcpProviderConfiguration(
                 providerId,

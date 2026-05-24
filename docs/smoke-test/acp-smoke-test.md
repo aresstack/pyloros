@@ -8,20 +8,14 @@
 
 ## Configuration
 
-Add an ACP provider to the Pyloros configuration:
+Add an ACP provider to the Pyloros `mcp.json` configuration under the `acpProviders` key:
 
 ```json
 {
-  "views": {
-    "public": {
-      "includeProviders": ["pyloros", "intellij", "github", "copilot"]
-    },
-    "agent": {
-      "includeProviders": ["pyloros", "intellij", "github"],
-      "excludeProviders": ["copilot", "goose", "claude", "pyloros-ai"]
-    }
+  "servers": {
+    "intellij": { "url": "http://localhost:63342/pyloros", "type": "sse" }
   },
-  "providers": [
+  "acpProviders": [
     {
       "id": "copilot",
       "type": "acp",

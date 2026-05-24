@@ -4,9 +4,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Validates that an ACP provider's agentToolView does not contain the provider itself
- * (preventing recursion), does not contain other ACP providers that could cause
- * indirect recursion, and does not allow the agent to see the public view.
+ * Validates that an ACP provider's agentToolView does not create recursion:
+ * <ul>
+ *   <li>Must not be 'public' — agents must never see the public view</li>
+ *   <li>Must not reference the provider's own ID</li>
+ *   <li>Must not reference another ACP provider ID</li>
+ *   <li>Must not be a view where the ACP provider's own tools are exposed (prevents the agent from seeing itself)</li>
+ * </ul>
  */
 public final class AgentToolViewValidator {
 
@@ -33,6 +37,12 @@ public final class AgentToolViewValidator {
         }
         if (providerIds.contains(agentToolView)) {
             throw new IllegalArgumentException("agentToolView must not reference another ACP provider: " + agentToolView);
+        }
+        if (providerConfig.exposeInViews().contains(agentToolView)) {
+            throw new IllegalArgumentException(
+                    "agentToolView must not be a view where the ACP provider is exposed (would cause recursion): "
+                            + "provider=" + providerConfig.id() + " agentToolView=" + agentToolView
+                            + " exposeInViews=" + providerConfig.exposeInViews());
         }
     }
 }
