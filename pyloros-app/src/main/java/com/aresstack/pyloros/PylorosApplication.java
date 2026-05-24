@@ -76,6 +76,7 @@ public final class PylorosApplication extends AbstractVerticle {
         providers.addAll(targetPlatformModules.toolProviders());
         providers.add(new TargetPlatformSkillsToolProvider(targetPlatformModules));
 
+        providers.add(new com.aresstack.pyloros.tool.UserSkillDeleteToolProvider());
         registerExternalProviders(providers);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
