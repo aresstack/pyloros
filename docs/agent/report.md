@@ -1,36 +1,40 @@
 What was verified, changed or implemented?
-- Full ACP Virtual Provider implementation for Release 3
-- Domain model: AgentTask, AgentTaskId, AgentTaskState, PendingPermission
-- Configuration: AcpProviderConfiguration, AcpProcessConfiguration, AcpExecutionConfiguration
-- Provider: AcpVirtualToolProvider implementing ToolProvider with 5 MCP tools
-- Tool definitions: AcpToolDefinitions with JSON Schema input schemas
-- Repository: AgentTaskRepository interface + InMemoryAgentTaskRepository
-- Process management: AcpProcessLauncher, AcpProcessHandle, AcpProcessFailure
-- JSON-RPC client: AcpJsonRpcConnection, AcpAgentClient, AcpEventMapper
-- Audit: AcpAuditLogger with structured logging
-- Smoke test documentation
+- Refactored ACP classes to remove all Java records in the allowed ACP directories.
+- Replaced ACP-only uses of List.of(), Map.of(), List.copyOf(), Map.copyOf(), and Stream.toList() with Java 8 compatible alternatives.
+- Removed the AcpVirtualToolProvider inner TaskLookup record and replaced it with a null-plus-error-holder lookup helper.
+- Updated ACP tests for the class conversions and ACP-only collection API changes.
+- Verified ACP compilation before and after the refactor with the requested Gradle targets.
+- Ran parallel validation; CodeQL passed and code review failed due an external tool HTTP 400 header error.
 
 Which files were changed or newly created?
-- 19 new production files in pyloros-server/src/main/java/com/aresstack/pyloros/acp/
-- 3 new test files in pyloros-server/src/test/java/com/aresstack/pyloros/acp/
-- docs/smoke-test/acp-smoke-test.md
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpAgentClient.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpExecutionConfiguration.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProcessConfiguration.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProcessLauncher.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProviderConfiguration.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpToolDefinitions.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpToolTimeoutConfiguration.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpVirtualToolProvider.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentTask.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentTaskId.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/InMemoryAgentTaskRepository.java
+- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/PendingPermission.java
+- Changed: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AcpVirtualToolProviderTest.java
+- Changed: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AgentTaskTest.java
 
 Which architecture decision was touched?
-- ProviderType.ACP reused (already existed)
-- ACP provider integrates via existing ToolProvider/ToolCatalog/ToolRouter
-- No special MCP routes; ACP tools are regular MCP tools
-- Agent Tool View prevents recursion
-- In-memory task repository (no persistence across restarts)
+- None. The existing ACP integration boundaries remained unchanged; this was a local ACP model and collection API refactor only.
 
 Which tests, builds and runtime checks were executed?
-- ./gradlew build — BUILD SUCCESSFUL
-- ./gradlew :pyloros-server:test — All tests pass
-- ./gradlew :pyloros-server:compileJava — Clean compilation
+- ./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava (baseline) — successful
+- ./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava (after changes) — successful
+- parallel_validation — CodeQL successful, code review tool failed externally
 
 Result: successful
 
 If failed: exact error and recommended next step
-- Not failed.
+- Non-blocking validation tool issue only: Code review failed with HTTP error 400: bad request: Unexpected value(s) `context-1m-2025-08-07` for the `anthropic-beta` header.
+- Recommended next step: rerun the review validation after the external service/header issue is fixed.
 
 Exact commit hash, or No commit created
-- See PR commits on branch copilot/release-3-acp-virtual-provider
+- No commit created
