@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public final class AcpProcessLauncher {
+public class AcpProcessLauncher {
 
     public AcpProcessHandle launch(AcpProcessConfiguration config) {
         AcpProcessConfiguration processConfiguration = Objects.requireNonNull(config, "config must not be null");

@@ -19,11 +19,11 @@ public final class AcpToolDefinitions {
         return List.of(
                 toolDefinition(
                         RUN_TASK,
-                        "Runs an ACP task immediately and returns the completed placeholder result.",
+                        "Runs an ACP task immediately and waits for the ACP session to complete.",
                         promptExecutionSchema()),
                 toolDefinition(
                         START_TASK,
-                        "Starts an ACP task and returns its task id without waiting for completion.",
+                        "Starts an ACP task in the background and returns its task id immediately.",
                         promptExecutionSchema()),
                 toolDefinition(
                         GET_TASK_STATUS,

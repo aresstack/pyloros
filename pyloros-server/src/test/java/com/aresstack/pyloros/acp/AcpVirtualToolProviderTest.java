@@ -4,6 +4,7 @@ import com.aresstack.pyloros.provider.ProviderType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,161 +24,209 @@ class AcpVirtualToolProviderTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
-    void testProviderId() {
-        AcpVirtualToolProvider provider = newProvider().provider();
-
-        assertEquals("copilot", provider.providerId());
+    void testProviderId() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            assertEquals("copilot", context.provider().providerId());
+        }
     }
 
     @Test
-    void testProviderType() {
-        AcpVirtualToolProvider provider = newProvider().provider();
-
-        assertEquals(ProviderType.ACP, provider.providerType());
+    void testProviderType() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            assertEquals(ProviderType.ACP, context.provider().providerType());
+        }
     }
 
     @Test
-    void testListTools() {
-        AcpVirtualToolProvider provider = newProvider().provider();
+    void testListTools() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            List<Map<String, Object>> tools = await(context.provider().listTools());
+            Set<String> names = toolNames(tools);
 
-        List<Map<String, Object>> tools = await(provider.listTools());
-        Set<String> names = toolNames(tools);
-
-        assertEquals(5, tools.size());
-        assertEquals(Set.of(
-                "run_task",
-                "start_task",
-                "get_task_status",
-                "get_task_result",
-                "cancel_task"
-        ), names);
+            assertEquals(5, tools.size());
+            assertEquals(Set.of(
+                    "run_task",
+                    "start_task",
+                    "get_task_status",
+                    "get_task_result",
+                    "cancel_task"
+            ), names);
+        }
     }
 
     @Test
-    void testRunTaskCreatesTask() throws IOException {
-        ProviderContext context = newProvider();
+    void testRunTaskCreatesTask() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+            AgentTask task = findTask(context.repository(), response.get("taskId").asText());
 
-        JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
-        AgentTask task = findTask(context.repository(), response.get("taskId").asText());
-
-        assertEquals("COMPLETED", response.get("state").asText());
-        assertNotNull(response.get("result").asText());
-        assertEquals(AgentTaskState.COMPLETED, task.state());
-        assertNotNull(task.result());
+            assertEquals("COMPLETED", response.get("state").asText());
+            assertEquals("completed: Test prompt", response.get("result").asText());
+            assertEquals(AgentTaskState.COMPLETED, task.state());
+            assertEquals("completed: Test prompt", task.result());
+            assertNotNull(task.acpSessionId());
+        }
     }
 
     @Test
-    void testStartTaskCreatesRunningTask() throws IOException {
-        ProviderContext context = newProvider();
+    void testRunTaskReturnsErrorPayloadOnFailure() throws Exception {
+        try (ProviderContext context = newProvider("error")) {
+            Map<String, Object> result = call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+            JsonNode response = responsePayload(result);
+            AgentTask task = findTask(context.repository(), response.get("taskId").asText());
 
-        JsonNode response = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
-        AgentTask task = findTask(context.repository(), response.get("taskId").asText());
-
-        assertEquals("RUNNING", response.get("state").asText());
-        assertEquals(AgentTaskState.RUNNING, task.state());
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("FAILED", response.get("state").asText());
+            assertEquals("simulated failure", response.get("error").asText());
+            assertEquals(AgentTaskState.FAILED, task.state());
+        }
     }
 
     @Test
-    void testGetTaskStatusForRunningTask() throws IOException {
-        ProviderContext context = newProvider();
-        JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
+    void testRunTaskTimesOut() throws Exception {
+        try (ProviderContext context = newProvider("timeout", 1)) {
+            Map<String, Object> result = call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+            JsonNode response = responsePayload(result);
+            AgentTask task = findTask(context.repository(), response.get("taskId").asText());
 
-        JsonNode response = responsePayload(call(context.provider(), "get_task_status", objectNode().put("taskId", started.get("taskId").asText())));
-
-        assertEquals(started.get("taskId").asText(), response.get("taskId").asText());
-        assertEquals("RUNNING", response.get("state").asText());
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("TIMEOUT", response.get("state").asText());
+            assertEquals(AgentTaskState.TIMEOUT, task.state());
+        }
     }
 
     @Test
-    void testGetTaskResultForCompletedTask() throws IOException {
-        ProviderContext context = newProvider();
-        JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+    void testStartTaskCreatesRunningTask() throws Exception {
+        try (ProviderContext context = newProvider("timeout", 10)) {
+            JsonNode response = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
+            AgentTask task = findTask(context.repository(), response.get("taskId").asText());
 
-        JsonNode response = responsePayload(call(context.provider(), "get_task_result", objectNode().put("taskId", started.get("taskId").asText())));
-
-        assertEquals("COMPLETED", response.get("state").asText());
-        assertEquals(started.get("result").asText(), response.get("result").asText());
+            assertEquals("RUNNING", response.get("state").asText());
+            assertEquals(AgentTaskState.RUNNING, task.state());
+        }
     }
 
     @Test
-    void testGetTaskResultForRunningTask() throws IOException {
-        ProviderContext context = newProvider();
-        JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
+    void testGetTaskStatusForRunningTask() throws Exception {
+        try (ProviderContext context = newProvider("timeout", 10)) {
+            JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
 
-        Map<String, Object> result = call(context.provider(), "get_task_result", objectNode().put("taskId", started.get("taskId").asText()));
-        JsonNode response = responsePayload(result);
+            JsonNode response = responsePayload(call(context.provider(), "get_task_status", objectNode().put("taskId", started.get("taskId").asText())));
 
-        assertEquals(Boolean.TRUE, result.get("isError"));
-        assertEquals("Task result is not available while task is in state RUNNING", response.get("error").asText());
+            assertEquals(started.get("taskId").asText(), response.get("taskId").asText());
+            assertEquals("RUNNING", response.get("state").asText());
+        }
     }
 
     @Test
-    void testCancelRunningTask() throws IOException {
-        ProviderContext context = newProvider();
-        JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
+    void testGetTaskResultForCompletedTask() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
 
-        JsonNode response = responsePayload(call(context.provider(), "cancel_task", objectNode().put("taskId", started.get("taskId").asText())));
-        AgentTask task = findTask(context.repository(), started.get("taskId").asText());
+            JsonNode response = responsePayload(call(context.provider(), "get_task_result", objectNode().put("taskId", started.get("taskId").asText())));
 
-        assertEquals("CANCELLED", response.get("state").asText());
-        assertTrue(response.get("cancellationRequested").asBoolean());
-        assertEquals(AgentTaskState.CANCELLED, task.state());
+            assertEquals("COMPLETED", response.get("state").asText());
+            assertEquals(started.get("result").asText(), response.get("result").asText());
+        }
     }
 
     @Test
-    void testUnknownTaskId() throws IOException {
-        ProviderContext context = newProvider();
+    void testGetTaskResultForRunningTask() throws Exception {
+        try (ProviderContext context = newProvider("timeout", 10)) {
+            JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
 
-        Map<String, Object> result = call(context.provider(), "get_task_status", objectNode().put("taskId", AgentTaskId.generate().value()));
-        JsonNode response = responsePayload(result);
+            Map<String, Object> result = call(context.provider(), "get_task_result", objectNode().put("taskId", started.get("taskId").asText()));
+            JsonNode response = responsePayload(result);
 
-        assertEquals(Boolean.TRUE, result.get("isError"));
-        assertTrue(response.get("error").asText().startsWith("Unknown taskId: "));
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("Task result is not available while task is in state RUNNING", response.get("error").asText());
+        }
     }
 
     @Test
-    void testUnknownTool() throws IOException {
-        ProviderContext context = newProvider();
+    void testCancelRunningTask() throws Exception {
+        try (ProviderContext context = newProvider("timeout", 10)) {
+            JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
 
-        Map<String, Object> result = call(context.provider(), "does_not_exist", objectNode());
-        JsonNode response = responsePayload(result);
+            JsonNode response = responsePayload(call(context.provider(), "cancel_task", objectNode().put("taskId", started.get("taskId").asText())));
+            AgentTask task = findTask(context.repository(), started.get("taskId").asText());
 
-        assertEquals(Boolean.TRUE, result.get("isError"));
-        assertEquals("Unknown tool: does_not_exist", response.get("error").asText());
+            assertEquals("CANCELLED", response.get("state").asText());
+            assertTrue(response.get("cancellationRequested").asBoolean());
+            assertEquals(AgentTaskState.CANCELLED, task.state());
+        }
     }
 
     @Test
-    void testMissingPrompt() throws IOException {
-        ProviderContext context = newProvider();
+    void testUnknownTaskId() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            Map<String, Object> result = call(context.provider(), "get_task_status", objectNode().put("taskId", AgentTaskId.generate().value()));
+            JsonNode response = responsePayload(result);
 
-        Map<String, Object> result = call(context.provider(), "run_task", objectNode());
-        JsonNode response = responsePayload(result);
-
-        assertEquals(Boolean.TRUE, result.get("isError"));
-        assertEquals("Invalid arguments: prompt is required", response.get("error").asText());
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertTrue(response.get("error").asText().startsWith("Unknown taskId: "));
+        }
     }
 
     @Test
-    void testCancelAlreadyCompletedTaskReturnsError() throws IOException {
-        ProviderContext context = newProvider();
-        JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+    void testUnknownTool() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            Map<String, Object> result = call(context.provider(), "does_not_exist", objectNode());
+            JsonNode response = responsePayload(result);
 
-        Map<String, Object> result = call(context.provider(), "cancel_task", objectNode().put("taskId", started.get("taskId").asText()));
-        JsonNode response = responsePayload(result);
-
-        assertEquals(Boolean.TRUE, result.get("isError"));
-        assertEquals("Cannot transition task from COMPLETED to CANCELLED", response.get("error").asText());
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("Unknown tool: does_not_exist", response.get("error").asText());
+        }
     }
 
-    private static ProviderContext newProvider() {
+    @Test
+    void testMissingPrompt() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            Map<String, Object> result = call(context.provider(), "run_task", objectNode());
+            JsonNode response = responsePayload(result);
+
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("Invalid arguments: prompt is required", response.get("error").asText());
+        }
+    }
+
+    @Test
+    void testCancelAlreadyCompletedTaskReturnsError() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            JsonNode started = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+
+            Map<String, Object> result = call(context.provider(), "cancel_task", objectNode().put("taskId", started.get("taskId").asText()));
+            JsonNode response = responsePayload(result);
+
+            assertEquals(Boolean.TRUE, result.get("isError"));
+            assertEquals("Cannot transition task from COMPLETED to CANCELLED", response.get("error").asText());
+        }
+    }
+
+    private static ProviderContext newProvider(String behavior) throws IOException {
+        return newProvider(behavior, 5);
+    }
+
+    private static ProviderContext newProvider(String behavior, int timeoutSeconds) throws IOException {
+        FakeAcpAgent agent = new FakeAcpAgent();
+        agent.setBehavior(behavior);
+        agent.start();
+
         AcpProviderConfiguration config = new AcpProviderConfiguration(
                 "copilot", "copilot/", "agent", List.of("public"),
-                new AcpProcessConfiguration("echo", List.of(), null, Map.of()),
-                new AcpExecutionConfiguration()
+                new AcpProcessConfiguration("fake-acp", List.of(), null, Map.of()),
+                new AcpExecutionConfiguration(timeoutSeconds, 1000, 12000, 24000)
         );
         AgentTaskRepository repository = new InMemoryAgentTaskRepository();
-        AcpVirtualToolProvider provider = new AcpVirtualToolProvider(config, repository);
-        return new ProviderContext(provider, repository);
+        Vertx vertx = Vertx.vertx();
+        AcpProcessLauncher launcher = new AcpProcessLauncher() {
+            @Override
+            public AcpProcessHandle launch(AcpProcessConfiguration ignored) {
+                return agent.processHandle();
+            }
+        };
+        AcpVirtualToolProvider provider = new AcpVirtualToolProvider(vertx, config, repository, launcher, new AcpAuditLogger(), new AcpEventMapper());
+        return new ProviderContext(provider, repository, vertx, agent);
     }
 
     private static com.fasterxml.jackson.databind.node.ObjectNode objectNode() {
@@ -220,6 +270,11 @@ class AcpVirtualToolProviderTest {
         return future.toCompletionStage().toCompletableFuture().join();
     }
 
-    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository) {
+    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository, Vertx vertx, FakeAcpAgent agent) implements AutoCloseable {
+        @Override
+        public void close() {
+            agent.close();
+            vertx.close().toCompletionStage().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join();
+        }
     }
 }

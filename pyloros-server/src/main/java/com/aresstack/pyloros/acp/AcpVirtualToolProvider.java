@@ -7,23 +7,57 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public final class AcpVirtualToolProvider implements ToolProvider {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final long EVENT_POLL_MILLIS = 200L;
+    private static final int STDERR_PREVIEW_CHARS = 512;
+    private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "acp-task-timeout");
+        thread.setDaemon(true);
+        return thread;
+    });
 
+    private final Vertx vertx;
     private final AcpProviderConfiguration config;
     private final AgentTaskRepository agentTaskRepository;
+    private final AcpProcessLauncher processLauncher;
+    private final AcpAuditLogger auditLogger;
+    private final AcpEventMapper eventMapper;
+    private final ConcurrentHashMap<AgentTaskId, AcpProcessHandle> activeProcesses = new ConcurrentHashMap<>();
 
-    public AcpVirtualToolProvider(AcpProviderConfiguration config, AgentTaskRepository agentTaskRepository) {
+    public AcpVirtualToolProvider(Vertx vertx, AcpProviderConfiguration config, AgentTaskRepository agentTaskRepository) {
+        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper());
+    }
+
+    AcpVirtualToolProvider(
+            Vertx vertx,
+            AcpProviderConfiguration config,
+            AgentTaskRepository agentTaskRepository,
+            AcpProcessLauncher processLauncher,
+            AcpAuditLogger auditLogger,
+            AcpEventMapper eventMapper) {
+        this.vertx = Objects.requireNonNull(vertx, "vertx must not be null");
         this.config = Objects.requireNonNull(config, "config must not be null");
         this.agentTaskRepository = Objects.requireNonNull(agentTaskRepository, "agentTaskRepository must not be null");
+        this.processLauncher = Objects.requireNonNull(processLauncher, "processLauncher must not be null");
+        this.auditLogger = Objects.requireNonNull(auditLogger, "auditLogger must not be null");
+        this.eventMapper = Objects.requireNonNull(eventMapper, "eventMapper must not be null");
     }
 
     @Override
@@ -55,86 +89,168 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             return Future.succeededFuture(errorResult("Invalid arguments: expected an object"));
         }
 
-        return Future.succeededFuture(switch (upstreamToolName) {
+        return switch (upstreamToolName) {
             case AcpToolDefinitions.RUN_TASK -> runTask(normalizedArguments);
             case AcpToolDefinitions.START_TASK -> startTask(normalizedArguments);
-            case AcpToolDefinitions.GET_TASK_STATUS -> getTaskStatus(normalizedArguments);
-            case AcpToolDefinitions.GET_TASK_RESULT -> getTaskResult(normalizedArguments);
-            case AcpToolDefinitions.CANCEL_TASK -> cancelTask(normalizedArguments);
-            default -> errorResult("Unknown tool: " + upstreamToolName);
-        });
+            case AcpToolDefinitions.GET_TASK_STATUS -> Future.succeededFuture(getTaskStatus(normalizedArguments));
+            case AcpToolDefinitions.GET_TASK_RESULT -> Future.succeededFuture(getTaskResult(normalizedArguments));
+            case AcpToolDefinitions.CANCEL_TASK -> Future.succeededFuture(cancelTask(normalizedArguments));
+            default -> Future.succeededFuture(errorResult("Unknown tool: " + upstreamToolName));
+        };
     }
 
-    private Map<String, Object> runTask(JsonNode arguments) {
-        String prompt = requiredText(arguments, "prompt");
-        if (prompt == null) {
-            return errorResult("Invalid arguments: prompt is required");
+    private Future<Map<String, Object>> runTask(JsonNode arguments) {
+        ParsedExecutionRequest request = parseExecutionRequest(arguments);
+        if (request.errorMessage() != null) {
+            return Future.succeededFuture(errorResult(request.errorMessage()));
         }
 
-        String cwd = optionalText(arguments, "cwd");
-        if (hasField(arguments, "cwd") && cwd == null) {
-            return errorResult("Invalid arguments: cwd must be a string");
-        }
-
-        Integer timeoutSeconds = optionalPositiveInteger(arguments, "timeoutSeconds");
-        if (hasField(arguments, "timeoutSeconds") && timeoutSeconds == null) {
-            return errorResult("Invalid arguments: timeoutSeconds must be a positive integer");
-        }
-
-        AgentTask task = new AgentTask(
-                AgentTaskId.generate(),
-                providerId(),
-                cwd,
-                prompt,
-                config.execution().maxEventsPerTask());
-        agentTaskRepository.save(task);
-        task.markRunning();
-        task.addEvent("Task started");
-        task.addEvent("Placeholder ACP execution completed");
-        task.complete(buildPlaceholderResult(prompt, cwd, timeoutSeconds == null ? config.execution().defaultTaskTimeoutSeconds() : timeoutSeconds));
-        agentTaskRepository.save(task);
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("taskId", task.taskId().value());
-        payload.put("state", task.state().name());
-        payload.put("result", task.result());
-        payload.put("task", taskDetails(task, false, null));
-        return successResult(payload);
+        AgentTask task = createTask(request);
+        return vertx.executeBlocking(() -> executeRunTask(task, request), false);
     }
 
-    private Map<String, Object> startTask(JsonNode arguments) {
-        String prompt = requiredText(arguments, "prompt");
-        if (prompt == null) {
-            return errorResult("Invalid arguments: prompt is required");
+    private Future<Map<String, Object>> startTask(JsonNode arguments) {
+        ParsedExecutionRequest request = parseExecutionRequest(arguments);
+        if (request.errorMessage() != null) {
+            return Future.succeededFuture(errorResult(request.errorMessage()));
         }
 
-        String cwd = optionalText(arguments, "cwd");
-        if (hasField(arguments, "cwd") && cwd == null) {
-            return errorResult("Invalid arguments: cwd must be a string");
-        }
-
-        Integer timeoutSeconds = optionalPositiveInteger(arguments, "timeoutSeconds");
-        if (hasField(arguments, "timeoutSeconds") && timeoutSeconds == null) {
-            return errorResult("Invalid arguments: timeoutSeconds must be a positive integer");
-        }
-
-        AgentTask task = new AgentTask(
-                AgentTaskId.generate(),
-                providerId(),
-                cwd,
-                prompt,
-                config.execution().maxEventsPerTask());
-        agentTaskRepository.save(task);
-        task.markRunning();
-        task.addEvent("Task started");
-        task.addEvent("Timeout seconds: " + (timeoutSeconds == null ? config.execution().defaultTaskTimeoutSeconds() : timeoutSeconds));
-        agentTaskRepository.save(task);
+        AgentTask task = createTask(request);
+        Thread.ofPlatform()
+                .daemon(true)
+                .name("acp-task-" + task.taskId().value())
+                .start(() -> executeBackgroundTask(task, request));
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskId", task.taskId().value());
         payload.put("state", task.state().name());
         payload.put("task", taskDetails(task, false, null));
-        return successResult(payload);
+        return Future.succeededFuture(successResult(payload));
+    }
+
+    private Map<String, Object> executeRunTask(AgentTask task, ParsedExecutionRequest request) {
+        executeTask(task, request);
+        return terminalResult(task, true);
+    }
+
+    private void executeBackgroundTask(AgentTask task, ParsedExecutionRequest request) {
+        try {
+            executeTask(task, request);
+        } catch (RuntimeException ignored) {
+            // Task state already captures the failure and is exposed via repository lookups.
+        }
+    }
+
+    private void executeTask(AgentTask task, ParsedExecutionRequest request) {
+        long startedAt = System.nanoTime();
+        AcpProcessHandle processHandle = null;
+        ScheduledFuture<?> timeoutFuture = null;
+
+        try {
+            processHandle = processLauncher.launch(processConfigurationFor(request.cwd()));
+            activeProcesses.put(task.taskId(), processHandle);
+            timeoutFuture = scheduleTimeout(task, processHandle, request.timeoutSeconds());
+
+            try (AcpJsonRpcConnection connection = new AcpJsonRpcConnection(processHandle.stdout(), processHandle.stdin());
+                 AcpAgentClient client = new AcpAgentClient(processHandle, connection)) {
+                String sessionId = client.createSession(resolveSessionCwd(request.cwd())).join();
+                task.setAcpSessionId(sessionId);
+                agentTaskRepository.save(task);
+
+                client.sendPrompt(sessionId, request.prompt()).join();
+                agentTaskRepository.save(task);
+
+                waitForTerminalState(task, client, processHandle);
+            }
+        } catch (RuntimeException exception) {
+            handleExecutionFailure(task, processHandle, exception);
+        } finally {
+            if (timeoutFuture != null) {
+                timeoutFuture.cancel(true);
+            }
+            if (processHandle != null) {
+                activeProcesses.remove(task.taskId(), processHandle);
+                processHandle.destroy();
+            }
+            agentTaskRepository.save(task);
+            logTerminalState(task, startedAt);
+        }
+    }
+
+    private AgentTask createTask(ParsedExecutionRequest request) {
+        AgentTask task = new AgentTask(
+                AgentTaskId.generate(),
+                providerId(),
+                request.cwd(),
+                request.prompt(),
+                config.execution().maxEventsPerTask());
+        agentTaskRepository.save(task);
+        task.markRunning();
+        task.addEvent("Task started");
+        agentTaskRepository.save(task);
+        auditLogger.logTaskStarted(task);
+        return task;
+    }
+
+    private void waitForTerminalState(AgentTask task, AcpAgentClient client, AcpProcessHandle processHandle) {
+        while (!isTerminal(task.state())) {
+            try {
+                JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
+                eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());
+                agentTaskRepository.save(task);
+            } catch (TimeoutException ignored) {
+                if (isTerminal(task.state())) {
+                    return;
+                }
+                if (!processHandle.isAlive()) {
+                    throw new IllegalStateException("ACP process exited before task completion" + stderrSuffix(processHandle));
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("ACP task execution interrupted", exception);
+            } catch (Exception exception) {
+                throw new CompletionException(exception);
+            }
+        }
+    }
+
+    private ScheduledFuture<?> scheduleTimeout(AgentTask task, AcpProcessHandle processHandle, int timeoutSeconds) {
+        return TIMEOUT_EXECUTOR.schedule(() -> {
+            if (isTerminal(task.state())) {
+                return;
+            }
+            synchronized (task) {
+                if (isTerminal(task.state())) {
+                    return;
+                }
+                task.addEvent("Task timed out after " + timeoutSeconds + " seconds");
+                task.timeout();
+            }
+            agentTaskRepository.save(task);
+            processHandle.destroy();
+        }, timeoutSeconds, TimeUnit.SECONDS);
+    }
+
+    private void handleExecutionFailure(AgentTask task, AcpProcessHandle processHandle, RuntimeException exception) {
+        if (isTerminal(task.state())) {
+            return;
+        }
+        Throwable cause = unwrap(exception);
+        String errorMessage = failureMessage(cause, processHandle);
+        task.addEvent(errorMessage);
+        task.fail(trimToMaxLength(errorMessage, config.execution().maxResultTextChars()));
+        agentTaskRepository.save(task);
+    }
+
+    private void logTerminalState(AgentTask task, long startedAt) {
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        if (task.state() == AgentTaskState.COMPLETED) {
+            auditLogger.logTaskCompleted(task, durationMs);
+            return;
+        }
+        if (task.state() != AgentTaskState.RUNNING && task.state() != AgentTaskState.CREATED) {
+            auditLogger.logTaskFailed(task, durationMs, task.state().name().toLowerCase());
+        }
     }
 
     private Map<String, Object> getTaskStatus(JsonNode arguments) {
@@ -188,9 +304,13 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         AgentTask task = taskLookup.task();
 
         try {
-            task.cancel();
             task.addEvent("Cancellation requested");
+            task.cancel();
             agentTaskRepository.save(task);
+            AcpProcessHandle processHandle = activeProcesses.remove(task.taskId());
+            if (processHandle != null) {
+                processHandle.destroy();
+            }
         } catch (IllegalStateException exception) {
             return errorResult(exception.getMessage());
         }
@@ -200,6 +320,27 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         payload.put("state", task.state().name());
         payload.put("cancellationRequested", task.cancellationRequested());
         return successResult(payload);
+    }
+
+    private ParsedExecutionRequest parseExecutionRequest(JsonNode arguments) {
+        String prompt = requiredText(arguments, "prompt");
+        if (prompt == null) {
+            return ParsedExecutionRequest.error("Invalid arguments: prompt is required");
+        }
+
+        String cwd = optionalText(arguments, "cwd");
+        if (hasField(arguments, "cwd") && cwd == null) {
+            return ParsedExecutionRequest.error("Invalid arguments: cwd must be a string");
+        }
+
+        Integer timeoutSeconds = optionalPositiveInteger(arguments, "timeoutSeconds");
+        if (hasField(arguments, "timeoutSeconds") && timeoutSeconds == null) {
+            return ParsedExecutionRequest.error("Invalid arguments: timeoutSeconds must be a positive integer");
+        }
+
+        return ParsedExecutionRequest.success(prompt, cwd, timeoutSeconds == null
+                ? config.execution().defaultTaskTimeoutSeconds()
+                : timeoutSeconds);
     }
 
     private TaskLookup lookupTask(JsonNode arguments) {
@@ -228,6 +369,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         payload.put("providerId", task.providerId());
         payload.put("state", task.state().name());
         payload.put("cwd", task.cwd());
+        payload.put("acpSessionId", task.acpSessionId());
         payload.put("promptPreview", task.promptPreview());
         payload.put("promptHash", task.promptHash());
         payload.put("startedAt", instantText(task.startedAt()));
@@ -248,12 +390,64 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return events.subList(events.size() - maxEvents, events.size());
     }
 
-    private String buildPlaceholderResult(String prompt, String cwd, int timeoutSeconds) {
+    private AcpProcessConfiguration processConfigurationFor(String requestedCwd) {
+        String workingDirectory = requestedCwd == null ? config.process().workingDirectory() : requestedCwd;
+        return new AcpProcessConfiguration(
+                config.process().command(),
+                config.process().args(),
+                workingDirectory,
+                config.process().environment());
+    }
+
+    private String resolveSessionCwd(String requestedCwd) {
+        if (requestedCwd != null) {
+            return requestedCwd;
+        }
+        String configuredWorkingDirectory = config.process().workingDirectory();
+        if (configuredWorkingDirectory != null && !configuredWorkingDirectory.isBlank()) {
+            return configuredWorkingDirectory;
+        }
+        return System.getProperty("user.dir", ".");
+    }
+
+    private boolean isTerminal(AgentTaskState state) {
+        return state == AgentTaskState.COMPLETED
+                || state == AgentTaskState.FAILED
+                || state == AgentTaskState.CANCELLED
+                || state == AgentTaskState.TIMEOUT;
+    }
+
+    private String failureMessage(Throwable throwable, AcpProcessHandle processHandle) {
+        if (throwable instanceof AcpProcessFailure processFailure) {
+            return trimToMaxLength(processFailure.getMessage(), config.execution().maxResultTextChars());
+        }
+        String message = throwable.getMessage();
+        if (message == null || message.isBlank()) {
+            message = throwable.getClass().getSimpleName();
+        }
+        return trimToMaxLength(message + stderrSuffix(processHandle), config.execution().maxResultTextChars());
+    }
+
+    private String stderrSuffix(AcpProcessHandle processHandle) {
+        if (processHandle == null) {
+            return "";
+        }
+        String stderr = processHandle.collectStderr(STDERR_PREVIEW_CHARS).trim();
+        return stderr.isEmpty() ? "" : "; stderr=" + stderr;
+    }
+
+    private Map<String, Object> terminalResult(AgentTask task, boolean includeResult) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("message", trimToMaxLength("Placeholder ACP execution result for prompt: " + prompt, config.execution().maxResultTextChars()));
-        payload.put("cwd", cwd);
-        payload.put("timeoutSeconds", timeoutSeconds);
-        return toJson(payload);
+        payload.put("taskId", task.taskId().value());
+        payload.put("state", task.state().name());
+        if (includeResult && task.result() != null) {
+            payload.put("result", task.result());
+        }
+        if (task.error() != null) {
+            payload.put("error", task.error());
+        }
+        payload.put("task", taskDetails(task, true, null));
+        return task.state() == AgentTaskState.COMPLETED ? successResult(payload) : errorResult(payload);
     }
 
     private Map<String, Object> successResult(Object payload) {
@@ -263,6 +457,10 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private Map<String, Object> errorResult(String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("error", message);
+        return errorResult(payload);
+    }
+
+    private Map<String, Object> errorResult(Object payload) {
         return toolResult(payload, true);
     }
 
@@ -339,6 +537,25 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return instant == null ? null : instant.toString();
     }
 
+    private Throwable unwrap(Throwable throwable) {
+        Throwable cause = throwable;
+        while (cause instanceof CompletionException completionException && completionException.getCause() != null) {
+            cause = completionException.getCause();
+        }
+        return cause;
+    }
+
     private record TaskLookup(AgentTask task, String errorMessage) {
+    }
+
+    private record ParsedExecutionRequest(String prompt, String cwd, int timeoutSeconds, String errorMessage) {
+
+        private static ParsedExecutionRequest success(String prompt, String cwd, int timeoutSeconds) {
+            return new ParsedExecutionRequest(prompt, cwd, timeoutSeconds, null);
+        }
+
+        private static ParsedExecutionRequest error(String errorMessage) {
+            return new ParsedExecutionRequest(null, null, 0, errorMessage);
+        }
     }
 }

@@ -1,33 +1,28 @@
 What was verified, changed or implemented?
-- Refactored ACP classes to remove all Java records in the allowed ACP directories.
-- Replaced ACP-only uses of List.of(), Map.of(), List.copyOf(), Map.copyOf(), and Stream.toList() with Java 8 compatible alternatives.
-- Removed the AcpVirtualToolProvider inner TaskLookup record and replaced it with a null-plus-error-holder lookup helper.
-- Updated ACP tests for the class conversions and ACP-only collection API changes.
-- Verified ACP compilation before and after the refactor with the requested Gradle targets.
-- Ran parallel validation; CodeQL passed and code review failed due an external tool HTTP 400 header error.
+- Replaced placeholder ACP execution in `AcpVirtualToolProvider` with the real process/session flow for `run_task`, `start_task`, timeout handling, and cancellation.
+- Added active ACP process tracking, audit logging, synchronous wait via Vert.x `executeBlocking`, background execution for `start_task`, and terminal-state result/error payloads.
+- Added `AgentToolViewValidator` to reject direct and indirect ACP recursion through `agentToolView`.
+- Added `FakeAcpAgent` plus integration and provider tests covering success, failure, permission, large-output, timeout, and cancellation flows.
+- Verified requested ACP compile and test commands after the implementation.
+- Ran parallel validation; CodeQL passed and code review failed due an external HTTP 400 header issue.
 
 Which files were changed or newly created?
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpAgentClient.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpExecutionConfiguration.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProcessConfiguration.java
 - Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProcessLauncher.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpProviderConfiguration.java
 - Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpToolDefinitions.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpToolTimeoutConfiguration.java
 - Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpVirtualToolProvider.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentTask.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentTaskId.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/InMemoryAgentTaskRepository.java
-- Changed: pyloros-server/src/main/java/com/aresstack/pyloros/acp/PendingPermission.java
+- New: pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentToolViewValidator.java
 - Changed: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AcpVirtualToolProviderTest.java
-- Changed: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AgentTaskTest.java
+- New: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AcpIntegrationTest.java
+- New: pyloros-server/src/test/java/com/aresstack/pyloros/acp/AgentToolViewValidatorTest.java
+- New: pyloros-server/src/test/java/com/aresstack/pyloros/acp/FakeAcpAgent.java
 
 Which architecture decision was touched?
-- None. The existing ACP integration boundaries remained unchanged; this was a local ACP model and collection API refactor only.
+- ACP task execution now follows the real ACP stdio lifecycle inside `AcpVirtualToolProvider`, while recursion prevention is enforced as a separate ACP validation concern.
 
 Which tests, builds and runtime checks were executed?
 - ./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava (baseline) — successful
 - ./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava (after changes) — successful
+- ./gradlew --no-daemon :pyloros-server:test — successful
 - parallel_validation — CodeQL successful, code review tool failed externally
 
 Result: successful
