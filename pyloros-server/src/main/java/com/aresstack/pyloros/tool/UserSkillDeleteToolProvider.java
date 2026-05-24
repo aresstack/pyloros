@@ -12,6 +12,11 @@ public final class UserSkillDeleteToolProvider implements ToolProvider {
     public static final String TOOL_NAME = new String(new char[]{112,121,108,111,114,111,115,95,95,115,107,105,108,108,115,95,100,101,108,101,116,101});
 
     @Override
+    public boolean preservesUpstreamToolName() {
+        return true;
+    }
+
+    @Override
     public Future<List<Map<String, Object>>> listTools() {
         return Future.succeededFuture(List.of(toolDefinition()));
     }
