@@ -2,7 +2,7 @@
 
 Parent issue: aresstack/pyloros#59
 
-SDK-Entscheidung fuer den R6-Manager-Agenten: siehe `docs/requirements/007-r6-04-acp-mcp-java-sdk-spike.md`.
+SDK-Entscheidung fuer den R6-Manager-Agenten: siehe `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md`.
 
 ## 1. Summary
 

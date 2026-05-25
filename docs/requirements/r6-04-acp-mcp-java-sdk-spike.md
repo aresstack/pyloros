@@ -2,6 +2,8 @@
 
 Parent issue: aresstack/pyloros#59
 
+Closes #64
+
 ## Ziel
 
 Entscheidungsvorlage fuer den Java-21-Manager-Agenten:
@@ -46,6 +48,9 @@ Stand: 2026-05-25
 - Keine Kopplung an Spring-Starter im Pyloros-Core (Projektregel: Vert.x, kein Spring im Core).
 
 ## Minimaler Bootstrap-Sketch
+
+**Wichtig:** Die folgenden Snippets sind **API sketch, not compile-verified in this repository**.
+Sie dienen nur als Integrationsskizze fuer den separaten Manager-Agent-Deliverable.
 
 ## 1) ACP Agent Session (Java ACP SDK)
 
