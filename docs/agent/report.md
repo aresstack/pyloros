@@ -1,84 +1,33 @@
-# Report — Issue #19 (R4-02: ServiceLoaderPluginRegistry implementieren)
+What was verified, changed or implemented?
+- Verified baseline before changes by running `:pyloros-server:test` and `:pyloros-app:test`.
+- Implemented ToolCatalog provider filtering by `ProviderDescriptor.isExposedIn(toolView)` so contributed providers (including plugin providers) participate in the same view-gated catalog flow.
+- Added focused integration tests for plugin provider + catalog/router behavior:
+  - plugin provider appears in `ProviderRegistry`
+  - plugin tool visible in PUBLIC view
+  - plugin tool hidden in non-exposed view
+  - plugin/native collision raises validation error (no silent overwrite)
+  - plugin tool call is routed through `ToolRouter`
+  - disabled plugin contributes no tools
 
-## Was wurde umgesetzt / verifiziert?
+Which files were changed or newly created?
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolCatalog.java`
+- Created: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginProviderCatalogIntegrationTest.java`
 
-### 1. `PluginRegistry` – Erweiterungen und Bugfix
+Which architecture decision was touched?
+- Tool visibility is now enforced centrally by ToolCatalog using ProviderRegistry descriptors (`exposedViews`), so plugin-contributed providers are treated the same as native providers in catalog construction.
 
-- **Neue Factory-Methode `load(PluginActivationResolver)`**: Ergaenzt das bereits
-  vorhandene `load(Set<String>)` und erlaubt resolver-gesteuertes Laden ueber den
-  echten `ServiceLoader`, sodass per `PluginsConfig` ein Plugin aktiviert/deaktiviert
-  werden kann.
-- **Bugfix: `entry.type()` wird jetzt isoliert behandelt**: Bisher wurde
-  `entry.type().getName()` vor dem `try/catch`-Block fuer `entry.get()` aufgerufen.
-  Wirft `ServiceLoader` eine `ServiceConfigurationError` (z. B. Klasse nicht im
-  Classpath), propagierte die Exception unbehandelt. Beide `loadOne()`-Overloads
-  fangen jetzt auch `type()`-Fehler ab und erzeugen ein `PluginLoadResult` mit
-  Status `FAILED_TO_LOAD` und einem eindeutigen Fallback-ID.
+Which tests, builds and runtime checks were executed?
+- `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test` (before changes)
+- `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.plugin.PluginProviderCatalogIntegrationTest" --tests "com.aresstack.pyloros.tool.ToolCatalogRoutingTest"`
+- `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test` (after changes)
+- `parallel_validation`:
+  - CodeQL: success (0 alerts)
+  - Code Review: failed due tool-side HTTP 400 header error
 
-### 2. Server-Bootstrap-Integration (`PylorosApplication`)
+Result: failed
+If failed: exact error and recommended next step
+- Error: `Code review tool encountered an issue: failed to complete: HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header.`
+- Recommended next step: rerun `parallel_validation` after the external Code Review service/header issue is resolved; no code defects were reported by CodeQL.
 
-- `PylorosApplication.start()` ruft beim Serverstart `PluginRegistry.load(Set.of())`
-  auf (alle entdeckten Plugins aktiviert).
-- Jedes Ladeergebnis wird auf INFO-Level geloggt (`[PLUGIN] id=... status=...`).
-- Von Plugins beigesteuerte `ToolProvider`s werden in die `providers`-Liste
-  eingetragen, die in `ProviderRegistry` und `ToolCatalog` muendet.
-- Die `PluginRegistry` bleibt als lokale Variable in `loadPlugins()`; fuer spaetere
-  R4-05-Verdrahtung kann sie bei Bedarf als Feld gehalten werden.
-
-### 3. Tests fuer echte `ServiceLoader`-Entdeckung (neue Klasse)
-
-- Neu: `ServiceLoaderTestPlugin1` / `ServiceLoaderTestPlugin2` — oeffentliche
-  Top-Level-Klassen im Test-Classpath.
-- Neu: `src/test/resources/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
-  registriert beide Test-Plugins fuer den echten `ServiceLoader`.
-- Neu: `ServiceLoaderDiscoveryTest` — 4 Tests:
-  - Einzelnes gültiges Plugin wird via realem ServiceLoader entdeckt und geladen.
-  - Mehrere Plugins werden unabhaengig voneinander entdeckt.
-  - `load(resolver)` mit `enabledByDefault=false` aktiviert nur das explizit
-    aktivierte Plugin.
-  - `load(resolver)` mit `enabledByDefault=true` ladet alle ausser dem explizit
-    deaktivierten Plugin.
-
-### 4. Ergaenzende Tests in `PluginRegistryTest`
-
-- **Duplikat-Plugin-ID**: Zwei Plugins mit gleicher ID – zweites erhaelt
-  `FAILED_TO_LOAD`, Fehlermeldung nennt die doppelte ID; nur ein Provider wird
-  beigetragen.
-- **Ungültiger ServiceLoader-Eintrag (`type()` wirft)**: Mock-`Provider` simuliert
-  `ServiceConfigurationError`; Registry meldet `FAILED_TO_LOAD` fuer den
-  fehlerhaften Eintrag und laedt das folgende Plugin normal weiter.
-
-## Geaenderte / neue Dateien
-
-- Geaendert: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginRegistry.java`
-- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/ServiceLoaderTestPlugin1.java`
-- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/ServiceLoaderTestPlugin2.java`
-- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/ServiceLoaderDiscoveryTest.java`
-- Neu: `pyloros-server/src/test/resources/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
-- Geaendert: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginRegistryTest.java`
-- Geaendert: `pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
-- Geaendert: `docs/agent/report.md` (dieser Report)
-
-## Architekturentscheidung beruehrt?
-
-- Kanonische Plugin-API (`PylorosPlugin`, `PluginContext`, `PluginDescriptor`,
-  `PluginContribution`, `PluginContributionResult`) ist unveraendert.
-- R4-05-Integration (volle `ProviderRegistry`/`ToolCatalog`-Verdrahtung) ist
-  bewusst ausgeklammert; gehoert in Issue #22. Die vorhandene Erweiterungsstelle
-  in `PylorosApplication.start()` ist vorbereitet.
-- `PluginRegistry.loadFrom(..., Set<String>)` und
-  `loadFrom(..., PluginActivationResolver)` bleiben unveraendert kompatibel.
-
-## Tests / Builds
-
-- `./gradlew --no-daemon :pyloros-server:test` → BUILD SUCCESSFUL (alle Tests gruen).
-- `./gradlew --no-daemon :pyloros-app:compileJava` → BUILD SUCCESSFUL.
-
-## Ergebnis
-
-Erfolgreich. Issue #19 (R4-02) kann geschlossen werden.
-
-## Commit
-
-Wird vom Cloud-Agent (Copilot) via `report_progress` gepusht; konkreter
-Hash siehe PR-Branch `copilot/r4-02-service-loader-plugin-registry`.
+Exact commit hash, or No commit created
+- `6170f8a`
