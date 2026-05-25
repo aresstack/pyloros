@@ -1018,6 +1018,10 @@ Pyloros darf auch starten, wenn `pyloros-ai` unavailable ist.
 
 ## 23.20 Empfohlene Implementierungsstufe
 
+> **Historischer Release-5-Plan (obsolet):**
+> Nicht mehr umsetzen. Für den aktuellen Ansatz siehe
+> `docs/requirements/006-acp-manager-agent.md`.
+
 ### Milestone 7: LangChain Virtual Provider
 
 ```text
