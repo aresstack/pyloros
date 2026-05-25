@@ -154,6 +154,65 @@ class PluginRegistryTest {
     }
 
     @Test
+    void reportsFailedToLoadWhenDuplicatePluginId() {
+        PluginRegistry registry = PluginRegistry.loadFrom(
+                List.of(
+                        candidate(WorkingPlugin.class, WorkingPlugin::new),
+                        candidate(WorkingPlugin.class, WorkingPlugin::new)  // same id "working"
+                ),
+                Set.of()
+        );
+
+        assertEquals(2, registry.results().size());
+        PluginLoadResult first = registry.results().get(0);
+        PluginLoadResult second = registry.results().get(1);
+
+        assertEquals(PluginStatus.LOADED, first.status());
+        assertEquals(PluginStatus.FAILED_TO_LOAD, second.status());
+        assertNotNull(second.error());
+        assertTrue(second.error().message().contains("duplicate plugin id 'working'"),
+                "error message must identify the duplicate id");
+        // Contribution of the second (duplicate) plugin is rejected
+        assertEquals(1, registry.contributionResults().stream()
+                .filter(r -> !r.accepted()).count());
+        // Only one provider contributed (from the first plugin)
+        assertEquals(1, registry.contributedProviders().size());
+    }
+
+    @Test
+    void handlesInvalidServiceLoaderEntryWhenTypeResolutionFails() {
+        // Simulate a ServiceLoader entry whose type() fails (e.g. class not on classpath)
+        ServiceLoader.Provider<PylorosPlugin> invalidEntry = new ServiceLoader.Provider<>() {
+            @Override
+            public Class<PylorosPlugin> type() {
+                throw new java.util.ServiceConfigurationError(
+                        "Provider com.example.NonExistent not found");
+            }
+
+            @Override
+            public PylorosPlugin get() {
+                throw new IllegalStateException("must not be called when type() fails");
+            }
+        };
+
+        PluginRegistry registry = PluginRegistry.loadFrom(
+                List.of(invalidEntry, candidate(WorkingPlugin.class, WorkingPlugin::new)),
+                Set.of()
+        );
+
+        assertEquals(2, registry.results().size());
+        PluginLoadResult invalidResult = registry.results().get(0);
+        assertEquals(PluginStatus.FAILED_TO_LOAD, invalidResult.status(),
+                "invalid entry must be reported as FAILED_TO_LOAD");
+        assertNotNull(invalidResult.error(),
+                "a structured error must be recorded for the invalid entry");
+
+        PluginLoadResult workingResult = registry.results().get(1);
+        assertEquals(PluginStatus.LOADED, workingResult.status(),
+                "a valid plugin after the invalid entry must still be loaded");
+    }
+
+    @Test
     void truncatesVeryLongErrorMessages() {
         String veryLong = "x".repeat(PluginErrorInfo.MAX_MESSAGE_LENGTH * 3);
         PluginErrorInfo info = PluginErrorInfo.from(new RuntimeException(veryLong));

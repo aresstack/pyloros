@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 
@@ -44,7 +45,117 @@ public final class PluginRegistry {
 
     public static PluginRegistry load(Set<String> disabledPluginIds) {
         ServiceLoader<PylorosPlugin> serviceLoader = ServiceLoader.load(PylorosPlugin.class);
-        return loadFrom(serviceLoader.stream().toList(), disabledPluginIds);
+        return loadFrom(serviceLoader, disabledPluginIds);
+    }
+
+    /**
+     * Load all plugins discovered by the system {@link ServiceLoader}, using a
+     * {@link PluginActivationResolver} to decide which plugins are enabled and to
+     * supply per-plugin configuration.
+     *
+     * @param resolver activation resolver; must not be {@code null}
+     * @return the populated registry
+     */
+    public static PluginRegistry load(PluginActivationResolver resolver) {
+        Objects.requireNonNull(resolver, "resolver must not be null");
+        ServiceLoader<PylorosPlugin> serviceLoader = ServiceLoader.load(PylorosPlugin.class);
+        return loadFrom(serviceLoader, resolver);
+    }
+
+    /**
+     * Load plugins from the given {@link ServiceLoader}, collecting providers
+     * safely so that a {@link ServiceConfigurationError} thrown while iterating
+     * the stream (e.g. because a listed class is absent from the classpath) is
+     * converted into a {@link PluginLoadResult} with status
+     * {@link PluginStatus#FAILED_TO_LOAD} instead of aborting the entire load.
+     *
+     * @param serviceLoader the ServiceLoader to iterate; must not be {@code null}
+     * @param disabledPluginIds plugin ids to skip
+     * @return the populated registry
+     */
+    public static PluginRegistry loadFrom(
+            ServiceLoader<PylorosPlugin> serviceLoader,
+            Set<String> disabledPluginIds) {
+        Objects.requireNonNull(serviceLoader, "serviceLoader must not be null");
+        return loadFrom(collectProviders(serviceLoader), disabledPluginIds);
+    }
+
+    /**
+     * Load plugins from the given {@link ServiceLoader} using a
+     * {@link PluginActivationResolver}, collecting providers safely so that a
+     * {@link ServiceConfigurationError} thrown while iterating the stream is
+     * converted into a {@link PluginLoadResult} with status
+     * {@link PluginStatus#FAILED_TO_LOAD} instead of aborting the entire load.
+     *
+     * @param serviceLoader the ServiceLoader to iterate; must not be {@code null}
+     * @param resolver      activation resolver; must not be {@code null}
+     * @return the populated registry
+     */
+    public static PluginRegistry loadFrom(
+            ServiceLoader<PylorosPlugin> serviceLoader,
+            PluginActivationResolver resolver) {
+        Objects.requireNonNull(serviceLoader, "serviceLoader must not be null");
+        Objects.requireNonNull(resolver, "resolver must not be null");
+        return loadFrom(collectProviders(serviceLoader), resolver);
+    }
+
+    /**
+     * Iterate the {@link ServiceLoader} stream one entry at a time by calling
+     * {@link java.util.Spliterator#tryAdvance} directly — avoiding the
+     * {@link java.util.Spliterators} iterator adapter whose internal {@code holder}
+     * becomes inconsistent after a {@link ServiceConfigurationError} is thrown from
+     * {@code hasNext()}.
+     *
+     * <p>When {@code tryAdvance} throws a {@link ServiceConfigurationError} (which
+     * happens when a class listed in {@code META-INF/services/...} is absent from
+     * the classpath), the bad entry has already been consumed by the underlying
+     * {@code LazyClassPathLookupIterator}, so the next {@code tryAdvance} call will
+     * try the following entry in the services file.  The error is recorded as a
+     * sentinel {@link FailingProvider} so that {@link #loadOne} can convert it into
+     * a {@link PluginLoadResult#failedToLoad(String, Throwable)}.
+     */
+    @SuppressWarnings("unchecked")
+    private static List<ServiceLoader.Provider<? extends PylorosPlugin>> collectProviders(
+            ServiceLoader<PylorosPlugin> serviceLoader) {
+        List<ServiceLoader.Provider<? extends PylorosPlugin>> collected = new ArrayList<>();
+        java.util.Spliterator<ServiceLoader.Provider<PylorosPlugin>> spliterator =
+                serviceLoader.stream().spliterator();
+
+        while (true) {
+            ServiceLoader.Provider<?>[] found = new ServiceLoader.Provider[1];
+            boolean advanced;
+            try {
+                advanced = spliterator.tryAdvance(p -> found[0] = p);
+            } catch (ServiceConfigurationError e) {
+                log.error("[PLUGIN] failed to read service entry from ServiceLoader: {}", e.toString());
+                collected.add(new FailingProvider(e));
+                continue; // bad entry consumed; try the next one
+            }
+            if (!advanced) break;
+            if (found[0] != null) {
+                collected.add((ServiceLoader.Provider<? extends PylorosPlugin>) found[0]);
+            }
+        }
+        return collected;
+    }
+
+    /** Sentinel provider that captures a {@link ServiceConfigurationError} from stream iteration. */
+    private static final class FailingProvider implements ServiceLoader.Provider<PylorosPlugin> {
+        private final ServiceConfigurationError error;
+
+        FailingProvider(ServiceConfigurationError error) {
+            this.error = error;
+        }
+
+        @Override
+        public Class<PylorosPlugin> type() {
+            throw error;
+        }
+
+        @Override
+        public PylorosPlugin get() {
+            throw error;
+        }
     }
 
     /**
@@ -97,7 +208,14 @@ public final class PluginRegistry {
             List<ToolProvider> contributedSink,
             List<PluginContributionResult> contributionResultsSink,
             Set<String> usedPluginIds) {
-        String fallbackId = entry.type().getName();
+        String fallbackId;
+        try {
+            fallbackId = entry.type().getName();
+        } catch (Throwable t) {
+            log.error("[PLUGIN] failed to resolve plugin class from ServiceLoader entry: {}", t.toString());
+            return PluginLoadResult.failedToLoad(
+                    "invalid-plugin-entry-" + Integer.toHexString(System.identityHashCode(entry)), t);
+        }
 
         PylorosPlugin plugin;
         try {
@@ -183,7 +301,14 @@ public final class PluginRegistry {
             List<ToolProvider> contributedSink,
             List<PluginContributionResult> contributionResultsSink,
             Set<String> usedPluginIds) {
-        String fallbackId = entry.type().getName();
+        String fallbackId;
+        try {
+            fallbackId = entry.type().getName();
+        } catch (Throwable t) {
+            log.error("[PLUGIN] failed to resolve plugin class from ServiceLoader entry: {}", t.toString());
+            return PluginLoadResult.failedToLoad(
+                    "invalid-plugin-entry-" + Integer.toHexString(System.identityHashCode(entry)), t);
+        }
 
         PylorosPlugin plugin;
         try {
