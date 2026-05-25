@@ -170,6 +170,8 @@ Configuration example (`mcp.json`):
 | Removed | Rationale |
 |---------|-----------|
 | `ProviderType.LANGCHAIN` | No LangChain provider in core |
+| `ProviderType.COMPOSITE` | Composite behavior via plugins or ACP agents, not a core type |
+| `ProviderType.REST` | REST integration via plugins or ACP agents, not a core type |
 | `LangChainVirtualToolProvider` concept | Never implemented; replaced by ACP agent |
 | `pyloros-ai/ask` as core tool | Agent logic is not a core tool |
 | Core dependency on LangChain4j/Ollama | Agent chooses its own LLM stack |
