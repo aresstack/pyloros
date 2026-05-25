@@ -11,8 +11,11 @@ import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
 import com.aresstack.pyloros.oauth.OAuthSecurityModule;
+import com.aresstack.pyloros.plugin.PluginActivationResolver;
 import com.aresstack.pyloros.plugin.PluginLoadResult;
 import com.aresstack.pyloros.plugin.PluginRegistry;
+import com.aresstack.pyloros.plugin.PluginsConfig;
+import com.aresstack.pyloros.plugin.PluginsConfigLoader;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.security.NoSecurityModule;
 import com.aresstack.pyloros.security.SecurityModule;
@@ -37,10 +40,10 @@ import io.vertx.ext.web.handler.BodyHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 public final class PylorosApplication extends AbstractVerticle {
 
@@ -125,7 +128,7 @@ public final class PylorosApplication extends AbstractVerticle {
     }
 
     private void loadPlugins(List<ToolProvider> providers) {
-        PluginRegistry registry = PluginRegistry.load(Set.of());
+        PluginRegistry registry = loadPluginRegistry();
         for (PluginLoadResult result : registry.results()) {
             log.info("[PLUGIN] id={} status={}", result.pluginId(), result.status());
         }
@@ -133,6 +136,26 @@ public final class PylorosApplication extends AbstractVerticle {
             log.info("[PLUGIN] {} provider(s) contributed by plugins",
                     registry.contributedProviders().size());
             providers.addAll(registry.contributedProviders());
+        }
+    }
+
+    PluginRegistry loadPluginRegistry() {
+        PluginsConfig pluginsConfig = loadPluginsConfig();
+        return PluginRegistry.load(new PluginActivationResolver(pluginsConfig));
+    }
+
+    private PluginsConfig loadPluginsConfig() {
+        Optional<LoadedMcpJsonConfig> loaded = new McpJsonConfigLoader().load(launchArgs);
+        if (loaded.isEmpty()) {
+            return PluginsConfig.empty();
+        }
+
+        LoadedMcpJsonConfig mcpJson = loaded.get();
+        PluginsConfigLoader loader = new PluginsConfigLoader();
+        try (java.io.InputStream inputStream = java.nio.file.Files.newInputStream(mcpJson.path())) {
+            return loader.loadFromStream(inputStream);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to load plugin configuration from " + mcpJson.path(), exception);
         }
     }
 

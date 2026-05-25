@@ -43,7 +43,11 @@ public final class ToolCatalog {
     }
 
     private Future<ToolCatalogSnapshot> refresh(ToolView toolView) {
-        List<ToolProvider> providers = providerRegistry.providers();
+        List<ToolProvider> providers = providerRegistry.providers().stream()
+                .filter(provider -> providerRegistry.findDescriptorById(provider.providerId())
+                        .map(descriptor -> descriptor.isExposedIn(toolView))
+                        .orElse(true))
+                .toList();
         if (providers.isEmpty()) {
             snapshot = ToolCatalogSnapshot.empty();
             return Future.succeededFuture(snapshot);
