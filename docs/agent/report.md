@@ -1,26 +1,34 @@
 What was verified, changed or implemented?
-- Verified that previously requested review blockers are already addressed in the branch (commit `2bc3d0a`):
-  - no absolute CI/runner paths in user-facing README/plugin docs
-  - consistent tool naming (`example-tools__echo`, `example-tools/echo`)
-  - `pyloros-example-plugin` remains test-only in `pyloros-app` classpath (`testImplementation`)
-- No additional source or documentation changes were required in this follow-up pass.
+- Implemented R4-08 regression hardening additions in plugin catalog integration tests.
+- Added regression coverage that a disabled plugin does not hide existing native tools (`pyloros__ping`).
+- Added regression coverage that an invalid plugin contribution is isolated and does not break existing MCP provider catalog visibility or ToolRouter calls.
+- Verified existing plugin/runtime regression suites still pass.
 
 Which files were changed or newly created?
 - Changed:
-  - `docs/agent/report.md` (overwritten for this session report)
+  - `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginProviderCatalogIntegrationTest.java`
+  - `/home/runner/work/pyloros/pyloros/docs/agent/report.md`
+- Created: none
 
 Which architecture decision was touched?
-- None in this pass.
-- Existing decision from prior commit remains: keep example plugin out of production `pyloros-app` runtime classpath by default.
+- Confirmed and reinforced the existing R4 decision: plugins and plugin failures stay isolated and all tools (native, MCP, plugin) continue to flow through the same `ToolCatalog` + `ToolRouter` path without regressions.
 
 Which tests, builds and runtime checks were executed?
-- `./gradlew --no-daemon :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest" --tests "com.aresstack.pyloros.PylorosApplicationPluginBootstrapTest"`
-- `./gradlew --no-daemon :pyloros-server:test`
-- `parallel_validation` (no changes detected, skipped)
+- Baseline before changes:
+  - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test`
+- After changes (targeted):
+  - `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.plugin.PluginProviderCatalogIntegrationTest"`
+- After changes (full required module suites):
+  - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test`
 
 Result: successful
+
 If failed: exact error and recommended next step
-- N/A
+- Intermediate failed run (fixed in this session):
+  - `:pyloros-server:compileTestJava` failed with `cannot find symbol: class InvalidContributionPlugin` in `PluginProviderCatalogIntegrationTest`.
+  - Cause: helper class was initially nested in the wrong scope.
+  - Fix applied: moved `InvalidContributionPlugin` to top-level nested class scope inside the test class.
+  - Recommended next step: none.
 
 Exact commit hash, or No commit created
 - No commit created
