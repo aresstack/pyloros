@@ -1,37 +1,45 @@
 What was verified, changed or implemented?
-- Reviewed the PR feedback and implemented the runtime activation gap fix in bootstrap: `PylorosApplication` no longer uses `PluginRegistry.load(Set.of())`; it now loads `PluginsConfig` from the discovered `mcp.json` and uses `PluginActivationResolver` with `PluginRegistry.load(resolver)`.
-- Added an application/bootstrap-path test that uses real ServiceLoader discovery in `pyloros-app` test runtime and verifies an explicitly disabled plugin is `DISABLED` and contributes no provider.
-- Added catalog semantics tests to verify provider-level `exposedViews` gating remains consistent with provider `listTools(toolView)` behavior across provider types (NATIVE/MCP/ACP) and plugin-like providers.
+- Implemented R4-07 with a dedicated example plugin module `pyloros-example-plugin` that uses the existing R4 plugin/runtime flow (`PylorosPlugin` -> `PluginRegistry` -> `ProviderRegistry` -> `ToolCatalog` -> `ToolRouter`).
+- Added a minimal deterministic example tool (`echo`) exposed by provider `example-tools`, yielding external name `example-tools__echo` with default separator and `example-tools/echo` when `/` separator is configured.
+- Registered the example plugin via `META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin` for ServiceLoader discovery.
+- Added focused integration tests that prove: discovery, catalog visibility, router execution/echo behavior, and explicit disable behavior.
+- Added developer-facing plugin documentation covering plugin ID, ServiceLoader registration, Gradle setup, plugin configuration, visibility/naming/collision behavior, and local verification steps.
+- Executed baseline and post-change test runs successfully.
 
 Which files were changed or newly created?
 - Changed:
-  - `/home/runner/work/pyloros/pyloros/pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
+  - `/home/runner/work/pyloros/pyloros/settings.gradle`
+  - `/home/runner/work/pyloros/pyloros/pyloros-app/build.gradle`
+  - `/home/runner/work/pyloros/pyloros/README.md`
 - Created:
-  - `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/java/com/aresstack/pyloros/PylorosApplicationPluginBootstrapTest.java`
-  - `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/java/com/aresstack/pyloros/TestBootstrapPlugin.java`
-  - `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/resources/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
-  - `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolCatalogViewFilteringSemanticsTest.java`
+  - `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/build.gradle`
+  - `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/src/main/java/com/aresstack/pyloros/example/plugin/ExampleEchoPlugin.java`
+  - `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/src/main/java/com/aresstack/pyloros/example/plugin/ExampleEchoToolProvider.java`
+  - `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/src/main/resources/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
+  - `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/java/com/aresstack/pyloros/ExampleEchoPluginIntegrationTest.java`
+  - `/home/runner/work/pyloros/pyloros/docs/plugin-development.md`
 
 Which architecture decision was touched?
-- Plugin loading in runtime bootstrap is now configuration-driven via the existing R4-03 activation model (`PluginsConfig` + `PluginActivationResolver`) and not an always-enabled fallback path.
-- ToolCatalog provider-level view gating semantics were verified with explicit cross-provider-type tests to ensure compatibility with provider-side `listTools(toolView)` filtering.
+- Reused the existing plugin architecture and runtime pipeline from R4-05/R4-06 (no alternate plugin API/catalog/router path introduced).
+- Kept plugin activation and contribution semantics aligned with `PluginActivationResolver`, `PluginRegistry`, `ToolCatalog`, and `ToolRouter`.
+- Added explicit documentation for view-based exposure and external-name collision expectations in the current ToolCatalog model.
 
 Which tests, builds and runtime checks were executed?
 - Baseline before changes:
   - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test`
-- Targeted checks after changes:
-  - `./gradlew --no-daemon :pyloros-app:test --tests "com.aresstack.pyloros.PylorosApplicationPluginBootstrapTest" :pyloros-server:test --tests "com.aresstack.pyloros.tool.ToolCatalogViewFilteringSemanticsTest" --tests "com.aresstack.pyloros.plugin.PluginProviderCatalogIntegrationTest"`
-- Broader verification:
+- Targeted checks after implementation:
+  - `./gradlew --no-daemon :pyloros-example-plugin:compileJava :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest"`
+- Broader regression checks:
   - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test`
-- Validation:
-  - `parallel_validation` run twice
-  - CodeQL: success (0 alerts)
-  - Code Review: tool-side HTTP 400 failure
+- Validation tool:
+  - `parallel_validation` executed twice
+  - CodeQL: success (0 alerts, second run skipped due to no new changes)
+  - Code Review: failed due to external HTTP 400 service/header issue
 
 Result: failed
 If failed: exact error and recommended next step
 - Error (Code Review tool): `HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header.`
-- Recommended next step: rerun `parallel_validation` once the external Code Review service/header issue is resolved. No CodeQL security issues were reported.
+- Recommended next step: rerun `parallel_validation` (Code Review) once the external service/header issue is resolved. Current code/test verification and CodeQL checks are passing.
 
 Exact commit hash, or No commit created
-- `d06ad1e`
+- `8f19a44`
