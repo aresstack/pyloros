@@ -2,6 +2,8 @@
 
 Parent issue: aresstack/pyloros#59
 
+SDK decision for the R6 Manager Agent: see `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md`.
+
 ## 1. Summary
 
 This document defines the Release 6 target architecture and current
