@@ -4,56 +4,88 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Immutable diagnostic record for one discovered plugin.
+ * Stable metadata about a {@link PylorosPlugin}.
  *
- * <p>For plugins that could not even be instantiated, {@link #pluginId()} falls
- * back to the implementation class name so operators can still identify the
- * source.</p>
+ * <p>A {@code PluginDescriptor} is the public identity of a plugin. It is
+ * intentionally small and free of infrastructure concerns: no Vert.x, HTTP or
+ * JSON-RPC types are referenced. Implementations may be provided as part of a
+ * plugin JAR loaded via {@link java.util.ServiceLoader}.
  *
- * @param pluginId stable plugin id or fallback class name when load failed
- * @param status   current {@link PluginStatus}
- * @param error    populated when {@code status} represents a failure
+ * <p>The {@link #id() id} must be unique within a running Pyloros instance and
+ * must be supplied by the plugin. {@link #name() name}, {@link #version()
+ * version} and {@link #description() description} are optional and may be
+ * empty.
+ *
+ * @param id          unique, non-blank plugin identifier (e.g.
+ *                    {@code "com.example.my-plugin"})
+ * @param name        human readable name; never {@code null}, may be empty
+ * @param version     version string; never {@code null}, may be empty
+ * @param description short description of the plugin; never {@code null}, may
+ *                    be empty
  */
-public record PluginDescriptor(String pluginId, PluginStatus status, PluginErrorInfo error) {
+public record PluginDescriptor(String id, String name, String version, String description) {
 
+    /**
+     * Compact constructor that validates the descriptor.
+     *
+     * @throws NullPointerException     if {@code id}, {@code name},
+     *                                  {@code version} or {@code description}
+     *                                  is {@code null}
+     * @throws IllegalArgumentException if {@code id} is blank
+     */
     public PluginDescriptor {
-        Objects.requireNonNull(pluginId, "pluginId must not be null");
-        if (pluginId.isBlank()) {
-            throw new IllegalArgumentException("pluginId must not be blank");
-        }
-        Objects.requireNonNull(status, "status must not be null");
-        boolean isFailure = status == PluginStatus.FAILED_TO_LOAD
-                || status == PluginStatus.FAILED_TO_INITIALIZE
-                || status == PluginStatus.FAILED_TO_CONTRIBUTE;
-        if (isFailure && error == null) {
-            throw new IllegalArgumentException("error must be provided for failure status " + status);
-        }
-        if (!isFailure && error != null) {
-            throw new IllegalArgumentException("error must be null for non-failure status " + status);
+        Objects.requireNonNull(id, "id must not be null");
+        Objects.requireNonNull(name, "name must not be null");
+        Objects.requireNonNull(version, "version must not be null");
+        Objects.requireNonNull(description, "description must not be null");
+        if (id.isBlank()) {
+            throw new IllegalArgumentException("plugin id must not be blank");
         }
     }
 
-    public static PluginDescriptor loaded(String pluginId) {
-        return new PluginDescriptor(pluginId, PluginStatus.LOADED, null);
+    /**
+     * Convenience factory for descriptors that only declare an id.
+     *
+     * @param id unique, non-blank plugin identifier
+     * @return a descriptor with empty name, version and description
+     */
+    public static PluginDescriptor of(String id) {
+        return new PluginDescriptor(id, "", "", "");
     }
 
-    public static PluginDescriptor disabled(String pluginId) {
-        return new PluginDescriptor(pluginId, PluginStatus.DISABLED, null);
+    /**
+     * Convenience factory for descriptors that declare id, name and version.
+     *
+     * @param id      unique, non-blank plugin identifier
+     * @param name    human readable name
+     * @param version version string
+     * @return a descriptor with empty description
+     */
+    public static PluginDescriptor of(String id, String name, String version) {
+        return new PluginDescriptor(id, name, version, "");
     }
 
-    public static PluginDescriptor failedToLoad(String pluginId, Throwable cause) {
-        return new PluginDescriptor(pluginId, PluginStatus.FAILED_TO_LOAD, PluginErrorInfo.from(cause));
+    /**
+     * @return the {@link #name()} wrapped in an {@link Optional}, empty if
+     *         blank
+     */
+    public Optional<String> optionalName() {
+        return name.isBlank() ? Optional.empty() : Optional.of(name);
     }
 
-    public static PluginDescriptor failedToInitialize(String pluginId, Throwable cause) {
-        return new PluginDescriptor(pluginId, PluginStatus.FAILED_TO_INITIALIZE, PluginErrorInfo.from(cause));
+    /**
+     * @return the {@link #version()} wrapped in an {@link Optional}, empty if
+     *         blank
+     */
+    public Optional<String> optionalVersion() {
+        return version.isBlank() ? Optional.empty() : Optional.of(version);
     }
 
-    public static PluginDescriptor failedToContribute(String pluginId, Throwable cause) {
-        return new PluginDescriptor(pluginId, PluginStatus.FAILED_TO_CONTRIBUTE, PluginErrorInfo.from(cause));
-    }
-
-    public Optional<PluginErrorInfo> errorInfo() {
-        return Optional.ofNullable(error);
+    /**
+     * @return the {@link #description()} wrapped in an {@link Optional}, empty
+     *         if blank
+     */
+    public Optional<String> optionalDescription() {
+        return description.isBlank() ? Optional.empty() : Optional.of(description);
     }
 }

@@ -11,9 +11,6 @@ import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
 import com.aresstack.pyloros.oauth.OAuthSecurityModule;
-import com.aresstack.pyloros.plugin.PluginContext;
-import com.aresstack.pyloros.plugin.PluginDescriptor;
-import com.aresstack.pyloros.plugin.PluginRegistry;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.security.NoSecurityModule;
 import com.aresstack.pyloros.security.SecurityModule;
@@ -83,10 +80,6 @@ public final class PylorosApplication extends AbstractVerticle {
         providers.add(new com.aresstack.pyloros.tool.UserSkillDeleteToolProvider());
         registerExternalProviders(providers);
 
-        PluginRegistry pluginRegistry = PluginRegistry.load(PluginContext.EMPTY, java.util.Set.of());
-        logPluginDiagnostics(pluginRegistry);
-        providers.addAll(pluginRegistry.contributedProviders());
-
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
@@ -103,21 +96,6 @@ public final class PylorosApplication extends AbstractVerticle {
                         config.mcpPublicPath()
                 ))
                 .onFailure(error -> log.error("Could not start HTTP server", error));
-    }
-
-    private static void logPluginDiagnostics(PluginRegistry pluginRegistry) {
-        for (PluginDescriptor descriptor : pluginRegistry.descriptors()) {
-            switch (descriptor.status()) {
-                case LOADED -> log.info("[PLUGIN] {} status=loaded", descriptor.pluginId());
-                case DISABLED -> log.info("[PLUGIN] {} status=disabled", descriptor.pluginId());
-                case FAILED_TO_LOAD, FAILED_TO_INITIALIZE, FAILED_TO_CONTRIBUTE -> log.error(
-                        "[PLUGIN] {} status={} errorClass={} message={}",
-                        descriptor.pluginId(),
-                        descriptor.status().name().toLowerCase(java.util.Locale.ROOT),
-                        descriptor.error().errorClass(),
-                        descriptor.error().message());
-            }
-        }
     }
 
     private Router createRouter(PylorosConfig config, SecurityModule securityModule, ToolCatalog toolCatalog, ToolRouter toolRouter) {

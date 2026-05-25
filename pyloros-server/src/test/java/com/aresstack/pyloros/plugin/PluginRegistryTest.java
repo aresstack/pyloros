@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -24,18 +23,22 @@ class PluginRegistryTest {
     void loadsSuccessfulPluginAndExposesContributedProvider() {
         PluginRegistry registry = PluginRegistry.loadFrom(
                 List.of(candidate(WorkingPlugin.class, WorkingPlugin::new)),
-                PluginContext.EMPTY,
                 Set.of()
         );
 
-        assertEquals(1, registry.descriptors().size());
-        PluginDescriptor descriptor = registry.descriptors().get(0);
-        assertEquals("working", descriptor.pluginId());
-        assertEquals(PluginStatus.LOADED, descriptor.status());
-        assertNull(descriptor.error());
+        assertEquals(1, registry.results().size());
+        PluginLoadResult result = registry.results().get(0);
+        assertEquals("working", result.pluginId());
+        assertEquals(PluginStatus.LOADED, result.status());
+        assertNull(result.error());
+        assertNotNull(result.descriptor());
+        assertEquals("working", result.descriptor().id());
 
         assertEquals(1, registry.contributedProviders().size());
         assertEquals("working-provider", registry.contributedProviders().get(0).providerId());
+
+        assertEquals(1, registry.contributionResults().size());
+        assertTrue(registry.contributionResults().get(0).accepted());
     }
 
     @Test
@@ -43,13 +46,13 @@ class PluginRegistryTest {
         WorkingPlugin instance = new WorkingPlugin();
         PluginRegistry registry = PluginRegistry.loadFrom(
                 List.of(candidate(WorkingPlugin.class, () -> instance)),
-                PluginContext.EMPTY,
                 Set.of("working")
         );
 
-        assertEquals(PluginStatus.DISABLED, registry.findById("working").orElseThrow().status());
+        PluginLoadResult result = registry.findById("working").orElseThrow();
+        assertEquals(PluginStatus.DISABLED, result.status());
+        assertNotNull(result.descriptor(), "descriptor must be available for disabled plugins");
         assertTrue(registry.contributedProviders().isEmpty(), "disabled plugin must not contribute");
-        assertFalse(instance.initialized, "disabled plugin must not be initialized");
         assertFalse(instance.contributed, "disabled plugin must not be asked for providers");
     }
 
@@ -59,61 +62,60 @@ class PluginRegistryTest {
                 List.of(candidate(ConstructorThrowingPlugin.class, () -> {
                     throw new IllegalStateException("ctor boom");
                 })),
-                PluginContext.EMPTY,
                 Set.of()
         );
 
-        PluginDescriptor descriptor = registry.descriptors().get(0);
-        assertEquals(PluginStatus.FAILED_TO_LOAD, descriptor.status());
-        assertEquals(ConstructorThrowingPlugin.class.getName(), descriptor.pluginId());
-        assertNotNull(descriptor.error());
-        assertEquals(IllegalStateException.class.getName(), descriptor.error().errorClass());
+        PluginLoadResult result = registry.results().get(0);
+        assertEquals(PluginStatus.FAILED_TO_LOAD, result.status());
+        assertEquals(ConstructorThrowingPlugin.class.getName(), result.pluginId());
+        assertNull(result.descriptor(), "no canonical descriptor when load failed");
+        assertNotNull(result.error());
+        assertEquals(IllegalStateException.class.getName(), result.error().errorClass());
         assertTrue(registry.contributedProviders().isEmpty());
     }
 
     @Test
-    void reportsFailedToInitializeWhenInitThrows() {
+    void reportsFailedToLoadWhenDescriptorThrows() {
         PluginRegistry registry = PluginRegistry.loadFrom(
-                List.of(candidate(InitThrowingPlugin.class, InitThrowingPlugin::new)),
-                PluginContext.EMPTY,
+                List.of(candidate(DescriptorThrowingPlugin.class, DescriptorThrowingPlugin::new)),
                 Set.of()
         );
 
-        PluginDescriptor descriptor = registry.descriptors().get(0);
-        assertEquals("init-throws", descriptor.pluginId());
-        assertEquals(PluginStatus.FAILED_TO_INITIALIZE, descriptor.status());
-        assertEquals(RuntimeException.class.getName(), descriptor.error().errorClass());
-        assertTrue(descriptor.error().message().contains("init boom"));
-        assertTrue(registry.contributedProviders().isEmpty());
+        PluginLoadResult result = registry.results().get(0);
+        assertEquals(PluginStatus.FAILED_TO_LOAD, result.status());
+        assertEquals(DescriptorThrowingPlugin.class.getName(), result.pluginId(),
+                "must fall back to impl class name when descriptor() throws");
+        assertTrue(result.error().message().contains("descriptor boom"));
     }
 
     @Test
     void reportsFailedToContributeAndDropsPartialProvidersWhenContributionInvalid() {
         PluginRegistry registry = PluginRegistry.loadFrom(
                 List.of(candidate(InvalidContributionPlugin.class, InvalidContributionPlugin::new)),
-                PluginContext.EMPTY,
                 Set.of()
         );
 
-        PluginDescriptor descriptor = registry.descriptors().get(0);
-        assertEquals("invalid-contribution", descriptor.pluginId());
-        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, descriptor.status());
-        assertNotNull(descriptor.error());
+        PluginLoadResult result = registry.results().get(0);
+        assertEquals("invalid-contribution", result.pluginId());
+        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, result.status());
+        assertNotNull(result.error());
         assertTrue(registry.contributedProviders().isEmpty(),
                 "partial contribution from a failing plugin must not be published");
+
+        assertEquals(1, registry.contributionResults().size());
+        assertFalse(registry.contributionResults().get(0).accepted());
     }
 
     @Test
-    void reportsFailedToContributeWhenCreateToolProvidersThrows() {
+    void reportsFailedToContributeWhenContributeThrows() {
         PluginRegistry registry = PluginRegistry.loadFrom(
                 List.of(candidate(ContributeThrowingPlugin.class, ContributeThrowingPlugin::new)),
-                PluginContext.EMPTY,
                 Set.of()
         );
 
-        PluginDescriptor descriptor = registry.descriptors().get(0);
-        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, descriptor.status());
-        assertTrue(descriptor.error().message().contains("contribute boom"));
+        PluginLoadResult result = registry.results().get(0);
+        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, result.status());
+        assertTrue(result.error().message().contains("contribute boom"));
         assertTrue(registry.contributedProviders().isEmpty());
     }
 
@@ -127,14 +129,13 @@ class PluginRegistryTest {
                         candidate(WorkingPlugin.class, WorkingPlugin::new),
                         candidate(ContributeThrowingPlugin.class, ContributeThrowingPlugin::new)
                 ),
-                PluginContext.EMPTY,
                 Set.of()
         );
 
-        assertEquals(3, registry.descriptors().size());
-        assertEquals(PluginStatus.FAILED_TO_LOAD, registry.descriptors().get(0).status());
-        assertEquals(PluginStatus.LOADED, registry.descriptors().get(1).status());
-        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, registry.descriptors().get(2).status());
+        assertEquals(3, registry.results().size());
+        assertEquals(PluginStatus.FAILED_TO_LOAD, registry.results().get(0).status());
+        assertEquals(PluginStatus.LOADED, registry.results().get(1).status());
+        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, registry.results().get(2).status());
 
         // Only the working plugin's providers are exposed.
         assertEquals(List.of("working-provider"),
@@ -175,84 +176,73 @@ class PluginRegistryTest {
     }
 
     static final class WorkingPlugin implements PylorosPlugin {
-        boolean initialized;
         boolean contributed;
 
         @Override
-        public String getPluginId() {
-            return "working";
+        public PluginDescriptor descriptor() {
+            return PluginDescriptor.of("working", "Working plugin", "1.0.0");
         }
 
         @Override
-        public void initialize(PluginContext context) {
-            initialized = true;
-        }
-
-        @Override
-        public List<ToolProvider> createToolProviders(PluginContext context) {
+        public PluginContribution contribute() {
             contributed = true;
-            return List.of(new NoopProvider("working-provider"));
+            return PluginContribution.ofToolProviders(new NoopProvider("working-provider"));
         }
     }
 
     static final class ConstructorThrowingPlugin implements PylorosPlugin {
         @Override
-        public String getPluginId() {
-            return "ctor-throws";
+        public PluginDescriptor descriptor() {
+            return PluginDescriptor.of("ctor-throws");
         }
 
         @Override
-        public List<ToolProvider> createToolProviders(PluginContext context) {
-            return List.of();
+        public PluginContribution contribute() {
+            return PluginContribution.empty();
         }
     }
 
-    static final class InitThrowingPlugin implements PylorosPlugin {
+    static final class DescriptorThrowingPlugin implements PylorosPlugin {
         @Override
-        public String getPluginId() {
-            return "init-throws";
+        public PluginDescriptor descriptor() {
+            throw new RuntimeException("descriptor boom");
         }
 
         @Override
-        public void initialize(PluginContext context) {
-            throw new RuntimeException("init boom");
-        }
-
-        @Override
-        public List<ToolProvider> createToolProviders(PluginContext context) {
-            return List.of();
+        public PluginContribution contribute() {
+            return PluginContribution.empty();
         }
     }
 
     static final class ContributeThrowingPlugin implements PylorosPlugin {
         @Override
-        public String getPluginId() {
-            return "contribute-throws";
+        public PluginDescriptor descriptor() {
+            return PluginDescriptor.of("contribute-throws");
         }
 
         @Override
-        public List<ToolProvider> createToolProviders(PluginContext context) {
+        public PluginContribution contribute() {
             throw new RuntimeException("contribute boom");
         }
     }
 
     /**
-     * Returns a list that contains one valid provider and one provider with a
-     * blank providerId. The whole contribution must be rejected so that the
-     * valid provider is NOT partially published.
+     * Returns a contribution that contains one valid provider and one provider
+     * with a blank providerId. The whole contribution must be rejected so that
+     * the valid provider is NOT partially published.
      */
     static final class InvalidContributionPlugin implements PylorosPlugin {
         @Override
-        public String getPluginId() {
-            return "invalid-contribution";
+        public PluginDescriptor descriptor() {
+            return PluginDescriptor.of("invalid-contribution");
         }
 
         @Override
-        public List<ToolProvider> createToolProviders(PluginContext context) {
-            List<ToolProvider> contribution = new ArrayList<>();
-            contribution.add(new NoopProvider("would-be-valid"));
-            contribution.add(new NoopProvider("   "));
-            return contribution;
+        public PluginContribution contribute() {
+            return PluginContribution.ofToolProviders(
+                    new NoopProvider("would-be-valid"),
+                    new NoopProvider("   ")
+            );
         }
     }
 
@@ -278,5 +268,4 @@ class PluginRegistryTest {
             return Future.succeededFuture(Map.of("isError", false));
         }
     }
-
 }
