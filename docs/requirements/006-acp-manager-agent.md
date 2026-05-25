@@ -220,6 +220,10 @@ The manager-agent module is intentionally independent from Pyloros core modules.
 No existing core module depends on `pyloros-manager-agent`, so the manager-agent
 can evolve and be started as a separate process/JAR.
 
+For ACP stdio process compatibility, the manager-agent bootstrap module configures
+its runtime logging to `stderr` (`src/main/resources/logback.xml`), so `stdout`
+can remain reserved for ACP JSON-RPC payloads.
+
 ---
 
 ## 8. Non-Goals for Release 6
