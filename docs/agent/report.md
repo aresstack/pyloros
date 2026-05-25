@@ -1,28 +1,37 @@
-# Report: R6-01 Retire R5 LangChain-in-core artifacts
+# Report: R6-04 Spike ACP Java SDK and MCP Java SDK integration for manager agent
 
 ## What was verified, changed or implemented?
 
-1. Verified core `ProviderType` is already reduced to `NATIVE`, `MCP`, `ACP`, `UNKNOWN`.
-2. Verified no productive Java/runtime references to `LANGCHAIN`, `COMPOSITE`, or `REST` remain.
-3. Updated legacy R5 LangChain requirements document to explicitly mark the implementation milestones as historical/obsolete and direct readers to the R6 ACP manager-agent document.
-4. Re-ran compile/tests to confirm no regressions.
+1. Verified repository baseline on the active R6-04 spike branch and ran baseline server tests before editing.
+2. Researched current ACP Java SDK and MCP Java SDK release/state using upstream GitHub releases and Maven metadata.
+3. Added a dedicated R6-04 decision spike document with:
+   - recommended SDKs and pinned versions for R6,
+   - minimal ACP session bootstrap sketch,
+   - minimal MCP client connection sketch against Pyloros endpoint,
+   - risks for Java 21, packaging/distribution, and open questions,
+   - rationale for compile/smoke blockade scope.
+4. Added one cross-link from the existing R6 manager-agent architecture document to the new spike decision document.
+5. Re-ran targeted server tests after documentation changes.
 
 ## Which files were changed or newly created?
 
 | File | Change |
 |------|--------|
-| `docs/requirements/pyloros-langchain-extension.md` | Added explicit obsolete notice above implementation milestones with pointer to `docs/requirements/006-acp-manager-agent.md` |
-| `docs/agent/report.md` | Replaced with this task report |
+| `docs/requirements/007-r6-04-acp-mcp-java-sdk-spike.md` | New R6-04 decision spike document (ACP/MCP SDK choice, versions, risks, sketches, open questions) |
+| `docs/requirements/006-acp-manager-agent.md` | Added cross-reference to the new R6-04 spike decision document |
+| `docs/agent/report.md` | Replaced with this report |
 
 ## Which architecture decision was touched?
 
-- Continued R6 decision to retire Release-5 LangChain-in-core concept in favor of ACP Manager Agent architecture (`docs/requirements/006-acp-manager-agent.md`).
+- R6 manager-agent SDK direction: use ACP and MCP Java SDKs as external manager-agent runtime dependencies while keeping Pyloros core as gateway/aggregator (no in-core agent logic).
 
 ## Which tests, builds and runtime checks were executed?
 
-- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava :pyloros-server:test` (baseline) → SUCCESS
-- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava :pyloros-server:test` (after doc change) → SUCCESS
-- `parallel_validation` → CodeQL skipped as trivial (SUCCESS), Code Review tool failed due external HTTP 400 header error
+- `./gradlew --no-daemon :pyloros-server:test` (baseline, before changes) → SUCCESS
+- `./gradlew --no-daemon :pyloros-server:test` (after changes) → SUCCESS
+- `parallel_validation` (run twice):
+  - CodeQL → skipped as trivial (documentation-only)
+  - Code Review → failed due external tooling HTTP 400 header error
 
 ## Result
 
@@ -30,10 +39,10 @@ Successful
 
 ## If failed: exact error and recommended next step
 
-- Non-blocking tooling failure during Code Review inside `parallel_validation`:
+- Non-blocking validation tooling failure from Code Review in `parallel_validation`:
   - `HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header`
-- Recommended next step: re-run Code Review validation once the external integration/header issue is resolved.
+- Recommended next step: re-run `parallel_validation` Code Review once upstream tool/header issue is resolved.
 
 ## Exact commit hash, or No commit created
 
-861c21d
+46a7595
