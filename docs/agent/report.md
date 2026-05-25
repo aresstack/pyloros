@@ -1,54 +1,39 @@
-# Report: Release 6 – Java 21 ACP Manager Agent
+# Report: R6-01 Retire R5 LangChain-in-core artifacts
 
 ## What was verified, changed or implemented?
 
-1. **Removed `ProviderType.LANGCHAIN`** from the core enum — the issue explicitly states
-   "kein eigener ProviderType.LANGCHAIN im Core". The value was unused in all Java code.
-
-2. **Marked Release 5 LangChain requirements doc as superseded** — added a prominent
-   notice at the top of `docs/requirements/pyloros-langchain-extension.md` pointing to R6.
-
-3. **Created Release 6 architecture documentation** — comprehensive doc covering:
-   - Architecture overview (core stays unchanged, agent is external)
-   - Protocol roles (MCP for tools, ACP for sessions)
-   - Agent tool view definition
-   - Recursion protection rules
-   - Session lifecycle
-   - MCP injection mechanism
-   - What R6 removes from core vs. what it provides
-   - Definition of Done checklist
-
-4. **Created R6 Manager Agent smoke test** — step-by-step test document showing the
-   Agent → MCP tools/list → MCP tools/call → Agent response flow, including recursion
-   protection verification.
+1. Verified core `ProviderType` is already reduced to `NATIVE`, `MCP`, `ACP`, `UNKNOWN`.
+2. Verified no productive Java/runtime references to `LANGCHAIN`, `COMPOSITE`, or `REST` remain.
+3. Updated legacy R5 LangChain requirements document to explicitly mark the implementation milestones as historical/obsolete and direct readers to the R6 ACP manager-agent document.
+4. Re-ran compile/tests to confirm no regressions.
 
 ## Which files were changed or newly created?
 
 | File | Change |
 |------|--------|
-| `pyloros-server/src/main/java/com/aresstack/pyloros/provider/ProviderType.java` | Removed `LANGCHAIN` enum value |
-| `docs/requirements/pyloros-langchain-extension.md` | Added superseded notice |
-| `docs/requirements/006-acp-manager-agent.md` | **New** — R6 architecture doc |
-| `docs/smoke-test/r6-manager-agent-smoke-test.md` | **New** — R6 smoke test |
+| `docs/requirements/pyloros-langchain-extension.md` | Added explicit obsolete notice above implementation milestones with pointer to `docs/requirements/006-acp-manager-agent.md` |
+| `docs/agent/report.md` | Replaced with this task report |
 
 ## Which architecture decision was touched?
 
-- ADR: Replace Release 5 LangChain-in-core approach with ACP Manager Agent architecture
-- Agent logic lives outside Pyloros core as an ACP-based sidecar process
-- Pyloros remains Capability Gateway and Tool Aggregator
+- Continued R6 decision to retire Release-5 LangChain-in-core concept in favor of ACP Manager Agent architecture (`docs/requirements/006-acp-manager-agent.md`).
 
 ## Which tests, builds and runtime checks were executed?
 
-- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava` → SUCCESS
-- `./gradlew --no-daemon :pyloros-server:test` → All tests pass
-- `./gradlew --no-daemon build` → Full build successful (57 tasks)
-- CodeQL Security Scan → Passed (trivial change)
+- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava :pyloros-server:test` (baseline) → SUCCESS
+- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava :pyloros-server:test` (after doc change) → SUCCESS
+- `parallel_validation` → CodeQL skipped as trivial (SUCCESS), Code Review tool failed due external HTTP 400 header error
 
 ## Result
 
 Successful
 
-## Exact commit hash
+## If failed: exact error and recommended next step
 
-806293f (branch: copilot/release-6-java-21-acp-manager-agent)
+- Non-blocking tooling failure during Code Review inside `parallel_validation`:
+  - `HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header`
+- Recommended next step: re-run Code Review validation once the external integration/header issue is resolved.
 
+## Exact commit hash, or No commit created
+
+861c21d
