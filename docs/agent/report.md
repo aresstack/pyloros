@@ -1,36 +1,54 @@
-What was verified, changed or implemented?
-- Addressed PR comment #4358403129 for issue #25 by adding a documented **Release 4 smoke test** in a user-facing repository document.
-- Added a new `Release 4 smoke test (documented checklist)` section to `/docs/plugin-development.md`.
-- The smoke-test documentation now explicitly covers:
-  - example plugin path
-  - ServiceLoader discovery
-  - plugin enable/disable config behavior
-  - tools/list visibility expectations
-  - ToolRouter call expectation
-  - expected external tool naming (`example-tools__echo`, and `/` separator variant)
-- Verified the documented commands run successfully in this repository.
+# Report: Release 6 – Java 21 ACP Manager Agent
 
-Which files were changed or newly created?
-- Changed:
-  - `/home/runner/work/pyloros/pyloros/docs/plugin-development.md`
-  - `/home/runner/work/pyloros/pyloros/docs/agent/report.md`
-- Created: none
+## What was verified, changed or implemented?
 
-Which architecture decision was touched?
-- None. This change documents existing R4 plugin architecture and verification flow; no runtime architecture or code path was changed.
+1. **Removed `ProviderType.LANGCHAIN`** from the core enum — the issue explicitly states
+   "kein eigener ProviderType.LANGCHAIN im Core". The value was unused in all Java code.
 
-Which tests, builds and runtime checks were executed?
-- `./gradlew --no-daemon :pyloros-example-plugin:compileJava :pyloros-server:test --tests "com.aresstack.pyloros.plugin.ServiceLoaderDiscoveryTest" :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest"`
-- CI investigation via GitHub Actions MCP tools for recent runs and failed-run logs retrieval:
-  - `list_workflow_runs`
-  - `list_workflow_jobs` (run `26414259755`)
-  - `get_job_logs` failed-only (run `26414259755`)
+2. **Marked Release 5 LangChain requirements doc as superseded** — added a prominent
+   notice at the top of `docs/requirements/pyloros-langchain-extension.md` pointing to R6.
 
-Result: successful
+3. **Created Release 6 architecture documentation** — comprehensive doc covering:
+   - Architecture overview (core stays unchanged, agent is external)
+   - Protocol roles (MCP for tools, ACP for sessions)
+   - Agent tool view definition
+   - Recursion protection rules
+   - Session lifecycle
+   - MCP injection mechanism
+   - What R6 removes from core vs. what it provides
+   - Definition of Done checklist
 
-If failed: exact error and recommended next step
-- No failures in the documented smoke-test verification command.
-- GitHub Actions MCP check returned no failed jobs for inspected run `26414259755`; no immediate action required from this PR comment task.
+4. **Created R6 Manager Agent smoke test** — step-by-step test document showing the
+   Agent → MCP tools/list → MCP tools/call → Agent response flow, including recursion
+   protection verification.
 
-Exact commit hash, or No commit created
-- No commit created
+## Which files were changed or newly created?
+
+| File | Change |
+|------|--------|
+| `pyloros-server/src/main/java/com/aresstack/pyloros/provider/ProviderType.java` | Removed `LANGCHAIN` enum value |
+| `docs/requirements/pyloros-langchain-extension.md` | Added superseded notice |
+| `docs/requirements/006-acp-manager-agent.md` | **New** — R6 architecture doc |
+| `docs/smoke-test/r6-manager-agent-smoke-test.md` | **New** — R6 smoke test |
+
+## Which architecture decision was touched?
+
+- ADR: Replace Release 5 LangChain-in-core approach with ACP Manager Agent architecture
+- Agent logic lives outside Pyloros core as an ACP-based sidecar process
+- Pyloros remains Capability Gateway and Tool Aggregator
+
+## Which tests, builds and runtime checks were executed?
+
+- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava` → SUCCESS
+- `./gradlew --no-daemon :pyloros-server:test` → All tests pass
+- `./gradlew --no-daemon build` → Full build successful (57 tasks)
+- CodeQL Security Scan → Passed (trivial change)
+
+## Result
+
+Successful
+
+## Exact commit hash
+
+806293f (branch: copilot/release-6-java-21-acp-manager-agent)
+
