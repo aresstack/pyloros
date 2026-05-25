@@ -16,36 +16,8 @@ import java.util.ServiceLoader;
 import java.util.Set;
 
 /**
- * Loads {@link PylorosPlugin}s via the Java {@link ServiceLoader} and records a
- * {@link PluginLoadResult} per plugin so operators can see which plugins were
- * loaded, disabled, or failed and why.
- *
- * <p>This class owns the R4-06 concerns: failure isolation across plugins,
- * structured diagnostics ({@link PluginStatus} + {@link PluginErrorInfo}), and
- * atomic publication of contributed providers — invalid contributions are
- * dropped entirely so that no partial set of providers is exposed downstream.
- * The plugin API itself ({@link PylorosPlugin}, {@link PluginDescriptor},
- * {@link PluginContribution}, {@link PluginContributionResult}) is owned by
- * R4-01.</p>
- *
- * <p>Three lifecycle phases are diagnosed independently:</p>
- * <ol>
- *   <li><b>load</b> — instantiate the implementation class and obtain its
- *       {@link PluginDescriptor}. Any failure here is reported as
- *       {@link PluginStatus#FAILED_TO_LOAD} using the impl class name as a
- *       fallback id.</li>
- *   <li><b>initialize</b> — reserved for any future initialization hook that
- *       runs before {@code contribute()}; the canonical R4-01 API does not
- *       expose such a hook yet, but the enum value
- *       {@link PluginStatus#FAILED_TO_INITIALIZE} is kept available so that
- *       diagnostics stay forward-compatible.</li>
- *   <li><b>contribute</b> — call {@link PylorosPlugin#contribute()} and
- *       validate the returned {@link PluginContribution}. Any failure
- *       (thrown exception, {@code null} contribution, {@code null} provider,
- *       blank {@code providerId} or duplicate {@code providerId}) is reported
- *       as {@link PluginStatus#FAILED_TO_CONTRIBUTE} and the partial
- *       contribution is dropped.</li>
- * </ol>
+ * Loads {@link PylorosPlugin}s via {@link ServiceLoader} and records one
+ * {@link PluginLoadResult} per discovered plugin.
  */
 public final class PluginRegistry {
 
@@ -70,19 +42,11 @@ public final class PluginRegistry {
         this.contributionResults = List.copyOf(contributionResults);
     }
 
-    /**
-     * Loads plugins from the current thread context class loader using the
-     * standard {@link ServiceLoader} mechanism.
-     */
     public static PluginRegistry load(Set<String> disabledPluginIds) {
         ServiceLoader<PylorosPlugin> serviceLoader = ServiceLoader.load(PylorosPlugin.class);
         return loadFrom(serviceLoader.stream().toList(), disabledPluginIds);
     }
 
-    /**
-     * Test-friendly entry point: loads plugins from the supplied
-     * {@link ServiceLoader.Provider} entries.
-     */
     public static PluginRegistry loadFrom(
             Iterable<? extends ServiceLoader.Provider<? extends PylorosPlugin>> providers,
             Set<String> disabledPluginIds) {
@@ -95,10 +59,8 @@ public final class PluginRegistry {
         Set<String> usedPluginIds = new LinkedHashSet<>();
 
         for (ServiceLoader.Provider<? extends PylorosPlugin> entry : providers) {
-            PluginLoadResult result = loadOne(entry, disabled, contributed, contributionResults, usedPluginIds);
-            results.add(result);
+            results.add(loadOne(entry, disabled, contributed, contributionResults, usedPluginIds));
         }
-
         return new PluginRegistry(results, contributed, contributionResults);
     }
 
@@ -110,7 +72,6 @@ public final class PluginRegistry {
             Set<String> usedPluginIds) {
         String fallbackId = entry.type().getName();
 
-        // Phase 1: instantiate
         PylorosPlugin plugin;
         try {
             plugin = entry.get();
@@ -119,13 +80,9 @@ public final class PluginRegistry {
             return PluginLoadResult.failedToLoad(fallbackId, t);
         }
         if (plugin == null) {
-            log.error("[PLUGIN] plugin class {} returned null instance", fallbackId);
             return PluginLoadResult.failedToLoad(fallbackId, new IllegalStateException("plugin instance was null"));
         }
 
-        // Resolve canonical descriptor. A throwing or invalid descriptor() call
-        // is treated as a load failure because we cannot reliably identify the
-        // plugin for any later phase.
         PluginDescriptor descriptor;
         try {
             descriptor = plugin.descriptor();
@@ -151,18 +108,25 @@ public final class PluginRegistry {
             return PluginLoadResult.disabled(descriptor);
         }
 
-        // Phase 2: contribute (must be atomic — no partial publication)
+        PluginContext context = PluginContext.noop(pluginId);
+        try {
+            plugin.initialize(context);
+        } catch (Throwable t) {
+            log.error("[PLUGIN] {} failed to initialize: {}", pluginId, t.toString());
+            return PluginLoadResult.failedToInitialize(descriptor, t);
+        }
+
         PluginContribution contribution;
         try {
-            contribution = plugin.contribute();
+            contribution = plugin.contribute(context);
             if (contribution == null) {
-                throw new IllegalStateException("contribute() returned null");
+                throw new IllegalStateException("contribute(context) returned null");
             }
         } catch (Throwable t) {
             log.error("[PLUGIN] {} failed to contribute: {}", pluginId, t.toString());
             contributionResultsSink.add(PluginContributionResult.rejected(
                     descriptor, PluginContribution.empty(),
-                    "contribute() failed: " + truncateReason(t)));
+                    "contribute(context) failed: " + truncateReason(t)));
             return PluginLoadResult.failedToContribute(descriptor, t);
         }
 
@@ -184,8 +148,6 @@ public final class PluginRegistry {
 
     private static List<ToolProvider> validateContribution(PluginContribution contribution) {
         List<ToolProvider> raw = contribution.toolProviders();
-        // PluginContribution already guarantees non-null and no null entries;
-        // R4-06 additionally requires non-blank providerIds and no duplicates.
         List<ToolProvider> validated = new ArrayList<>(raw.size());
         Set<String> seenProviderIds = new LinkedHashSet<>();
         for (int index = 0; index < raw.size(); index++) {
@@ -194,12 +156,10 @@ public final class PluginRegistry {
             try {
                 providerId = provider.providerId();
             } catch (Throwable t) {
-                throw new IllegalStateException(
-                        "providerId() threw for contributed provider at index " + index, t);
+                throw new IllegalStateException("providerId() threw for contributed provider at index " + index, t);
             }
             if (providerId == null || providerId.isBlank()) {
-                throw new IllegalStateException(
-                        "contributed provider at index " + index + " has blank providerId");
+                throw new IllegalStateException("contributed provider at index " + index + " has blank providerId");
             }
             if (!seenProviderIds.add(providerId)) {
                 throw new IllegalStateException("duplicate providerId in contribution: " + providerId);
@@ -217,7 +177,6 @@ public final class PluginRegistry {
         return message.length() > 120 ? message.substring(0, 117) + "..." : message;
     }
 
-    /** Load results in plugin discovery order, including failed and disabled entries. */
     public List<PluginLoadResult> results() {
         return results;
     }
@@ -233,17 +192,10 @@ public final class PluginRegistry {
         return Optional.ofNullable(resultsById.get(pluginId));
     }
 
-    /** Providers contributed by plugins whose status is {@link PluginStatus#LOADED}. */
     public List<ToolProvider> contributedProviders() {
         return contributedProviders;
     }
 
-    /**
-     * Per-plugin host outcome for every plugin that produced a contribution
-     * (accepted or rejected). Plugins that failed before reaching the
-     * contribution phase do not appear here; see {@link #results()} for the
-     * full diagnostic view.
-     */
     public List<PluginContributionResult> contributionResults() {
         return contributionResults;
     }
