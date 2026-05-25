@@ -2,17 +2,18 @@
 
 This repository contains a minimal plugin implementation in:
 
-- `/home/runner/work/pyloros/pyloros/pyloros-example-plugin`
+- `pyloros-example-plugin/`
 
 It demonstrates the supported R4 plugin model (`PylorosPlugin` + `ToolProvider`) and contributes one tool:
 
-- `example/echo` (or `example-tools__echo` with default separator `__`)
+- `example-tools__echo` (default separator `__`)
+- `example-tools/echo` (when started with `--tool-name-separator=/`)
 
 ## 1) Build configuration
 
 Example plugin module build file:
 
-- `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/build.gradle`
+- `pyloros-example-plugin/build.gradle`
 
 Use `java-library` and depend on `:pyloros-server` so the plugin can compile against:
 
@@ -37,7 +38,7 @@ Plugin IDs must be globally unique inside one running Pyloros instance.
 
 To make Pyloros discover your plugin via `ServiceLoader`, add:
 
-- `/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
+- `META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
 
 The file must contain the fully qualified plugin class name, one entry per line.  
 Example:
@@ -98,6 +99,9 @@ Rules:
 - Keep tool names deterministic and unique (or set `preservesUpstreamToolName()` carefully if you need raw names).
 
 ## 7) Local testing workflow
+
+In this repository, the example plugin is wired as a **test-only dependency** of `pyloros-app`, not a production runtime dependency.
+That keeps production startup behavior unchanged unless an operator intentionally adds the plugin JAR to runtime classpath.
 
 From repository root:
 

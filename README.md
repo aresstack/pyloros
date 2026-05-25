@@ -229,4 +229,4 @@ A real ChatGPT / connector invocation test validates the external client layer a
 
 ## Plugin developer guide
 
-- see `/home/runner/work/pyloros/pyloros/docs/plugin-development.md`
+- see `docs/plugin-development.md`
