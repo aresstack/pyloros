@@ -3,6 +3,7 @@ package com.aresstack.pyloros.plugin;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.provider.ProviderType;
+import com.aresstack.pyloros.tool.PylorosPingToolProvider;
 import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
@@ -102,6 +103,38 @@ class PluginProviderCatalogIntegrationTest {
         List<Map<String, Object>> tools = await(toolCatalog.listTools(ToolView.PUBLIC));
 
         assertTrue(tools.isEmpty());
+    }
+
+    @Test
+    void disabledPluginDoesNotHideExistingNativeTool() {
+        PluginRegistry pluginRegistry = loadPlugins(Set.of("plugin-one"), new PluginWithProvider("plugin-one", provider("plugin-tools")));
+        ToolCatalog toolCatalog = new ToolCatalog(new ProviderRegistry(List.of(new PylorosPingToolProvider())));
+
+        List<String> toolNames = await(toolCatalog.listTools(ToolView.PUBLIC)).stream()
+                .map(tool -> (String) tool.get("name"))
+                .toList();
+
+        assertTrue(pluginRegistry.contributedProviders().isEmpty());
+        assertTrue(toolNames.contains("pyloros__ping"));
+    }
+
+    @Test
+    void invalidPluginContributionIsIsolatedFromExistingProviderAndRouter() {
+        RecordingProvider existingProvider = provider("github");
+        PluginRegistry pluginRegistry = loadPlugins(Set.of(), new InvalidContributionPlugin());
+        ProviderRegistry providerRegistry = new ProviderRegistry(List.of(existingProvider));
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
+        ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
+
+        List<String> toolNames = await(toolCatalog.listTools(ToolView.PUBLIC)).stream()
+                .map(tool -> (String) tool.get("name"))
+                .toList();
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("github__plugin_echo", JSON.createObjectNode())));
+
+        assertEquals(PluginStatus.FAILED_TO_CONTRIBUTE, pluginRegistry.results().getFirst().status());
+        assertTrue(pluginRegistry.contributedProviders().isEmpty());
+        assertTrue(toolNames.contains("github__plugin_echo"));
+        assertFalse(Boolean.TRUE.equals(result.get("isError")));
     }
 
     private static PluginRegistry loadPlugins(Set<String> disabledPluginIds, PylorosPlugin... plugins) {
@@ -206,6 +239,19 @@ class PluginProviderCatalogIntegrationTest {
                     "content", List.of(Map.of("type", "text", "text", "ok")),
                     "isError", false
             ));
+        }
+
+    }
+
+    private static final class InvalidContributionPlugin implements PylorosPlugin {
+        @Override
+        public PluginDescriptor descriptor() {
+            return PluginDescriptor.of("invalid-contribution");
+        }
+
+        @Override
+        public PluginContribution contribute(PluginContext context) {
+            return PluginContribution.ofToolProviders(provider("   "));
         }
     }
 }

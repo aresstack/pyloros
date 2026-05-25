@@ -116,3 +116,41 @@ The integration test verifies:
 - `example-tools__echo` appears in `ToolCatalog`
 - `ToolRouter` can call the tool and receives echoed input
 - disabled plugin does not expose the tool
+
+## 8) Release 4 smoke test (documented checklist)
+
+Use this smoke test before a Release-4 publish candidate.
+
+### Scope covered
+
+- example plugin path (`pyloros-example-plugin/`)
+- `ServiceLoader` discovery path
+- plugin enable/disable configuration handling
+- `tools/list` visibility through `ToolCatalog`
+- `ToolRouter` call path
+- expected external tool name (`example-tools__echo` by default, `example-tools/echo` with `/` separator)
+
+### Commands
+
+From repository root:
+
+```bash
+./gradlew --no-daemon :pyloros-example-plugin:compileJava
+./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.plugin.ServiceLoaderDiscoveryTest"
+./gradlew --no-daemon :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest"
+```
+
+### Expected result
+
+1. ServiceLoader discovery succeeds:
+   - `ServiceLoaderDiscoveryTest` loads valid plugins and isolates invalid entries.
+2. Enable/disable configuration works:
+   - `ExampleEchoPluginIntegrationTest` verifies enabled plugin load and explicit disable behavior.
+3. Catalog visibility is correct:
+   - `example-tools__echo` appears in PUBLIC catalog view when enabled.
+   - `example-tools__echo` is absent when the plugin is explicitly disabled.
+4. Router call works on same path:
+   - `ToolRouter` call to `example-tools__echo` returns non-error and echoes input text.
+5. External tool naming is deterministic:
+   - default external name is `example-tools__echo`
+   - with `--tool-name-separator=/` it becomes `example-tools/echo`
