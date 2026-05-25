@@ -1,65 +1,64 @@
-# Report — Issue #23 (R4-06: Plugin-Fehlerbehandlung und Diagnose)
+# Report — Issue #21 (R4-04: PluginContext und erlaubte Core-Services bereitstellen)
 
 ## Was wurde umgesetzt / verifiziert?
 
-- PR auf aktuelles `main` gemerged (kanonische R4-01-API aus #46 und
-  R4-03-Config aus #45 sind dort jetzt vorhanden). Diese PR liefert nur
-  noch die R4-06-Diagnoseschicht oben drauf — keine duplizierten
-  API-Dateien mehr.
-- R4-06-eigene Typen in `com.aresstack.pyloros.plugin` (`pyloros-server`):
-  - `PluginStatus` (`LOADED`, `DISABLED`, `FAILED_TO_LOAD`,
-    `FAILED_TO_INITIALIZE`, `FAILED_TO_CONTRIBUTE`); Javadoc verweist
-    jetzt explizit auf die kanonischen `initialize(PluginContext)` und
-    `contribute(PluginContext)` Hooks.
-  - `PluginErrorInfo` (Record) — Fehlerklasse + auf 500 Zeichen
-    gekuerzte Meldung (`...`-Suffix).
-  - `PluginLoadResult` (Record) — Host-Sicht auf einen entdeckten
-    Plugin: `pluginId`, `status`, optionaler kanonischer
-    `PluginDescriptor`, optionale `PluginErrorInfo`. Faellt bei
-    nicht instanziierbaren Plugins auf den Implementations-
-    klassennamen zurueck.
-  - `PluginRegistry` — laedt via `ServiceLoader.stream()`, kapselt jede
-    Phase (Instanziierung, `descriptor()`, `initialize(context)`,
-    `contribute(context)`) einzeln in `try/catch (Throwable)`,
-    nutzt `PluginContext.noop(pluginId)` als Lifecycle-Kontext,
-    validiert die `PluginContribution` (nicht-blank `providerId`,
-    keine Duplikate) und veroeffentlicht beigetragene Provider nur
-    atomar: jeder Fehler verwirft die *gesamte* Contribution.
-    Disabled IDs werden vor `initialize(context)` kurzgeschlossen.
-- `PylorosApplication` wird in diesem PR nicht verdrahtet. Die finale
-  Integration mit dem R4-03-Aktivierungsmodell aus `main` erfolgt in
-  einer Folge-PR; dieser PR bleibt strikt auf den kanonischen Typen.
-- Tests: `PluginRegistryTest` deckt erfolgreiches Laden, Disabled,
-  Konstruktor-Fehler, `initialize()`-Fehler, `contribute()`-Fehler,
-  ungueltige Contributions (atomar verworfen), Mix faulty/healthy
-  und Truncation langer Fehlermeldungen ab.
+- Zwei neue Service-Interfaces in `com.aresstack.pyloros.plugin` (`pyloros-server`):
+  - `PluginConfigurationView` — schreibgeschuetzte View auf die plugin-eigene
+    Konfiguration; wird per `PluginContext.service(PluginConfigurationView.class)`
+    abgerufen. Statische Factory `of(PluginConfiguration)`. Spiegelt alle
+    optionalen und required-Accessoren aus `PluginConfiguration`, ohne
+    `pluginId()` oder das rohe `asMap()` zu exponieren.
+  - `PluginDiagnostics` — Interface fuer `info/warn/error(String)`-Nachrichten.
+    Statische `noop()`-Factory via Singleton-Enum `NoopPluginDiagnostics`.
+- Neue package-private Implementierung `HostPluginContext implements PluginContext`:
+  - Haelt eine unveraenderliche `Map<Class<?>, Object>` fuer registrierte Services.
+  - Statische Factory `forPlugin(pluginId, config, diagnostics)` legt
+    `PluginConfigurationView` und `PluginDiagnostics` ein.
+  - Exponiert keine internen mutable Core-Strukturen, Vert.x-Routen,
+    HTTP-Handler, MCP-Transport oder rohe Registries.
+- `PluginRegistry` erweitert:
+  - Neues `loadFrom(providers, PluginActivationResolver)` Overload — liest
+    Aktivierungsstatus und Konfiguration aus dem Resolver; baut fuer jeden
+    aktivierten Plugin einen `HostPluginContext` mit dessen eigener
+    `PluginConfiguration` und einem SLF4J-basierten `PluginDiagnostics`.
+  - Bestehendes `loadFrom(providers, Set<String>)` Overload ebenfalls auf
+    `HostPluginContext` umgestellt (leere Config + SLF4J-Diagnostics).
+  - `PluginContext.noop()` bleibt unveraendert fuer Tests und minimale Hosts.
+- `PluginContextServicesTest` mit 11 Tests:
+  - Plugin erhaelt Context mit beiden Services.
+  - Plugin liest eigene Konfiguration.
+  - Plugin kann keine fremde Plugin-Konfiguration lesen.
+  - Diagnosemeldungen werden aufgezeichnet.
+  - `noop()`-Diagnostics sind referenzstabil und verwerfen Messages.
+  - Context bleibt stabil bei fehlender Konfiguration.
+  - Keine mutable Core-Strukturen exponiert.
+  - `HostPluginContext.forPlugin` prueft Parameter auf null/blank.
+  - `PluginRegistry.loadFrom` mit Resolver: korrekter Config-Wert uebergeben.
+  - `PluginRegistry.loadFrom` mit Resolver: disabled Plugin wird uebersprungen.
 
-## Geaenderte / neue Dateien (relativ zu `main`)
+## Geaenderte / neue Dateien
 
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginStatus.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginErrorInfo.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginLoadResult.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginRegistry.java`
-- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginRegistryTest.java`
-- Geaendert: `docs/agent/report.md` (dieser Report).
-
-Keine Aenderungen an den kanonischen API-Dateien aus #46
-(`PylorosPlugin`, `PluginContext`, `PluginDescriptor`,
-`PluginContribution`, `PluginContributionResult`, `package-info.java`,
-`PluginApiTest`) — diese kommen unveraendert aus `main`.
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginConfigurationView.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginDiagnostics.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/NoopPluginDiagnostics.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/HostPluginContext.java`
+- Geaendert: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginRegistry.java`
+- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginContextServicesTest.java`
+- Geaendert: `docs/agent/report.md` (dieser Report)
 
 ## Architekturentscheidung beruehrt?
 
-- R4-01-API aus #46 bleibt unangetastet; R4-06 ergaenzt rein additiv
-  um Diagnose-Status, Fehlerinfo, Failure-Isolation und atomare
-  Contribution-Publikation.
-- `PylorosApplication` bleibt unveraendert, bis eine Folge-PR die
-  Enable/Disable-Konfiguration aus #45 mit der Registry verdrahtet.
+- Kanonische R4-01-API (`PluginContext`, `PylorosPlugin`, etc.) bleibt unveraendert.
+- R4-03 (`PluginConfiguration`, `PluginActivationResolver`) wird nur konsumiert,
+  nicht veraendert.
+- `PluginContext.noop(String)` bleibt vorhanden fuer Tests und minimale Hosts.
+- R4-05-Integration (ProviderRegistry/ToolCatalog-Verdrahtung) ist bewusst
+  ausgeklammert und gehoert in Issue #22.
 
 ## Tests / Builds
 
-- `./gradlew --no-daemon :pyloros-server:test --tests com.aresstack.pyloros.plugin.PluginRegistryTest` → BUILD SUCCESSFUL.
-- `./gradlew --no-daemon :pyloros-server:test` (volle Server-Suite) → BUILD SUCCESSFUL.
+- `./gradlew --no-daemon :pyloros-server:test` → BUILD SUCCESSFUL (alle Tests).
+- CodeQL Security Scan: 0 Alerts.
 
 ## Ergebnis
 
@@ -68,4 +67,4 @@ Erfolgreich.
 ## Commit
 
 Wird vom Cloud-Agent (Copilot) via `report_progress` gepusht; konkreter
-Hash siehe PR-Branch `copilot/r4-06-plugin-error-handling`.
+Hash siehe PR-Branch `copilot/r4-04-plugincontext-implementation`.
