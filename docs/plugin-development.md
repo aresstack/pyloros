@@ -1,0 +1,114 @@
+# Plugin development with the example plugin
+
+This repository contains a minimal plugin implementation in:
+
+- `/home/runner/work/pyloros/pyloros/pyloros-example-plugin`
+
+It demonstrates the supported R4 plugin model (`PylorosPlugin` + `ToolProvider`) and contributes one tool:
+
+- `example/echo` (or `example-tools__echo` with default separator `__`)
+
+## 1) Build configuration
+
+Example plugin module build file:
+
+- `/home/runner/work/pyloros/pyloros/pyloros-example-plugin/build.gradle`
+
+Use `java-library` and depend on `:pyloros-server` so the plugin can compile against:
+
+- `com.aresstack.pyloros.plugin.PylorosPlugin`
+- `com.aresstack.pyloros.plugin.PluginContext`
+- `com.aresstack.pyloros.plugin.PluginContribution`
+- `com.aresstack.pyloros.tool.ToolProvider`
+
+## 2) Plugin identity (plugin ID)
+
+The example plugin class is:
+
+- `com.aresstack.pyloros.example.plugin.ExampleEchoPlugin`
+
+Its plugin ID is:
+
+- `example-echo-plugin`
+
+Plugin IDs must be globally unique inside one running Pyloros instance.
+
+## 3) ServiceLoader registration (`META-INF/services`)
+
+To make Pyloros discover your plugin via `ServiceLoader`, add:
+
+- `/META-INF/services/com.aresstack.pyloros.plugin.PylorosPlugin`
+
+The file must contain the fully qualified plugin class name, one entry per line.  
+Example:
+
+```text
+com.aresstack.pyloros.example.plugin.ExampleEchoPlugin
+```
+
+## 4) Contributing tools
+
+`ExampleEchoPlugin` contributes `ExampleEchoToolProvider` with:
+
+- `providerId = "example-tools"`
+- upstream tool name `echo`
+
+The ToolCatalog external tool name is usually:
+
+- `providerId + "__" + upstreamToolName`
+- `example-tools__echo`
+
+If Pyloros is started with `--tool-name-separator=/`, the external name becomes:
+
+- `example-tools/echo`
+
+## 5) Plugin enable/disable configuration (`mcp.json`)
+
+Plugin activation is controlled in `mcp.json` under `plugins`:
+
+```json
+{
+  "plugins": {
+    "enabledByDefault": false,
+    "items": [
+      {
+        "id": "example-echo-plugin",
+        "enabled": true,
+        "configuration": {
+          "note": "optional plugin-specific settings"
+        }
+      }
+    ]
+  }
+}
+```
+
+Rules:
+
+- `enabledByDefault=false` means only explicitly enabled plugins are loaded.
+- `enabledByDefault=true` means all discovered plugins are loaded unless explicitly disabled.
+- Explicit `enabled` on an item overrides `enabledByDefault`.
+
+## 6) View behavior and naming/collision expectations
+
+- Visibility is controlled by the provider `exposedViews()` (example: `PUBLIC` only).
+- `tools/list` only includes providers exposed for the requested view.
+- Tool names are exact-match routed through `ToolRouter`.
+- If two tools resolve to the same external name, catalog refresh fails with duplicate-name validation.
+- Keep tool names deterministic and unique (or set `preservesUpstreamToolName()` carefully if you need raw names).
+
+## 7) Local testing workflow
+
+From repository root:
+
+```bash
+./gradlew --no-daemon :pyloros-example-plugin:compileJava
+./gradlew --no-daemon :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest"
+```
+
+The integration test verifies:
+
+- plugin is discovered through `ServiceLoader`
+- `example-tools__echo` appears in `ToolCatalog`
+- `ToolRouter` can call the tool and receives echoed input
+- disabled plugin does not expose the tool

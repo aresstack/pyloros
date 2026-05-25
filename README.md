@@ -226,3 +226,7 @@ A real ChatGPT / connector invocation test validates the external client layer a
 - `ToolRouter`: exact-name routing by external MCP tool name
 - `OAuthService`: OAuth token handling for the public Pyloros endpoint
 - external upstreams are discovered from `mcp.json`
+
+## Plugin developer guide
+
+- see `/home/runner/work/pyloros/pyloros/docs/plugin-development.md`

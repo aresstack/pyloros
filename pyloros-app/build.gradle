@@ -11,6 +11,7 @@ dependencies {
     implementation project(':pyloros-upstream-github')
     implementation project(':pyloros-upstream-intellij-index')
     implementation project(':pyloros-intellij-mcp')
+    implementation project(':pyloros-example-plugin')
 
     implementation "io.vertx:vertx-core:${vertxVersion}"
     implementation "io.vertx:vertx-web:${vertxVersion}"
@@ -39,4 +40,3 @@ task runMcpAggregationSmokeTest(type: JavaExec) {
     environment 'PYLOROS_SMOKE_ACCESS_TOKEN', System.getenv('PYLOROS_SMOKE_ACCESS_TOKEN')
     environment 'PYLOROS_SMOKE_MCP_URL', System.getenv('PYLOROS_SMOKE_MCP_URL') ?: 'http://127.0.0.1:8081/pyloros'
 }
-
