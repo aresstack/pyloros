@@ -10,9 +10,10 @@ import java.util.Optional;
 /**
  * Read-only view of a single plugin's configuration block.
  *
- * <p>Designed to be exposed via {@link PluginContext} to plugin implementations.
- * Optional accessors return empty/default values when a key is missing so that absent
- * optional configuration never aborts the server start. Required accessors raise a
+ * <p>Intended to be exposed to plugin implementations by whichever component owns
+ * the canonical {@code PluginContext} (see R4-04 / issue #21). Optional accessors
+ * return empty/default values when a key is missing so that absent optional
+ * configuration never aborts the server start. Required accessors raise a
  * {@link PluginConfigurationException} that captures the offending plugin id and key.
  *
  * <p>Instances are immutable and safe to share across threads.

@@ -11,9 +11,10 @@ neuen Package `com.aresstack.pyloros.plugin`:
   optionalen Gettern (`getString/Int/Boolean(...)`) und Required-Gettern
   (`requireString/Int/Boolean(...)`), die bei Fehlen oder Typfehler eine
   `PluginConfigurationException` mit `pluginId` und `configurationKey` werfen.
-- Minimaler `PluginContext` (nur `pluginId()` + `configuration()`) — erfüllt das
-  Akzeptanzkriterium *„Plugin-Konfiguration ist über PluginContext lesbar“*, ohne
-  die in R4-04 zu definierenden Core-Services vorwegzunehmen.
+- Minimaler `PluginContext` entfällt in dieser PR — die kanonische
+  `PluginContext`-Definition wird laut R4-04 (Issue #21) dort eingeführt.
+  `PluginConfiguration` ist so gestaltet, dass sie vom dortigen Context-Owner
+  als Konfigurations-View weitergereicht werden kann.
 - `PluginActivationResolver`: leitet pro Plugin-ID eine `PluginActivation`
   (enabled + diagnostischer `reason`-Code + Konfiguration) ab. Explizites
   `enabled` schlägt `enabledByDefault`. Duplicate IDs werden als
@@ -38,7 +39,6 @@ Neu (`pyloros-server/src/main/java/com/aresstack/pyloros/plugin/`):
 - `PluginEntry.java`
 - `PluginConfiguration.java`
 - `PluginConfigurationException.java`
-- `PluginContext.java`
 - `PluginActivation.java`
 - `PluginActivationResolver.java`
 - `PluginsConfigLoader.java`
