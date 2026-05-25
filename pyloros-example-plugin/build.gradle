@@ -1,0 +1,9 @@
+plugins {
+    id 'java-library'
+}
+
+description = 'Minimal example plugin for the Pyloros plugin API'
+
+dependencies {
+    implementation project(':pyloros-server')
+}
