@@ -8,6 +8,7 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record McpJsonConfig(
         Map<String, McpServerConfig> servers,
-        List<AcpProviderJsonConfig> acpProviders
+        List<AcpProviderJsonConfig> acpProviders,
+        List<LangChainProviderJsonConfig> langchainProviders
 ) {
 }

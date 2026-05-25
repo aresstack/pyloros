@@ -1,10 +1,12 @@
 package com.aresstack.pyloros;
 
 import com.aresstack.pyloros.config.AcpProviderFactory;
+import com.aresstack.pyloros.config.LangChainProviderFactory;
 import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.config.ToolNameSeparatorResolver;
+import com.aresstack.pyloros.langchain.LangChainProviderConfiguration;
 import com.aresstack.pyloros.extension.LoadedTargetPlatformModules;
 import com.aresstack.pyloros.extension.TargetPlatformModuleLoader;
 import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
@@ -129,10 +131,11 @@ public final class PylorosApplication extends AbstractVerticle {
         }
 
         LoadedMcpJsonConfig mcpJson = loaded.get();
-        log.info("[MCP-CONFIG] loaded mcp.json path={} serverCount={} acpProviderCount={}",
+        log.info("[MCP-CONFIG] loaded mcp.json path={} serverCount={} acpProviderCount={} langchainProviderCount={}",
                 mcpJson.path(),
                 mcpJson.config().servers() == null ? 0 : mcpJson.config().servers().size(),
-                mcpJson.config().acpProviders() == null ? 0 : mcpJson.config().acpProviders().size());
+                mcpJson.config().acpProviders() == null ? 0 : mcpJson.config().acpProviders().size(),
+                mcpJson.config().langchainProviders() == null ? 0 : mcpJson.config().langchainProviders().size());
 
         for (McpUpstreamConfig upstream : loader.resolveUpstreams(mcpJson)) {
             ToolProvider provider = createProvider(upstream);
@@ -143,6 +146,11 @@ public final class PylorosApplication extends AbstractVerticle {
 
         List<ToolProvider> acpProviders = AcpProviderFactory.createProviders(mcpJson.config().acpProviders(), vertx);
         providers.addAll(acpProviders);
+
+        List<LangChainProviderConfiguration> langchainConfigs = LangChainProviderFactory.createConfigurations(mcpJson.config().langchainProviders());
+        // LangChain provider configurations are loaded and validated;
+        // actual ToolProvider instances will be created when the LangChain runtime is implemented.
+        log.info("[LANGCHAIN-PROVIDER] loaded {} LangChain provider configuration(s)", langchainConfigs.size());
     }
 
     private ToolProvider createProvider(McpUpstreamConfig upstream) {
