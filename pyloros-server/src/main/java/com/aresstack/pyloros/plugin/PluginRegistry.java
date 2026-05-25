@@ -48,6 +48,20 @@ public final class PluginRegistry {
     }
 
     /**
+     * Load all plugins discovered by the system {@link ServiceLoader}, using a
+     * {@link PluginActivationResolver} to decide which plugins are enabled and to
+     * supply per-plugin configuration.
+     *
+     * @param resolver activation resolver; must not be {@code null}
+     * @return the populated registry
+     */
+    public static PluginRegistry load(PluginActivationResolver resolver) {
+        Objects.requireNonNull(resolver, "resolver must not be null");
+        ServiceLoader<PylorosPlugin> serviceLoader = ServiceLoader.load(PylorosPlugin.class);
+        return loadFrom(serviceLoader.stream().toList(), resolver);
+    }
+
+    /**
      * Load plugins using a {@link PluginActivationResolver} that provides both
      * activation decisions and per-plugin configuration. Each enabled plugin
      * receives a {@link PluginContext} with {@link PluginConfigurationView} and
@@ -97,7 +111,14 @@ public final class PluginRegistry {
             List<ToolProvider> contributedSink,
             List<PluginContributionResult> contributionResultsSink,
             Set<String> usedPluginIds) {
-        String fallbackId = entry.type().getName();
+        String fallbackId;
+        try {
+            fallbackId = entry.type().getName();
+        } catch (Throwable t) {
+            log.error("[PLUGIN] failed to resolve plugin class from ServiceLoader entry: {}", t.toString());
+            return PluginLoadResult.failedToLoad(
+                    "invalid-plugin-entry-" + Integer.toHexString(System.identityHashCode(entry)), t);
+        }
 
         PylorosPlugin plugin;
         try {
@@ -183,7 +204,14 @@ public final class PluginRegistry {
             List<ToolProvider> contributedSink,
             List<PluginContributionResult> contributionResultsSink,
             Set<String> usedPluginIds) {
-        String fallbackId = entry.type().getName();
+        String fallbackId;
+        try {
+            fallbackId = entry.type().getName();
+        } catch (Throwable t) {
+            log.error("[PLUGIN] failed to resolve plugin class from ServiceLoader entry: {}", t.toString());
+            return PluginLoadResult.failedToLoad(
+                    "invalid-plugin-entry-" + Integer.toHexString(System.identityHashCode(entry)), t);
+        }
 
         PylorosPlugin plugin;
         try {
