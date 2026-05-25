@@ -1,130 +1,121 @@
-# Report — Issue #43 (Maven Central via GH Actions vorbereiten)
+# Report — Issue #38 (R5-12: Integrationstests mit Fake-Model und Fake-Tools)
 
-## Was wurde umgesetzt?
+## Was wurde verifiziert, geaendert oder implementiert?
 
-- Maven-Central-Publishing zentral im Root-`build.gradle` konfiguriert,
-  analog zu `../win-directml-java` (Sonatype Central Portal via
-  `com.gradleup.nmcp` + `com.gradleup.nmcp.aggregation` 0.1.5,
-  In-Memory-GPG-Signing, MIT-Lizenz, SCM, IssueManagement, Developer).
-- Liste der publishable Module explizit als `ext.publishableModules`
-  definiert. Veroeffentlicht werden alle Pyloros-Bibliotheken; nicht
-  veroeffentlicht wird `pyloros-app` (Runtime/Anwendung — `shadowJar`
-  wird stattdessen als GitHub-Release-Asset angehaengt).
-- Per-Modul-Publishing-Bloecke in `pyloros-server` und
-  `pyloros-upstream-idea` entfernt (Konvention uebernimmt das jetzt
-  zentral). Beide hatten zudem die falsche Apache-2.0-Lizenz im POM —
-  jetzt korrekt MIT analog zur `LICENSE`-Datei.
-- `withSourcesJar()` und `withJavadocJar()` zentral fuer publishable
-  Module aktiviert; Javadoc lenient (`-Xdoclint:none`).
-- Jeder publizierte Jar bundelt `LICENSE` unter `META-INF/`.
-- `releaseBuild`-Schalter (`-PreleaseBuild=true`) eingefuehrt. Heute
-  ohne Wirkung auf Dependencies (Pyloros hat keine externen
-  AresStack-Cross-Repo-Deps), aber bereits dokumentiert und im Build
-  verdrahtet fuer den zukuenftigen Fall (z. B. `win-directml-java`).
-- Versionierung: `-Pversion=<x.y.z>` schaltet die Release-Version,
-  Default ist `0.1.0-SNAPSHOT`. Signing wird nur fuer Nicht-SNAPSHOT-
-  Releases gegen den Central Portal verlangt.
-- POM-Validierungstask `verifyReleasePoms` ergaenzt. Schlaegt fehl bei
-  `unspecified`, `latest`, `<systemPath>`, `file://`, `../`-Pfaden und
-  bei Dependencies ohne `<version>`. Im `releaseBuild`-Modus an `check`
-  gehaengt.
-- GitHub-Actions-Workflow `.github/workflows/release.yml` angelegt.
-  Trigger: Tag-Push `v*` und `workflow_dispatch`. Schritte: Checkout →
-  Temurin JDK 21 → Version ableiten → `verifyReleasePoms` +
-  `publishAggregationToCentralPortal` (ein aggregiertes Upload) →
-  `pyloros-app:shadowJar` bauen → `pyloros.jar` an GitHub-Release
-  anhaengen.
-- `release.ps1` als lokales Tag-Helper-Skript analog zu
-  `win-directml-java` ergaenzt (README-Versionen patchen, committen,
-  Tag setzen, pushen).
-- `docs/RELEASING.md` mit Release-Reihenfolge, Org-vererbten Secrets
-  (`CENTRAL_USERNAME`, `CENTRAL_PASSWORD`, `GPG_PRIVATE_KEY`,
-  `GPG_PASSPHRASE` — identisch zu `win-directml-java`, auf
-  `aresstack`-Org-Ebene bereits gesetzt) und Erklaerung des
-  Dependency-Switches geschrieben.
-- `docs/agent/assignment.md` mit dem aktuellen Auftrag (Issue #43)
-  ueberschrieben (alter 010-B-Inhalt entfernt, gemaess AGENTS.md).
+Verifiziert:
 
-## Geaenderte / neu erstellte Dateien
+- Voraussetzungspruefung des Codebestands fuer das Issue R5-12.
+- Untersuchung des Branches `copilot/r5-12-integrationstests-fake-models`
+  (HEAD `94ab18e` "Initial plan", Vorgaenger `8e52c1e` Maven Central).
+- Vollstaendiger `git log --all` und Inhaltssuche im Repository nach
+  `LangChain`, `langchain`, `pyloros-ai`, `FakeChatModel`,
+  `FakeToolCallingModel`, `LangChainAsk*`.
+- Pruefung der Issue-Reihe R5-01 ... R5-13 (alle OPEN) und der LangChain-
+  Spec unter `docs/requirements/pyloros-langchain-extension.md`.
 
-Geaendert:
+Ergebnis der Pruefung:
 
-- `build.gradle` (komplett neu strukturiert)
-- `pyloros-server/build.gradle` (Publishing-Block entfernt,
-  java-library-Plugin behalten)
-- `pyloros-upstream-idea/build.gradle` (dito)
-- `docs/agent/assignment.md` (ueberschrieben)
+- Im Repository existiert **keine** LangChain-Produktionsklasse.
+  Insbesondere fehlen: `LangChainVirtualToolProvider`,
+  `LangChainAgentService`, `OllamaModelFactory`, `ToolCatalogAdapter`,
+  `PylorosToolSpecificationMapper`, `PylorosToolExecutor`,
+  `ToolExecutionLoop`, `KeywordToolSelectionStrategy`,
+  `pyloros-ai/ask`-Tool, `LangChainProviderConfiguration`,
+  `LangChainSessionRepository`.
+- Der bisherige Commit `ac219e7` ("Add LangChainVirtualToolProvider …")
+  hat ausschliesslich `docs/requirements/pyloros-langchain-extension.md`
+  hinzugefuegt; kein Quellcode.
+- Die `pyloros-ai/ask`-Kette ist weder im `ToolRouter` noch im
+  `ToolCatalog` noch im `ProviderRegistry`-Bootstrap registriert.
 
-Neu:
+Geaendert / neu erstellt:
 
-- `.github/workflows/release.yml`
-- `release.ps1`
-- `docs/RELEASING.md`
-- `docs/agent/report.md` (diese Datei)
+- `docs/agent/assignment.md` neu geschrieben (vorher Inhalt zu Issue #43
+  Maven Central, jetzt R5-12).
+- `docs/agent/report.md` neu geschrieben (dieser Report).
 
-## Beruehrte Architekturentscheidung
+Es wurden **keine** Produktions- oder Testklassen erzeugt.
 
-- Issue #43 ("Prepare Maven Central publishing via GitHub Actions").
-- Publishable-Module-Konvention liegt jetzt zentral im Root-Build, nicht
-  pro Subproject. Bestehende Pyloros-Architekturregeln aus AGENTS.md
-  (`PylorosApplication` bleibt Bootstrap, OAuth in OAuth-Services,
-  ToolProvider/ToolRegistry, optionale Upstreams) sind nicht betroffen.
+## Welche Dateien wurden geaendert oder neu erstellt?
 
-## Tests / Builds / Runtime-Checks
+- `docs/agent/assignment.md` (ueberschrieben).
+- `docs/agent/report.md` (ueberschrieben).
 
-- `gradlew --no-daemon -PreleaseBuild=true -Pversion=0.1.0
-  generatePomFileForMavenJavaPublication verifyReleasePoms` →
-  **BUILD SUCCESSFUL**, alle sieben POMs valide, `verifyReleasePoms`
-  meldet "all publishable modules pass".
-- `gradlew --no-daemon build -x test` → **BUILD SUCCESSFUL**;
-  sourcesJar, javadocJar, jar, shadowJar erstellt; Multi-Projekt-Build
-  unveraendert lauffaehig.
-- POM `pyloros-server/build/publications/mavenJava/pom-default.xml`
-  manuell geprueft: `groupId=com.aresstack`, `artifactId=pyloros-server`,
-  `version=0.1.0`, interne Dep auf `pyloros-security` als
-  `com.aresstack:pyloros-security:0.1.0` aufgeloest, MIT-Lizenz,
-  GitHub-SCM, alle Dependencies mit `<version>`.
-- `gradlew tasks --all | findstr CentralPortal` zeigt
-  `publishAggregationToCentralPortal` (Root) und pro Modul
-  `publishAllPublicationsToCentralPortal` / `publishMavenJavaPublicationToCentralPortal`.
-- Verifiziert via HTTP-HEAD auf `repo1.maven.org`, dass die
-  `aresstack`-Org-Secrets funktional sind: `com.aresstack:directml-config:0.1.0-beta.1`
-  ist auf Maven Central (HTTP 200, Last-Modified 2026-05-19) — also
-  laeuft der Pyloros-Release-Workflow ohne weitere Secret-Konfiguration
-  durch.
-- Tests **nicht** ausgefuehrt (Auftrag: nur Release vorbereiten).
-- Es wurde **kein** echter Upload zum Central Portal ausgeloest.
+## Welche Architekturentscheidung wurde beruehrt?
+
+Keine. Die in R5-12 zu testende Architektur (LangChain Virtual Provider,
+ToolExecutionLoop, ToolSelectionStrategy, llm-agent ToolView,
+PylorosToolExecutor) existiert noch nicht im Code und wird in den
+Issues R5-01 bis R5-10 entschieden bzw. implementiert.
+
+## Welche Tests, Builds und Runtime-Checks wurden ausgefuehrt?
+
+Keine Build- oder Testlaeufe, da keine Quellcodeaenderungen vorgenommen
+wurden. Es gibt im Repository auch nichts, was im Sinne von R5-12
+getestet werden koennte (kein `pyloros-ai/ask`-Flow, kein Agent-Service,
+kein Tool-Loop).
 
 ## Ergebnis
 
-**Erfolgreich.** Release-Pipeline ist bereit. Auf einen Tag-Push
-`v<x.y.z>` (oder manuellen `workflow_dispatch`) hin baut GitHub Actions
-Java 21, validiert die POMs, signiert mit dem org-vererbten GPG-Key
-und veroeffentlicht in einer aggregierten Transaktion alle publishable
-Pyloros-Module auf Maven Central (`com.aresstack:<module>:<version>`).
+**Failed — blockiert durch fehlende Voraussetzungen.**
 
-## Naechste Schritte (vor dem ersten echten Release)
+R5-12 fordert *Integrationstests* fuer den `pyloros-ai/ask`-Flow inkl.
+Tool-Execution-Loop, `maxToolCalls`, Modellfehler, Toolfehler und
+Result-Kuerzung. Integrationstests setzen voraus, dass es eine
+Produktionsimplementierung gibt, die getestet werden kann. Diese
+Implementierung ist Inhalt der noch offenen Issues:
 
-1. **Secrets: nichts zu tun.** `CENTRAL_USERNAME`, `CENTRAL_PASSWORD`,
-   `GPG_PRIVATE_KEY` und `GPG_PASSPHRASE` sind bereits auf der
-   `aresstack`-Organisation gesetzt (verifiziert: das von ihnen
-   signierte Artefakt `com.aresstack:directml-config:0.1.0-beta.1`
-   liegt seit 2026-05-19 auf Maven Central, HTTP 200 von
-   `repo1.maven.org`). Pyloros liegt unter derselben Org und erbt die
-   Secrets automatisch — im Repo unter
-   `Settings → Secrets and variables → Actions` als "Organization
-   secrets" sichtbar.
-2. Sonatype-Central-Portal-Namespace `com.aresstack` ist bereits
-   verifiziert (durch die laufende win-directml-java-Veroeffentlichung
-   nachgewiesen).
-3. `pwsh ./release.ps1 0.1.0` (oder gewuenschte Version) lokal
-   ausfuehren, sobald Freigabe vorliegt — der Tag-Push startet den
-   Workflow sofort und der Release laeuft ohne weitere manuelle
-   Eingriffe durch.
+- #27 R5-01 LangChain Provider-Konfiguration
+- #28 R5-02 LangChainVirtualToolProvider mit `pyloros-ai/ask`
+- #29 R5-03 OllamaModelFactory und Modellverbindung
+- #30 R5-04 ToolCatalog Adapter und Tool-Spec Mapping
+- #31 R5-05 PylorosToolExecutor ueber ToolRouter
+- #32 R5-06 ToolSelectionStrategy MVP
+- #33 R5-07 ToolExecutionLoop mit Limits (`maxToolCalls`, Timeout,
+  `maxToolResultChars`)
+- #34 R5-08 LLM-Agent Tool View und Rekursionsschutz
+- #35 R5-09 LangChain Session/Task Repository
+- #36 R5-10 Fehlerbehandlung, Stop Reasons und Result-Mapping
+
+Solange diese Bausteine fehlen, gibt es keinen `ask`-Flow,
+keinen `ToolExecutionLoop`, keinen `PylorosToolExecutor` und keine
+Result-Kuerzung — also nichts, gegen das ein Fake-Modell oder ein
+Fake-Tool integriert werden koennte. Ein Fake-Provider liesse sich zwar
+isoliert anlegen, wuerde aber nicht die in R5-12 geforderten
+Akzeptanzkriterien erfuellen (Happy Path mit Toolcall, `maxToolCalls`
+stoppt Loop, ToolResult wird gekuerzt, etc.) — diese Kriterien betreffen
+ausdruecklich Verhalten der noch nicht existierenden Loop-/Service-Schicht.
+
+## Genauer Fehler
+
+Voraussetzungsverletzung: R5-12 ist gemaess Issue-Beschreibung ein
+*Test*-Issue auf Basis der R5-01..R5-10-Implementierung. Diese
+Implementierung fehlt vollstaendig im Branch und in `main` (Stand
+`94ab18e`).
+
+## Empfohlener naechster Schritt
+
+1. R5-01..R5-10 in der Reihenfolge der Issue-Nummern abarbeiten und
+   mergen — mindestens R5-02 (Provider + `pyloros-ai/ask`), R5-05
+   (PylorosToolExecutor), R5-07 (ToolExecutionLoop), R5-10
+   (Fehlerbehandlung / Stop Reasons / Result-Mapping). Diese bilden die
+   produktive Oberflaeche, die R5-12 testen soll.
+2. Erst danach R5-12 erneut anfangen. Die geplanten Testkomponenten
+   `FakeChatModel`, `FakeToolCallingModel`, `FakeLangChainToolProvider`
+   und `LangChainAskIntegrationTest` koennen dann direkt gegen die
+   produktiven Schnittstellen (`LangChainAgentService`,
+   `PylorosToolExecutor`, `ToolExecutionLoop`) gebaut werden — analog
+   zum bereits bestehenden Muster in
+   `pyloros-server/src/test/java/com/aresstack/pyloros/acp/FakeAcpAgent.java`.
+3. Wenn der Wunsch besteht, R5-12 schon **parallel** zur Implementierung
+   zu starten, sollte das Issue umetikettiert werden (z. B. "vorbereitende
+   Fake-Infrastruktur") und das Akzeptanzkriterium "Tests laufen" durch
+   "Skeleton mit ignorierten Tests" ersetzt werden. Bitte um
+   Entscheidung, bevor weitergearbeitet wird.
 
 ## Commit
 
-Pending – wird im naechsten Schritt vom Agenten committet
-(Anweisung des Nutzers nach Rebase-Rollback: "Die Aenderungen muessen
-alle Commited werden"). Kein Push, gemaess AGENTS.md
-"Do not push unless explicitly requested".
+Kein Commit erstellt. Die Aktualisierungen von `docs/agent/assignment.md`
+und `docs/agent/report.md` werden ausschliesslich durch das
+`report_progress`-Tool des Coding-Agents commitet, sobald der Benutzer
+diese Statusmeldung freigibt.

@@ -1,41 +1,56 @@
-# Issue #43 — Prepare Maven Central publishing via GitHub Actions
+# Issue #38 — R5-12: Integrationstests mit Fake-Model und Fake-Tools
+
+Parent: aresstack/pyloros#26 (Release 5: LangChain/Ollama Virtual Provider).
 
 ## Ziel
 
-Veroeffentlichung auf Maven Central via GitHub Actions vorbereiten,
-analog zu `../win-directml-java`. Es wird **noch kein Release**
-durchgefuehrt — der Workflow soll spaeter durch einen Tag-Push
-(`v<x.y.z>`) ausgeloest werden koennen.
+LangChain-/LLM-Flows reproduzierbar testbar machen — komplette
+`pyloros-ai/ask`-Kette mit Fake-Modell und Fake-Tools, damit CI-Tests ohne
+Ollama und ohne Netzwerkzugriff stabil und schnell laufen.
 
-## Architekturregeln (aus Issue #43)
+## Umfang (laut Issue)
 
-- Pyloros-interne `project(":pyloros-*")`-Abhaengigkeiten duerfen im
-  Multi-Project-Build bleiben. Im veroeffentlichten POM muessen daraus
-  `com.aresstack:<module>:<version>`-Eintraege werden.
-- Externe AresStack-Abhaengigkeiten (anderer Repos, z. B.
-  `win-directml-java`) duerfen im POM nur als feste Maven-Central-
-  Koordinaten erscheinen. **Aktueller Stand: Pyloros hat solche
-  Abhaengigkeiten nicht.**
-- `./gradlew clean build` muss lokal weiter funktionieren.
-- `./gradlew clean publishToMavenLocal -PreleaseBuild=true` muss
-  Maven-Central-kompatible POMs erzeugen.
+- Fake-Modell fuer deterministische Antworten bereitstellen.
+- Fake-Modell kann Toolcalls anfordern.
+- Fake-Modell kann Modellfehler simulieren.
+- Fake-Tools ueber bestehenden ToolProvider/ToolRouter bereitstellen.
+- Integrationstest fuer `ask` Happy Path.
+- Integrationstest fuer Toolfehler und Modellfehler.
 
-## Akzeptanz
+## Vorgeschlagene Testkomponenten
 
-1. Publishing-Setup analog zu `win-directml-java` (gradleup nmcp +
-   nmcp.aggregation, Sonatype Central Portal, Signing in-memory).
-2. Java 21 bleibt Standard.
-3. Publishable Pyloros-Subprojects sind explizit festgelegt.
-4. `./gradlew clean build` funktioniert lokal weiter.
-5. `./gradlew clean publishToMavenLocal -PreleaseBuild=true` erzeugt
-   gueltige POMs.
-6. POMs enthalten kein `unspecified`, `latest`, keine lokalen Pfade.
-7. Pyloros-interne Deps erscheinen als `com.aresstack:<module>:<version>`.
-8. Externe AresStack-Deps haetten feste Maven-Koordinaten (kein Fall
-   heute, aber Mechanik vorbereitet via `releaseBuild`-Schalter).
-9. GitHub-Actions-Workflow fuer Tag-Push und manuellen Dispatch.
-10. Benoetigte Secrets sind dokumentiert (auf Org-Ebene `aresstack`
-    bereits konfiguriert und vererbt).
-11. Release-Reihenfolge dokumentiert.
+```text
+FakeChatModel
+FakeToolCallingModel
+FakeLangChainToolProvider
+LangChainAskIntegrationTest
+```
+
+## Akzeptanzkriterien
+
+- Tests laufen ohne Ollama.
+- Tests laufen ohne Netzwerkzugriff.
+- Happy Path mit einem Toolcall ist abgedeckt.
+- Mehrere Toolcalls sind abgedeckt.
+- Modellfehler ist abgedeckt.
+- Toolfehler ist abgedeckt.
+- Limits wie `maxToolCalls` und Timeout sind testbar.
+
+## Geforderte Tests
+
+- `ask` beantwortet Frage ohne Tool.
+- `ask` verwendet ein Fake-Tool.
+- `ask` verwendet mehrere Fake-Tools.
+- Fake-Modell wirft Fehler.
+- Fake-Tool liefert `isError=true`.
+- `maxToolCalls` stoppt Loop.
+- ToolResult wird gekuerzt.
+
+## Architekturregeln
+
+- Java 21, Vert.x, Gradle Groovy DSL.
+- Tool-Aggregation ueber `ToolProvider` und `ToolRegistry`/`ToolRouter`.
+- Optionale Upstreams duerfen Start nicht verhindern.
+- Kein Spring.
 
 Kein Commit ohne Freigabe.
