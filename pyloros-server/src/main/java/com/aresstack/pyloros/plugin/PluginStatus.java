@@ -14,9 +14,17 @@ public enum PluginStatus {
     /** Plugin could not be instantiated (constructor / ServiceLoader failure). */
     FAILED_TO_LOAD,
 
-    /** {@code initialize(PluginContext)} threw. */
+    /**
+     * Reserved for a future initialization phase that runs before
+     * {@link PylorosPlugin#contribute()}. The canonical R4-01 API does not
+     * expose such a hook yet; this value is retained so diagnostics stay
+     * forward-compatible.
+     */
     FAILED_TO_INITIALIZE,
 
-    /** {@code createToolProviders(PluginContext)} threw or returned an invalid contribution. */
+    /**
+     * {@link PylorosPlugin#contribute()} threw or returned an invalid
+     * {@link PluginContribution}.
+     */
     FAILED_TO_CONTRIBUTE
 }

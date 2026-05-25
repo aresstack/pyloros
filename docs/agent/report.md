@@ -2,59 +2,76 @@
 
 ## Was wurde umgesetzt / verifiziert?
 
-- Minimales Plugin-API in `pyloros-server` eingefuehrt, ausreichend um
-  R4-06 isoliert umzusetzen (R4-01..R4-05 sind noch nicht implementiert,
-  daher liefert dieses Issue den minimalen Tragebalken mit).
-- `PylorosPlugin`-Interface mit drei klar getrennten Lifecycle-Phasen
-  (load / initialize / contribute), `PluginContext` als zukunftssicherer
-  Marker (R4-04 erweitert ihn spaeter).
-- `PluginStatus`-Enum mit den im Issue geforderten Werten:
-  `LOADED`, `DISABLED`, `FAILED_TO_LOAD`, `FAILED_TO_INITIALIZE`,
-  `FAILED_TO_CONTRIBUTE`.
-- `PluginErrorInfo` (Record) erfasst Fehlerklasse und gekuerzte Meldung
-  (max. 500 Zeichen, mit `...`-Suffix). `PluginDescriptor` (Record)
-  haelt `pluginId`, Status und optionale Fehlerinfo.
-- `PluginRegistry` laedt Plugins via `ServiceLoader`, kapselt jede
-  Phase einzeln in try/catch, validiert Contributions (kein `null`,
-  kein leeres `providerId`, keine Duplikate) und veroeffentlicht
-  Contributions nur, wenn die *gesamte* Plugin-Contribution gueltig ist.
-  Faulty plugins koennen den Serverstart nicht abbrechen.
-- `PylorosApplication` ruft die Registry beim Start auf, loggt
-  Statuszeilen pro Plugin und reicht erfolgreich beigetragene
-  `ToolProvider` an den bestehenden `ProviderRegistry`-/`ToolCatalog`-Flow weiter.
-- Unit-Tests decken alle vom Issue geforderten Szenarien ab:
-  erfolgreich geladen, deaktiviert, Konstruktor wirft, Init wirft,
-  ungueltige Contribution, Truncation langer Fehlermeldungen sowie ein
-  gemischter Mix-Test, der die Isolation faulty <-> healthy plugins
-  zeigt.
+- PR wurde auf die kanonische Plugin-API aus #46 rebased. Die in der
+  ersten Iteration eingefuehrte konkurrierende `PylorosPlugin`-Definition
+  und der dort verwendete diagnostische `PluginDescriptor` wurden
+  entfernt; statt dessen nutzt R4-06 die kanonischen Typen
+  `PylorosPlugin` (mit `descriptor()` / `contribute()`),
+  `PluginDescriptor` (Metadaten), `PluginContribution` und
+  `PluginContributionResult`.
+- R4-06-eigene Diagnose-Typen bleiben in diesem PR:
+  - `PluginStatus`-Enum mit `LOADED`, `DISABLED`, `FAILED_TO_LOAD`,
+    `FAILED_TO_INITIALIZE`, `FAILED_TO_CONTRIBUTE`.
+  - `PluginErrorInfo` (Record) — Fehlerklasse + auf 500 Zeichen
+    gekuerzte Meldung (mit `...`-Suffix).
+  - `PluginLoadResult` (Record, vormals `PluginDescriptor`) — Host-Sicht
+    auf einen entdeckten Plugin: `pluginId`, `status`, optionaler
+    kanonischer `PluginDescriptor` und optionale `PluginErrorInfo`.
+    Faellt bei nicht instanziierbaren Plugins auf den Implementations-
+    klassennamen zurueck.
+- `PluginRegistry` laedt Plugins via `ServiceLoader.stream()`, kapselt
+  jede Phase (Instanziierung, `descriptor()`, `contribute()`) einzeln
+  in `try/catch (Throwable)`, validiert die `PluginContribution`
+  (nicht-blank `providerId`, keine Duplikate) und veroeffentlicht
+  beigetragene Provider nur atomar: jeder Fehler verwirft die *gesamte*
+  Contribution des betroffenen Plugins. Disabled IDs werden vor
+  `contribute()` kurzgeschlossen.
+- `PylorosApplication` wird in diesem PR nicht verdrahtet. Die finale
+  Integration in den Bootstrap geschieht erst, wenn #45 (Aktivierungs-/
+  Konfigurations-Modell) ebenfalls auf die kanonische API ausgerichtet
+  ist; bis dahin bleibt R4-06 strikt auf den kanonischen Typen.
+- Tests:
+  - `PluginRegistryTest` deckt erfolgreiches Laden, Disabled,
+    Konstruktor-Fehler, fehlerhafte `contribute()`-Implementierungen,
+    ungueltige Contributions (atomar verworfen), Mix faulty/healthy
+    sowie Truncation langer Fehlermeldungen ab.
+  - `PluginApiTest` deckt die kanonischen API-Records (`PluginDescriptor`,
+    `PluginContribution`, `PluginContributionResult`) ab.
 
 ## Geaenderte / neue Dateien
 
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginContext.java`
 - Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PylorosPlugin.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginStatus.java`
-- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginErrorInfo.java`
+  (kanonische API aus #46).
 - Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginDescriptor.java`
+  (kanonische Metadaten aus #46).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginContribution.java`
+  (kanonische Contribution aus #46).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginContributionResult.java`
+  (kanonisches Host-Outcome aus #46).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginStatus.java`
+  (R4-06 Diagnose-Status).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginErrorInfo.java`
+  (R4-06 Diagnose-Fehler).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginLoadResult.java`
+  (R4-06 Diagnose-Record, ersetzt frueheren `PluginDescriptor`-
+  Diagnose-Record).
 - Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginRegistry.java`
-- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginRegistryTest.java`
-- Geaendert: `pyloros-app/src/main/java/com/aresstack/pyloros/PylorosApplication.java`
-  (PluginRegistry-Verdrahtung + Diagnose-Logging).
+  (Loader + Diagnose).
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/package-info.java`.
+- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginRegistryTest.java`.
+- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginApiTest.java`.
 
 ## Architekturentscheidung beruehrt?
 
-- Bestehender Architekturpfad
-  `Plugin -> PylorosPlugin -> PluginContext -> ToolProvider contribution -> ProviderRegistry -> ToolCatalog`
-  aus Issue #17 wird respektiert. Keine direkten Core-Zugriffe.
-- `PylorosApplication` bleibt Bootstrap/Wiring; Lade- und Diagnose-Logik
-  lebt in der `plugin`-Domain in `pyloros-server`.
-- Optionaler Upstream/Plugin verhindert den Start nicht — fehlerhafte
-  Plugins liefern Diagnoseeintrag, Server laeuft weiter.
+- Kanonische R4-Plugin-API aus #46 wird ohne Konflikt uebernommen;
+  R4-06 ergaenzt diese rein additiv um Diagnose-Status, Fehlerinfo,
+  Failure-Isolation und atomare Contribution-Publikation.
+- `PylorosApplication` bleibt unveraendert, bis #45 fuer die
+  Enable/Disable-Konfiguration nachgezogen ist.
 
 ## Tests / Builds
 
-- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava :pyloros-app:compileJava` → BUILD SUCCESSFUL.
-- `./gradlew --no-daemon :pyloros-server:test --tests com.aresstack.pyloros.plugin.PluginRegistryTest` → BUILD SUCCESSFUL.
-- `./gradlew --no-daemon :pyloros-server:test` (volle Server-Suite) → BUILD SUCCESSFUL, keine Regression.
+- `./gradlew --no-daemon :pyloros-server:test` → BUILD SUCCESSFUL.
 
 ## Ergebnis
 
