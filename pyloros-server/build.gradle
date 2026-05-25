@@ -17,7 +17,10 @@ dependencies {
 
     api "org.slf4j:slf4j-api:${slf4jVersion}"
 
+    implementation "dev.langchain4j:langchain4j-ollama:${langchain4jVersion}"
+
     testImplementation "ch.qos.logback:logback-classic:${logbackVersion}"
+    testImplementation "org.mockito:mockito-core:${mockitoVersion}"
 }
 // Maven Central publishing is configured centrally in the root build.gradle
 // (see "configure(subprojects.findAll { it.name in publishableModules })").

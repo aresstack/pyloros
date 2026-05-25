@@ -10,6 +10,8 @@ ext {
     slf4jVersion = '2.0.16'
     junitVersion = '5.11.4'
     junitPlatformVersion = '1.11.4'
+    langchain4jVersion = '1.15.0'
+    mockitoVersion = '5.14.2'
 
     // External AresStack repositories Pyloros depends on. Empty for now
     // (Pyloros has no cross-repo aresstack dependencies). Add coordinates
