@@ -1,3 +1,2 @@
 rootProject.name = 'pyloros'
-    include 'pyloros-security', 'pyloros-server', 'pyloros-auth-oauth', 'pyloros-upstream-idea', 'pyloros-upstream-github', 'pyloros-upstream-intellij-index', 'pyloros-app', 'pyloros-intellij-mcp', 'pyloros-example-plugin'
-    
+    include 'pyloros-security', 'pyloros-server', 'pyloros-auth-oauth', 'pyloros-upstream-idea', 'pyloros-upstream-github', 'pyloros-upstream-intellij-index', 'pyloros-app', 'pyloros-intellij-mcp', 'pyloros-example-plugin', 'pyloros-manager-agent'

@@ -220,6 +220,9 @@ A real ChatGPT / connector invocation test validates the external client layer a
 
 ## Architecture
 
+- `pyloros-server`: core MCP gateway and provider/tool aggregation logic
+- `pyloros-app`: runtime bootstrap for the Pyloros gateway process
+- `pyloros-manager-agent`: standalone Java 21 manager-agent bootstrap module (separate process/JAR, no core dependency from server/app)
 - `PylorosApplication`: bootstrap and wiring only
 - `ProviderRegistry`: deterministic provider registration by `providerId`
 - `ToolCatalog`: immutable map-backed snapshots
