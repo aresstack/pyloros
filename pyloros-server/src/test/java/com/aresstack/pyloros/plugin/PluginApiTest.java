@@ -11,6 +11,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -67,7 +70,9 @@ class PluginApiTest {
         PylorosPlugin plugin = new SamplePlugin();
 
         PluginDescriptor descriptor = plugin.descriptor();
-        PluginContribution contribution = plugin.contribute();
+        PluginContext context = PluginContext.noop(descriptor.id());
+        plugin.initialize(context);
+        PluginContribution contribution = plugin.contribute(context);
 
         assertEquals("com.example.sample", descriptor.id());
         assertFalse(contribution.isEmpty());
@@ -159,7 +164,9 @@ class PluginApiTest {
         List<PluginContributionResult> results = new java.util.ArrayList<>();
         for (PylorosPlugin plugin : plugins) {
             PluginDescriptor descriptor = plugin.descriptor();
-            PluginContribution contribution = plugin.contribute();
+            PluginContext context = PluginContext.noop(descriptor.id());
+            plugin.initialize(context);
+            PluginContribution contribution = plugin.contribute(context);
             if (seen.containsKey(descriptor.id())) {
                 results.add(PluginContributionResult.rejected(
                         descriptor, contribution,
@@ -175,6 +182,104 @@ class PluginApiTest {
         assertFalse(results.get(1).accepted());
         assertEquals("duplicate plugin id 'com.example.sample'",
                 results.get(1).rejectionReason());
+    }
+
+    /**
+     * Acceptance: a minimal {@link PluginContext} exposes the plugin id and a
+     * typed service lookup that returns {@link Optional#empty()} for services
+     * the host does not provide.
+     */
+    @Test
+    void noopPluginContextExposesIdAndEmptyServiceLookup() {
+        PluginContext context = PluginContext.noop("com.example.ctx");
+
+        assertEquals("com.example.ctx", context.pluginId());
+        assertTrue(context.service(Runnable.class).isEmpty());
+        assertTrue(context.service(CharSequence.class).isEmpty());
+        assertThrows(NullPointerException.class, () -> context.service(null));
+        assertThrows(NullPointerException.class, () -> PluginContext.noop(null));
+        assertThrows(IllegalArgumentException.class, () -> PluginContext.noop(""));
+        assertThrows(IllegalArgumentException.class, () -> PluginContext.noop("   "));
+    }
+
+    /**
+     * Acceptance: a plugin can implement {@link PylorosPlugin#initialize}
+     * to receive its {@link PluginContext} before {@code contribute} is
+     * called, and contributions are context-aware.
+     */
+    @Test
+    void pluginLifecycleInvokesInitializeBeforeContributeWithContext() {
+        AtomicInteger initializeCalls = new AtomicInteger();
+        AtomicReference<PluginContext> initContext = new AtomicReference<>();
+        AtomicReference<PluginContext> contribContext = new AtomicReference<>();
+
+        PylorosPlugin plugin = new PylorosPlugin() {
+            @Override
+            public PluginDescriptor descriptor() {
+                return PluginDescriptor.of("com.example.lifecycle");
+            }
+
+            @Override
+            public void initialize(PluginContext context) {
+                initializeCalls.incrementAndGet();
+                initContext.set(context);
+            }
+
+            @Override
+            public PluginContribution contribute(PluginContext context) {
+                contribContext.set(context);
+                return PluginContribution.empty();
+            }
+        };
+
+        PluginContext context = PluginContext.noop(plugin.descriptor().id());
+        plugin.initialize(context);
+        PluginContribution contribution = plugin.contribute(context);
+
+        assertEquals(1, initializeCalls.get());
+        assertSame(context, initContext.get());
+        assertSame(context, contribContext.get());
+        assertTrue(contribution.isEmpty());
+    }
+
+    /**
+     * Acceptance: the default {@link PylorosPlugin#initialize} is a no-op so
+     * plugins that do not need initialization do not have to override it.
+     */
+    @Test
+    void pluginInitializeHasNoOpDefault() {
+        PylorosPlugin plugin = new SamplePlugin();
+        // Must not throw, must not require any host services.
+        plugin.initialize(PluginContext.noop(plugin.descriptor().id()));
+    }
+
+    /**
+     * Acceptance: the {@link PluginContext} is extensible — a host can expose
+     * additional services through {@link PluginContext#service(Class)} without
+     * changing the plugin API.
+     */
+    @Test
+    void pluginContextSupportsHostProvidedServiceLookup() {
+        Runnable hostService = () -> { };
+        PluginContext context = new PluginContext() {
+            @Override
+            public String pluginId() {
+                return "com.example.host";
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T> Optional<T> service(Class<T> type) {
+                if (type == Runnable.class) {
+                    return Optional.of((T) hostService);
+                }
+                return Optional.empty();
+            }
+        };
+
+        assertSame(hostService, context.service(Runnable.class).orElseThrow());
+        assertTrue(context.service(CharSequence.class).isEmpty());
+        assertEquals("com.example.host", context.pluginId());
     }
 
     /**
@@ -194,7 +299,7 @@ class PluginApiTest {
         }
 
         @Override
-        public PluginContribution contribute() {
+        public PluginContribution contribute(PluginContext context) {
             return PluginContribution.ofToolProviders(new SampleToolProvider());
         }
     }

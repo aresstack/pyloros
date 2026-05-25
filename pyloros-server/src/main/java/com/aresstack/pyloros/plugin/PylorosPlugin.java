@@ -15,14 +15,24 @@ package com.aresstack.pyloros.plugin;
  * infrastructure without breaking plugins.
  *
  * <h2>Lifecycle</h2>
- * The host calls {@link #descriptor()} to obtain stable metadata (including
- * the unique {@link PluginDescriptor#id() plugin id}). It then calls
- * {@link #contribute()} to collect the plugin's {@link PluginContribution}.
- * The host validates the contribution (for example by checking for duplicate
- * plugin ids) and produces a {@link PluginContributionResult} per plugin.
+ * For each plugin instance the host:
+ * <ol>
+ *   <li>calls {@link #descriptor()} to obtain stable metadata (including the
+ *       unique {@link PluginDescriptor#id() plugin id});</li>
+ *   <li>builds a {@link PluginContext} bound to that plugin and calls
+ *       {@link #initialize(PluginContext)} once, before any contribution is
+ *       collected;</li>
+ *   <li>calls {@link #contribute(PluginContext)} to collect the plugin's
+ *       {@link PluginContribution};</li>
+ *   <li>validates the contribution (for example by checking for duplicate
+ *       plugin ids) and produces a {@link PluginContributionResult} per
+ *       plugin.</li>
+ * </ol>
  *
- * <p>Plugins must keep both methods cheap and side-effect free. In particular
- * {@link #descriptor()} should return the same value on repeated calls.
+ * <p>Plugins must keep {@link #descriptor()} cheap and side-effect free; it
+ * should return the same value on repeated calls. The default
+ * {@link #initialize(PluginContext)} implementation is a no-op so simple
+ * plugins do not have to override it.
  *
  * <h2>Example</h2>
  * <pre>{@code
@@ -33,7 +43,7 @@ package com.aresstack.pyloros.plugin;
  *     }
  *
  *     @Override
- *     public PluginContribution contribute() {
+ *     public PluginContribution contribute(PluginContext context) {
  *         return PluginContribution.ofToolProviders(new MyToolProvider());
  *     }
  * }
@@ -53,13 +63,39 @@ public interface PylorosPlugin {
     PluginDescriptor descriptor();
 
     /**
+     * Lifecycle hook invoked by the host once before
+     * {@link #contribute(PluginContext)} is called.
+     *
+     * <p>Implementations may use the supplied {@link PluginContext} to look
+     * up host services and prepare internal state. The default implementation
+     * is a no-op so plugins that do not need initialization do not have to
+     * override it.
+     *
+     * <p>Hosts must invoke this method at most once per plugin instance, and
+     * must invoke it before {@link #contribute(PluginContext)}. Plugins
+     * should not perform any heavy work before {@code initialize} is called.
+     *
+     * @param context the runtime context for this plugin; never {@code null}
+     */
+    default void initialize(PluginContext context) {
+        // no-op by default
+    }
+
+    /**
      * Build this plugin's contribution.
+     *
+     * <p>The supplied {@link PluginContext} exposes host capabilities the
+     * plugin may use while assembling its contribution. Implementations
+     * should treat missing host services (see {@link PluginContext#service})
+     * gracefully and either degrade or contribute nothing for the affected
+     * extension points.
      *
      * <p>Returning {@link PluginContribution#empty()} is valid for plugins
      * that do not (yet) contribute anything to the current set of extension
      * points.
      *
+     * @param context the runtime context for this plugin; never {@code null}
      * @return the contribution offered by this plugin; never {@code null}
      */
-    PluginContribution contribute();
+    PluginContribution contribute(PluginContext context);
 }
