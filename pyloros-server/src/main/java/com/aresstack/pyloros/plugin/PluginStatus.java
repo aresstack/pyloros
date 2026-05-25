@@ -15,16 +15,13 @@ public enum PluginStatus {
     FAILED_TO_LOAD,
 
     /**
-     * Reserved for a future initialization phase that runs before
-     * {@link PylorosPlugin#contribute()}. The canonical R4-01 API does not
-     * expose such a hook yet; this value is retained so diagnostics stay
-     * forward-compatible.
+     * {@link PylorosPlugin#initialize(PluginContext)} threw.
      */
     FAILED_TO_INITIALIZE,
 
     /**
-     * {@link PylorosPlugin#contribute()} threw or returned an invalid
-     * {@link PluginContribution}.
+     * {@link PylorosPlugin#contribute(PluginContext)} threw or returned an
+     * invalid {@link PluginContribution}.
      */
     FAILED_TO_CONTRIBUTE
 }
