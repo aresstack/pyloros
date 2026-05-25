@@ -1,25 +1,25 @@
-# Report: R6-04 PR feedback follow-up
+# Report: R6-04 SDK spike review follow-up
 
 ## What was verified, changed or implemented?
 
-1. Reviewed PR feedback comment addressed to @copilot and implemented all requested doc updates.
-2. Renamed spike file from indexed `007-...` naming to requested R6-04 naming.
-3. Updated the reference link in `006-acp-manager-agent.md` to the renamed file.
-4. Added explicit `Closes #64` in the spike document.
+1. Reviewed automated PR feedback and applied useful documentation fixes.
+2. Added the R6-04 SDK spike document under `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md`.
+3. Updated the reference link in `006-acp-manager-agent.md` to the R6-04 spike file.
+4. Moved issue traceability in the spike document from misleading closing wording to `Related: #64`.
 5. Marked SDK snippets explicitly as `API sketch, not compile-verified in this repository`.
-6. Re-ran targeted server tests after changes.
+6. Normalized ACP/MCP method names and full Maven coordinates in the spike document.
 
 ## Which files were changed or newly created?
 
 | File | Change |
 |------|--------|
-| `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md` | Renamed from `007-...`, added `Closes #64`, added explicit API-sketch/non-compile-verified marker |
-| `docs/requirements/006-acp-manager-agent.md` | Updated link to the renamed R6-04 spike file |
+| `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md` | Added R6-04 SDK decision spike; normalized method names, full Maven coordinates, and API-sketch warning |
+| `docs/requirements/006-acp-manager-agent.md` | Added English reference to the R6-04 SDK decision spike |
 | `docs/agent/report.md` | Replaced with this report |
 
 ## Which architecture decision was touched?
 
-- No functional architecture change; documentation/decision record alignment for R6-04 SDK spike and traceability to issue closure (`#64`).
+- No functional architecture change; documentation/decision record alignment for the R6-04 SDK spike and traceability to #64.
 
 ## Which tests, builds and runtime checks were executed?
 
@@ -38,6 +38,6 @@ Successful
   - `HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header`
 - Recommended next step: re-run `parallel_validation` Code Review once external header/tooling issue is resolved.
 
-## Exact commit hash, or No commit created
+## Commit reference
 
-b86c218
+Commit history is recorded in the pull request.

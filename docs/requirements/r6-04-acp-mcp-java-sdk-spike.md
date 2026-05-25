@@ -2,14 +2,14 @@
 
 Parent issue: aresstack/pyloros#59
 
-Closes #64
+Related: #64
 
 ## Ziel
 
 Entscheidungsvorlage fuer den Java-21-Manager-Agenten:
 
-- welches Java ACP SDK fuer `session/new|prompt|update`
-- welches Java MCP SDK fuer `tools/list|tools/call`
+- welches Java ACP SDK fuer `session/new`, `session/prompt`, `session/update`
+- welches Java MCP SDK fuer `tools/list`, `tools/call`
 - welche Versionen fuer R6 (ohne Snapshot-Zwang)
 - welche Risiken fuer Java 21, Packaging und Distribution
 
@@ -21,7 +21,7 @@ Stand: 2026-05-25
 
 - **SDK:** `com.agentclientprotocol` Java SDK
 - **Dependency (minimal):** `com.agentclientprotocol:acp-core:0.11.0`
-- **Optional:** `acp-agent-support:0.11.0` (Annotation-Bootstrap), `acp-websocket-jetty:0.11.0` (nur falls WS-Transport benoetigt)
+- **Optional:** `com.agentclientprotocol:acp-agent-support:0.11.0` (Annotation-Bootstrap), `com.agentclientprotocol:acp-websocket-jetty:0.11.0` (nur falls WS-Transport benoetigt)
 
 **Warum:**
 
@@ -33,7 +33,7 @@ Stand: 2026-05-25
 
 - **SDK:** `io.modelcontextprotocol.sdk` Java SDK
 - **Dependency (R6-stabil):** `io.modelcontextprotocol.sdk:mcp:1.1.3`
-- **Alternative fuer feinere Kontrolle:** `mcp-core:1.1.3` + explizites JSON-Modul
+- **Alternative fuer feinere Kontrolle:** `io.modelcontextprotocol.sdk:mcp-core:1.1.3` + explizites JSON-Modul
 
 **Warum:**
 
