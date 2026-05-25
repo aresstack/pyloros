@@ -3,11 +3,22 @@
 This smoke test validates the Release 6 flow:
 **Agent → MCP tools/list → MCP tools/call → Agent response**
 
+Parent issue: `aresstack/pyloros#59`
+
+## Scope and current implementation depth
+
+- Pyloros already provides the ACP runtime infrastructure (`AcpVirtualToolProvider`,
+  ACP session handling, recursion validation).
+- A dedicated standalone manager-agent binary is still a separate deliverable.
+- Therefore this document contains:
+  1. manual smoke steps to run with an ACP-compatible agent binary when available
+  2. automation-ready steps that can be scripted in CI later
+
 ## Prerequisites
 
 - Java 21 installed
 - Pyloros built: `./gradlew build`
-- An ACP-compatible agent binary available (e.g. `pyloros-manager-agent.jar`)
+- An ACP-compatible agent binary available (for example a future `pyloros-manager-agent.jar`)
 
 ## Configuration
 
@@ -60,7 +71,7 @@ Pyloros
 Client
 ```
 
-## Test Steps
+## Manual smoke-test steps (current)
 
 ### 1. Start Pyloros
 
@@ -201,7 +212,7 @@ Expected rejection:
 agentToolView must not be 'public' — ACP agents must not see the public tool view: public
 ```
 
-## Automated Tests
+## Existing automated baseline in this repository
 
 The following unit and integration tests validate the R6 flow without a real agent process:
 
@@ -217,6 +228,17 @@ Run all ACP tests:
 ```bash
 ./gradlew :pyloros-server:test --tests "com.aresstack.pyloros.acp.*"
 ```
+
+## Later automatable smoke-test flow
+
+The manual steps above are intentionally written so they can later be automated
+as a scripted smoke test:
+
+1. Start Pyloros and assert ACP provider registration log line.
+2. Call MCP `tools/list` and assert `manager/*` tool names are present.
+3. Call MCP `tools/call` with `manager/run_task` and assert successful response.
+4. Call MCP `tools/call` with `manager/start_task`, poll `get_task_status`, then `get_task_result`.
+5. Run negative config checks for recursion protection (`agentToolView` self/public).
 
 ## Success Criteria
 

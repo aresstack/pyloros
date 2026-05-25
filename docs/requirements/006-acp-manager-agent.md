@@ -1,11 +1,14 @@
 # Release 6 – Java 21 ACP Manager Agent
 
+Parent issue: `aresstack/pyloros#59`
+
 ## 1. Summary
 
-Release 6 replaces the abandoned Release 5 LangChain-in-core approach with an
-**ACP Manager Agent** architecture. Agent logic lives outside Pyloros core as a
-separate ACP-based process that receives the Pyloros MCP aggregator as its
-injected tool server.
+This document defines the Release 6 target architecture and current
+implementation baseline. The abandoned Release 5 LangChain-in-core approach is
+replaced by an **ACP Manager Agent** architecture where agent logic lives
+outside Pyloros core as a separate ACP-based process that receives the Pyloros
+MCP aggregator as its injected tool server.
 
 Pyloros remains a **Capability Gateway and Tool Aggregator**. The manager agent
 is a consumer of the aggregated MCP tool surface, not an extension of the core.
@@ -24,13 +27,13 @@ Pyloros Core
   -> Native / MCP / ACP / Plugin Provider
 ```
 
-### 2.2 Manager Agent (new in R6)
+### 2.2 Manager Agent (target in R6)
 
 ```text
 ACP Client / IDE / Virtual ACP Provider
   -> session/new
   -> inject Pyloros MCP server as tool server
-  -> Java 21 ACP Manager Agent
+  -> Java 21 ACP Manager Agent (standalone runtime, to be delivered separately)
   -> uses aggregated MCP tools (tools/list, tools/call)
   -> plans, executes, reviews, reports
 ```
@@ -64,6 +67,14 @@ copilot/*      (would cause recursion)
 goose/*        (other ACP provider)
 claude/*       (other ACP provider)
 ```
+
+### 2.5 Current implementation depth in this repository
+
+- **Implemented in Pyloros core:** ACP provider infrastructure (`AcpVirtualToolProvider`,
+  `AcpAgentClient`, `AcpProcessLauncher`, `AgentTask`, `AgentToolViewValidator`,
+  `AcpProviderFactory`), including MCP tool exposure and recursion protection.
+- **Not implemented in this repository:** a standalone, production-ready
+  manager-agent runtime/binary that performs higher-level orchestration logic.
 
 ---
 
@@ -178,7 +189,7 @@ Configuration example (`mcp.json`):
 
 ---
 
-## 7. What Release 6 Provides
+## 7. Release 6 status in this repository
 
 | Component | Status |
 |-----------|--------|
@@ -189,6 +200,7 @@ Configuration example (`mcp.json`):
 | `AgentTask` lifecycle management | ✅ Implemented |
 | `AcpProviderFactory` (mcp.json config) | ✅ Implemented |
 | `AcpToolDefinitions` (run_task, start_task, etc.) | ✅ Implemented |
+| Standalone Java 21 ACP manager-agent runtime/binary | ⏳ Planned / external to this repository |
 | Smoke test documentation | ✅ See `docs/smoke-test/` |
 | Architecture documentation | ✅ This document |
 
@@ -219,15 +231,16 @@ The manager agent can later evolve into:
 
 ---
 
-## 10. Definition of Done
+## 10. Documentation Definition of Done (Issue #59 scope)
 
-Release 6 is complete when:
+This issue is complete when:
 
 - [x] Old Release 5 LangChain core approach is fully replaced by ACP Manager Agent architecture
 - [x] `ProviderType.LANGCHAIN` removed from core
-- [x] Minimal Java 21 ACP Manager Agent infrastructure is present (`AcpVirtualToolProvider`)
-- [x] Agent can use the Pyloros MCP aggregator as injected tool server
+- [x] Existing ACP provider infrastructure is clearly documented as prerequisite (`AcpVirtualToolProvider` and related ACP runtime pieces)
+- [x] Agent flow over injected Pyloros MCP server is documented (`tools/list` + `tools/call`)
 - [x] Agent tool view is clearly defined and enforced
 - [x] Recursion protection is documented and tested (`AgentToolViewValidator`)
 - [x] Smoke test documents the flow: Agent → MCP tools/list → MCP tools/call → Agent response
 - [x] Architecture is documented (this document)
+- [ ] Standalone manager-agent runtime implementation (explicitly not part of this documentation issue)

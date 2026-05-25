@@ -1,54 +1,27 @@
-# Report: Release 6 – Java 21 ACP Manager Agent
+What was verified, changed or implemented?
+- Updated Release 6 documentation to match issue scope `aresstack/pyloros#59` without overstating implementation status.
+- Documented protocol roles clearly (MCP for tools/resources, ACP for agent sessions, A2A as future option).
+- Clarified that ACP provider infrastructure in this repository is implemented, while a standalone manager-agent runtime remains a separate deliverable.
+- Updated R6 smoke-test document with explicit manual flow and a separate later-automatable smoke-test sequence.
 
-## What was verified, changed or implemented?
+Which files were changed or newly created?
+- Changed:
+  - /home/runner/work/pyloros/pyloros/docs/requirements/006-acp-manager-agent.md
+  - /home/runner/work/pyloros/pyloros/docs/smoke-test/r6-manager-agent-smoke-test.md
+  - /home/runner/work/pyloros/pyloros/docs/agent/report.md
+- Created: none
 
-1. **Removed `ProviderType.LANGCHAIN`** from the core enum — the issue explicitly states
-   "kein eigener ProviderType.LANGCHAIN im Core". The value was unused in all Java code.
+Which architecture decision was touched?
+- Release 6 architecture positioning: Pyloros remains MCP capability gateway/aggregator; manager-agent orchestration is external via ACP and not yet represented as a completed standalone runtime in this repository.
 
-2. **Marked Release 5 LangChain requirements doc as superseded** — added a prominent
-   notice at the top of `docs/requirements/pyloros-langchain-extension.md` pointing to R6.
+Which tests, builds and runtime checks were executed?
+- ./gradlew --no-daemon :pyloros-server:test (before documentation edits)
+- ./gradlew --no-daemon :pyloros-server:test (after documentation edits)
 
-3. **Created Release 6 architecture documentation** — comprehensive doc covering:
-   - Architecture overview (core stays unchanged, agent is external)
-   - Protocol roles (MCP for tools, ACP for sessions)
-   - Agent tool view definition
-   - Recursion protection rules
-   - Session lifecycle
-   - MCP injection mechanism
-   - What R6 removes from core vs. what it provides
-   - Definition of Done checklist
+Result: successful
 
-4. **Created R6 Manager Agent smoke test** — step-by-step test document showing the
-   Agent → MCP tools/list → MCP tools/call → Agent response flow, including recursion
-   protection verification.
+If failed: exact error and recommended next step
+- No failures.
 
-## Which files were changed or newly created?
-
-| File | Change |
-|------|--------|
-| `pyloros-server/src/main/java/com/aresstack/pyloros/provider/ProviderType.java` | Removed `LANGCHAIN` enum value |
-| `docs/requirements/pyloros-langchain-extension.md` | Added superseded notice |
-| `docs/requirements/006-acp-manager-agent.md` | **New** — R6 architecture doc |
-| `docs/smoke-test/r6-manager-agent-smoke-test.md` | **New** — R6 smoke test |
-
-## Which architecture decision was touched?
-
-- ADR: Replace Release 5 LangChain-in-core approach with ACP Manager Agent architecture
-- Agent logic lives outside Pyloros core as an ACP-based sidecar process
-- Pyloros remains Capability Gateway and Tool Aggregator
-
-## Which tests, builds and runtime checks were executed?
-
-- `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:compileTestJava` → SUCCESS
-- `./gradlew --no-daemon :pyloros-server:test` → All tests pass
-- `./gradlew --no-daemon build` → Full build successful (57 tasks)
-- CodeQL Security Scan → Passed (trivial change)
-
-## Result
-
-Successful
-
-## Exact commit hash
-
-806293f (branch: copilot/release-6-java-21-acp-manager-agent)
-
+Exact commit hash, or No commit created
+- No commit created
