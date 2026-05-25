@@ -1,60 +1,71 @@
-# Report — R4-01 follow-up (lifecycle + context)
+# Report — Issue #23 (R4-06: Plugin-Fehlerbehandlung und Diagnose)
 
-## Was wurde umgesetzt?
+## Was wurde umgesetzt / verifiziert?
 
-Per Review (@Miguel0888, comment 4530624083) wurde die kanonische R4-Plugin-API
-um Lifecycle- und Context-Vertrag ergänzt:
+- PR auf aktuelles `main` gemerged (kanonische R4-01-API aus #46 und
+  R4-03-Config aus #45 sind dort jetzt vorhanden). Diese PR liefert nur
+  noch die R4-06-Diagnoseschicht oben drauf — keine duplizierten
+  API-Dateien mehr.
+- R4-06-eigene Typen in `com.aresstack.pyloros.plugin` (`pyloros-server`):
+  - `PluginStatus` (`LOADED`, `DISABLED`, `FAILED_TO_LOAD`,
+    `FAILED_TO_INITIALIZE`, `FAILED_TO_CONTRIBUTE`); Javadoc verweist
+    jetzt explizit auf die kanonischen `initialize(PluginContext)` und
+    `contribute(PluginContext)` Hooks.
+  - `PluginErrorInfo` (Record) — Fehlerklasse + auf 500 Zeichen
+    gekuerzte Meldung (`...`-Suffix).
+  - `PluginLoadResult` (Record) — Host-Sicht auf einen entdeckten
+    Plugin: `pluginId`, `status`, optionaler kanonischer
+    `PluginDescriptor`, optionale `PluginErrorInfo`. Faellt bei
+    nicht instanziierbaren Plugins auf den Implementations-
+    klassennamen zurueck.
+  - `PluginRegistry` — laedt via `ServiceLoader.stream()`, kapselt jede
+    Phase (Instanziierung, `descriptor()`, `initialize(context)`,
+    `contribute(context)`) einzeln in `try/catch (Throwable)`,
+    nutzt `PluginContext.noop(pluginId)` als Lifecycle-Kontext,
+    validiert die `PluginContribution` (nicht-blank `providerId`,
+    keine Duplikate) und veroeffentlicht beigetragene Provider nur
+    atomar: jeder Fehler verwirft die *gesamte* Contribution.
+    Disabled IDs werden vor `initialize(context)` kurzgeschlossen.
+- `PylorosApplication` wird in diesem PR nicht verdrahtet. Die finale
+  Integration mit dem R4-03-Aktivierungsmodell aus `main` erfolgt in
+  einer Folge-PR; dieser PR bleibt strikt auf den kanonischen Typen.
+- Tests: `PluginRegistryTest` deckt erfolgreiches Laden, Disabled,
+  Konstruktor-Fehler, `initialize()`-Fehler, `contribute()`-Fehler,
+  ungueltige Contributions (atomar verworfen), Mix faulty/healthy
+  und Truncation langer Fehlermeldungen ab.
 
-- Neuer minimaler, erweiterbarer `PluginContext` (keine Vert.x-, HTTP- oder
-  JSON-RPC-Abhängigkeiten).
-  - `String pluginId()` — Identität.
-  - `<T> Optional<T> service(Class<T>)` — typisierter Service-Lookup, damit
-    Host-Capabilities in späteren R4-PRs hinzukommen können, ohne die
-    Plugin-API zu brechen.
-  - `static PluginContext noop(String pluginId)` — Minimalkontext für Tests
-    und frühe Hosts.
-- `PylorosPlugin` erweitert um Default-Lifecycle-Hook
-  `default void initialize(PluginContext)` und um den kontextbewussten
-  `PluginContribution contribute(PluginContext)`.
-- `PluginDescriptor` bleibt **strikt** Metadaten (`id`, `name`, `version`,
-  `description`); keine Runtime-Status- oder Fehlermodelle.
-- `PluginContribution` bleibt der einzelne Contribution-Container.
-- `package-info.java` erweitert um Lifecycle- und Context-Beschreibung.
+## Geaenderte / neue Dateien (relativ zu `main`)
 
-## Welche Dateien wurden geändert oder neu erstellt?
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginStatus.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginErrorInfo.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginLoadResult.java`
+- Neu: `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginRegistry.java`
+- Neu: `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginRegistryTest.java`
+- Geaendert: `docs/agent/report.md` (dieser Report).
 
-Neu:
+Keine Aenderungen an den kanonischen API-Dateien aus #46
+(`PylorosPlugin`, `PluginContext`, `PluginDescriptor`,
+`PluginContribution`, `PluginContributionResult`, `package-info.java`,
+`PluginApiTest`) — diese kommen unveraendert aus `main`.
 
-- `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PluginContext.java`
+## Architekturentscheidung beruehrt?
 
-Geändert:
+- R4-01-API aus #46 bleibt unangetastet; R4-06 ergaenzt rein additiv
+  um Diagnose-Status, Fehlerinfo, Failure-Isolation und atomare
+  Contribution-Publikation.
+- `PylorosApplication` bleibt unveraendert, bis eine Folge-PR die
+  Enable/Disable-Konfiguration aus #45 mit der Registry verdrahtet.
 
-- `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/PylorosPlugin.java`
-  (Lifecycle `initialize` Default-Hook + `contribute(PluginContext)`)
-- `pyloros-server/src/main/java/com/aresstack/pyloros/plugin/package-info.java`
-  (Key-Types & Lifecycle-Abschnitt)
-- `pyloros-server/src/test/java/com/aresstack/pyloros/plugin/PluginApiTest.java`
-  (existierende Tests auf neue Signaturen migriert; zusätzliche Tests für
-  `PluginContext.noop`, host-provided service lookup, und Lifecycle
-  `initialize` → `contribute`)
+## Tests / Builds
 
-## Welche Architekturentscheidung wurde berührt?
+- `./gradlew --no-daemon :pyloros-server:test --tests com.aresstack.pyloros.plugin.PluginRegistryTest` → BUILD SUCCESSFUL.
+- `./gradlew --no-daemon :pyloros-server:test` (volle Server-Suite) → BUILD SUCCESSFUL.
 
-R4-01 (Issue #18) — Plugin API contracts. `PluginContext` ist absichtlich
-minimal und erweiterbar gehalten (typed service lookup), so dass die R4-PRs
-#44 und #45 darauf rebasen können, ohne konkurrierende Typen einzuführen.
-Es wurden bewusst **keine** Vert.x-, HTTP- oder JSON-RPC-Typen referenziert.
-Runtime-Diagnostik/Status verbleibt bei R4-06 (#23 / PR #44).
+## Ergebnis
 
-## Welche Tests / Builds / Runtime-Checks wurden ausgeführt?
-
-- `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.plugin.PluginApiTest"` → BUILD SUCCESSFUL.
-
-## Resultat
-
-Erfolgreich. Alle Plugin-API-Tests grün; keine anderen Module nutzen die
-Plugin-API-Typen, daher keine weiteren Anpassungen nötig.
+Erfolgreich.
 
 ## Commit
 
-Wird durch `report_progress` erzeugt.
+Wird vom Cloud-Agent (Copilot) via `report_progress` gepusht; konkreter
+Hash siehe PR-Branch `copilot/r4-06-plugin-error-handling`.
