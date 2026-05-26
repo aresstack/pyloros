@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -171,6 +172,19 @@ class ToolCatalogRoutingTest {
         assertEquals("Duplicate provider id: github", thrown.getMessage());
     }
 
+    @Test
+    void refreshingEmptyViewClearsStalePerViewSnapshot() {
+        RecordingProvider publicOnly = new RecordingProvider("public-only", false, "echo");
+        ToolCatalog toolCatalog = new ToolCatalog(new ProviderRegistry(List.of(publicOnly)));
+
+        await(toolCatalog.listTools(ToolView.PUBLIC));
+        forceSnapshotForView(toolCatalog, ToolView.AGENT, toolCatalog.snapshot());
+
+        await(toolCatalog.listTools(ToolView.AGENT));
+
+        assertTrue(toolCatalog.findByExternalName("public-only__echo", ToolView.AGENT).isEmpty());
+    }
+
     private static ToolRouter routerWithCatalog(ToolProvider provider) {
         return routerWithCatalog(provider, ToolNameFormatter.defaultFormatter());
     }
@@ -205,6 +219,17 @@ class ToolCatalogRoutingTest {
 
     private static <T> T await(Future<T> future) {
         return future.toCompletionStage().toCompletableFuture().join();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void forceSnapshotForView(ToolCatalog toolCatalog, ToolView toolView, ToolCatalogSnapshot snapshot) {
+        try {
+            Field field = ToolCatalog.class.getDeclaredField("snapshotsByView");
+            field.setAccessible(true);
+            ((Map<ToolView, ToolCatalogSnapshot>) field.get(toolCatalog)).put(toolView, snapshot);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     private static final class RecordingProvider implements ToolProvider {
@@ -254,4 +279,3 @@ class ToolCatalogRoutingTest {
         }
     }
 }
-

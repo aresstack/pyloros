@@ -9,9 +9,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final int STDERR_PREVIEW_CHARS = 512;
     private static final String INJECTED_MCP_URL_ENV = "PYLOROS_MCP_URL";
     private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
+    private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
+    private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
     private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "acp-task-timeout");
         thread.setDaemon(true);
@@ -586,16 +591,44 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         Map<String, Object> pylorosServer = new LinkedHashMap<>();
         pylorosServer.put("url", injectedUrl);
 
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE);
         String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
         if (bearerToken != null) {
-            pylorosServer.put("headers", Map.of("Authorization", "Bearer " + bearerToken));
+            headers.put("Authorization", "Bearer " + bearerToken);
+        }
+        if (!headers.isEmpty()) {
+            pylorosServer.put("headers", Map.copyOf(headers));
         }
         return Map.of("pyloros", Map.copyOf(pylorosServer));
     }
 
     private static String appendViewQuery(String mcpUrl, String viewName) {
-        String separator = mcpUrl.contains("?") ? "&" : "?";
-        return mcpUrl + separator + "view=" + URLEncoder.encode(viewName, StandardCharsets.UTF_8);
+        String encodedView = URLEncoder.encode(viewName, StandardCharsets.UTF_8);
+        try {
+            URI uri = URI.create(mcpUrl);
+            List<String> queryParts = new ArrayList<>();
+            String rawQuery = uri.getRawQuery();
+            if (rawQuery != null && !rawQuery.isBlank()) {
+                for (String queryPart : rawQuery.split("&")) {
+                    if (queryPart.isBlank()) {
+                        continue;
+                    }
+                    String key = queryPart.contains("=") ? queryPart.substring(0, queryPart.indexOf('=')) : queryPart;
+                    if ("view".equalsIgnoreCase(key)) {
+                        continue;
+                    }
+                    queryParts.add(queryPart);
+                }
+            }
+            queryParts.add("view=" + encodedView);
+            String query = String.join("&", queryParts);
+            URI withView = new URI(uri.getScheme(), uri.getRawAuthority(), uri.getRawPath(), query, uri.getRawFragment());
+            return withView.toString();
+        } catch (IllegalArgumentException | URISyntaxException ignored) {
+            String separator = mcpUrl.contains("?") ? "&" : "?";
+            return mcpUrl + separator + "view=" + encodedView;
+        }
     }
 
     private static String normalizeNullableText(String value) {

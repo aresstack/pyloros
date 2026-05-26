@@ -12,6 +12,7 @@ import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolNameFormatter;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
+import com.aresstack.pyloros.tool.ToolView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
@@ -44,6 +45,9 @@ class PublicEndpointCompatibilityTest {
     private static final String CANONICAL_PATH = "/pyloros";
     private static final String LEGACY_PATH = "/sse";
     private static final String TOOL_NAME = "test__echo";
+    private static final String AGENT_ONLY_TOOL_NAME = "test__agent_secret";
+    private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
+    private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
 
     private Vertx vertx;
     private HttpServer server;
@@ -132,6 +136,20 @@ class PublicEndpointCompatibilityTest {
     }
 
     @Test
+    void queryViewParameterRequiresTrustedInjectedHeader() throws Exception {
+        JsonNode untrusted = postRpc(CANONICAL_PATH + "?view=agent", "tools/list", "{}");
+        assertFalse(untrusted.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
+
+        JsonNode trusted = postRpc(
+                CANONICAL_PATH + "?view=agent",
+                "tools/list",
+                "{}",
+                Map.of(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE)
+        );
+        assertTrue(trusted.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
+    }
+
+    @Test
     void advertisesCanonicalMetadataAndKeepsLegacyAliases() throws Exception {
         JsonNode root = getJson("/");
         assertEquals("https://current-car.com/pyloros", root.path("mcp").asText());
@@ -178,8 +196,12 @@ class PublicEndpointCompatibilityTest {
     }
 
     private JsonNode postRpc(String path, String method, String params) throws Exception {
+        return postRpc(path, method, params, Map.of());
+    }
+
+    private JsonNode postRpc(String path, String method, String params, Map<String, String> extraHeaders) throws Exception {
         String body = String.format("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"%s\",\"params\":%s}", method, params);
-        HttpResponse<String> response = post(path, body);
+        HttpResponse<String> response = post(path, body, extraHeaders);
         assertEquals(200, response.statusCode());
         return JSON.readTree(response.body());
     }
@@ -191,12 +213,18 @@ class PublicEndpointCompatibilityTest {
     }
 
     private HttpResponse<String> post(String path, String body) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
+        return post(path, body, Map.of());
+    }
+
+    private HttpResponse<String> post(String path, String body, Map<String, String> extraHeaders) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + ACCESS_TOKEN)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
+                .header("Content-Type", "application/json");
+        for (Map.Entry<String, String> header : extraHeaders.entrySet()) {
+            builder.header(header.getKey(), header.getValue());
+        }
+        HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(body)).build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
@@ -234,7 +262,24 @@ class PublicEndpointCompatibilityTest {
         }
 
         @Override
+        public List<ToolView> exposedViews() {
+            return List.of(ToolView.PUBLIC, ToolView.AGENT);
+        }
+
+        @Override
         public Future<List<Map<String, Object>>> listTools() {
+            return listTools(ToolView.PUBLIC);
+        }
+
+        @Override
+        public Future<List<Map<String, Object>>> listTools(ToolView toolView) {
+            if (ToolView.AGENT.equals(toolView)) {
+                return Future.succeededFuture(List.of(Map.of(
+                        "name", "agent_secret",
+                        "description", "agent-only tool",
+                        "inputSchema", Map.of("type", "object")
+                )));
+            }
             return Future.succeededFuture(List.of(Map.of(
                     "name", "echo",
                     "description", "echo test tool",
@@ -252,4 +297,3 @@ class PublicEndpointCompatibilityTest {
         }
     }
 }
-

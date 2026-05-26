@@ -245,6 +245,22 @@ class AcpVirtualToolProviderTest {
                     params.path("mcpServers").path("pyloros").path("url").asText());
             assertEquals("Bearer test-token",
                     params.path("mcpServers").path("pyloros").path("headers").path("Authorization").asText());
+            assertEquals("acp",
+                    params.path("mcpServers").path("pyloros").path("headers").path("X-Pyloros-Injected-View").asText());
+        }
+    }
+
+    @Test
+    void sessionNewReplacesExistingViewQueryParameterInInjectedMcpUrl() throws Exception {
+        try (ProviderContext context = newProvider("success", 5, Map.of(
+                "PYLOROS_MCP_URL", "http://127.0.0.1:8081/pyloros?foo=bar&view=public"
+        ))) {
+            call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+
+            JsonNode params = context.agent().lastSessionNewParams();
+            assertNotNull(params);
+            assertEquals("http://127.0.0.1:8081/pyloros?foo=bar&view=agent",
+                    params.path("mcpServers").path("pyloros").path("url").asText());
         }
     }
 

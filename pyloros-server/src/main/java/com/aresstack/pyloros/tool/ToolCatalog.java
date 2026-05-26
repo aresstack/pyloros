@@ -63,8 +63,10 @@ public final class ToolCatalog {
                         .orElse(true))
                 .toList();
         if (providers.isEmpty()) {
-            snapshot = ToolCatalogSnapshot.empty();
-            return Future.succeededFuture(snapshot);
+            ToolCatalogSnapshot emptySnapshot = ToolCatalogSnapshot.empty();
+            snapshot = emptySnapshot;
+            snapshotsByView.put(toolView, emptySnapshot);
+            return Future.succeededFuture(emptySnapshot);
         }
 
         List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();

@@ -45,6 +45,30 @@ class AcpProviderFactoryTest {
         }
     }
 
+    @Test
+    void ignoresInvalidAcpConfigWhenBuildingViewCollisionMap() {
+        Vertx vertx = Vertx.vertx();
+        try {
+            AcpProviderJsonConfig managerConfig = acpConfig("manager", "manager-agent-view", List.of("public"));
+            AcpProviderJsonConfig invalidConfig = new AcpProviderJsonConfig(
+                    "broken",
+                    "acp",
+                    "broken/",
+                    List.of("manager-agent-view"),
+                    "other-agent-view",
+                    new AcpProviderJsonConfig.AcpProcessJsonConfig("   ", List.of(), null, Map.of()),
+                    null
+            );
+
+            List<ToolProvider> providers = AcpProviderFactory.createProviders(List.of(managerConfig, invalidConfig), vertx);
+
+            assertEquals(1, providers.size());
+            assertEquals("manager", providers.getFirst().providerId());
+        } finally {
+            vertx.close().toCompletionStage().toCompletableFuture().join();
+        }
+    }
+
     private static AcpProviderJsonConfig acpConfig(String id, String agentToolView, List<String> exposeInViews) {
         return new AcpProviderJsonConfig(
                 id,

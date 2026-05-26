@@ -121,7 +121,7 @@ public final class AcpProviderFactory {
     private static Set<String> collectProviderIds(List<AcpProviderJsonConfig> configs) {
         Set<String> ids = new HashSet<>();
         for (AcpProviderJsonConfig config : configs) {
-            if (config.id() != null && !config.id().isBlank()) {
+            if (isEligibleForCreation(config) && config.id() != null && !config.id().isBlank()) {
                 ids.add(config.id().trim());
             }
         }
@@ -131,6 +131,9 @@ public final class AcpProviderFactory {
     private static Map<String, Set<String>> collectProviderIdsByExposedView(List<AcpProviderJsonConfig> configs) {
         Map<String, Set<String>> providerIdsByView = new HashMap<>();
         for (AcpProviderJsonConfig config : configs) {
+            if (!isEligibleForCreation(config)) {
+                continue;
+            }
             if (config.id() == null || config.id().isBlank()) {
                 continue;
             }
@@ -144,5 +147,16 @@ public final class AcpProviderFactory {
             }
         }
         return providerIdsByView;
+    }
+
+    private static boolean isEligibleForCreation(AcpProviderJsonConfig config) {
+        return config != null
+                && config.type() != null
+                && config.type().equalsIgnoreCase("acp")
+                && config.id() != null
+                && !config.id().isBlank()
+                && config.process() != null
+                && config.process().command() != null
+                && !config.process().command().isBlank();
     }
 }

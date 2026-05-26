@@ -11,6 +11,7 @@ import com.aresstack.pyloros.tool.ToolView;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -25,6 +26,9 @@ public final class McpRoutes {
 
     private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
     private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
+    private static final String TOOL_VIEW_QUERY_PARAM = "view";
+    private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
+    private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
 
     private final ServerConfig config;
     private final RequestAuthenticator authenticator;
@@ -155,11 +159,27 @@ public final class McpRoutes {
     }
 
     private ToolView resolveRequestedToolView(RoutingContext context) {
-        String requestedView = context.request().getParam("view");
+        String requestedView = context.request().getParam(TOOL_VIEW_QUERY_PARAM);
         if (requestedView == null || requestedView.isBlank()) {
             return ToolView.PUBLIC;
         }
+        if (!isTrustedInjectedViewRequest(context)) {
+            return ToolView.PUBLIC;
+        }
         return ToolView.named(requestedView.trim());
+    }
+
+    private static boolean isTrustedInjectedViewRequest(RoutingContext context) {
+        String injectedViewHeader = context.request().getHeader(TRUSTED_VIEW_SOURCE_HEADER);
+        if (!TRUSTED_VIEW_SOURCE_VALUE.equalsIgnoreCase(injectedViewHeader == null ? "" : injectedViewHeader.trim())) {
+            return false;
+        }
+        SocketAddress remoteAddress = context.request().remoteAddress();
+        if (remoteAddress == null) {
+            return false;
+        }
+        String host = remoteAddress.hostAddress();
+        return "127.0.0.1".equals(host) || "::1".equals(host) || "0:0:0:0:0:0:0:1".equals(host);
     }
 
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {
