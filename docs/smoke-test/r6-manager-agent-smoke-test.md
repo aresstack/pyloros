@@ -257,7 +257,7 @@ The following unit and integration tests validate the R6 flow without a real age
 | `AcpVirtualToolProviderTest` | Provider behavior, timeout, cancellation |
 | `AcpRuntimeIntegrationTest` | End-to-end with real process launch |
 
-Run all ACP tests:
+Run the manager-agent injected-MCP smoke test plus ACP server tests:
 
 ```bash
 ./gradlew :pyloros-manager-agent:test --tests "com.aresstack.pyloros.manageragent.ManagerAgentInjectedMcpSmokeTest" \

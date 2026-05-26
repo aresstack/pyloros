@@ -80,7 +80,9 @@ class ManagerAgentInjectedMcpSmokeTest {
     }
 
     private static JsonNode receive(BufferedReader reader) throws IOException {
-        return OBJECT_MAPPER.readTree(reader.readLine());
+        String line = reader.readLine();
+        assertNotNull(line, "Expected JSON-RPC line but stream closed");
+        return OBJECT_MAPPER.readTree(line);
     }
 
     private record SessionHarness(BufferedWriter writer, BufferedReader reader, ExecutorService executor,
@@ -119,6 +121,14 @@ class ManagerAgentInjectedMcpSmokeTest {
             clientWriterPipe.close();
             clientReaderPipe.close();
             executor.shutdownNow();
+            try {
+                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    throw new IOException("Timed out waiting for protocol server executor termination");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting for protocol server executor termination", exception);
+            }
         }
     }
 
