@@ -15,6 +15,7 @@ public final class ToolCatalog {
     private final ProviderRegistry providerRegistry;
     private final ToolNameFormatter toolNameFormatter;
     private volatile ToolCatalogSnapshot snapshot = ToolCatalogSnapshot.empty();
+    private final Map<ToolView, ToolCatalogSnapshot> snapshotsByView = new java.util.concurrent.ConcurrentHashMap<>();
 
     public ToolCatalog(ProviderRegistry providerRegistry) {
         this(providerRegistry, ToolNameFormatter.defaultFormatter());
@@ -38,8 +39,21 @@ public final class ToolCatalog {
         return snapshot.findByExternalName(externalName);
     }
 
+    public Optional<ToolCatalogEntry> findByExternalName(String externalName, ToolView toolView) {
+        Objects.requireNonNull(toolView, "toolView must not be null");
+        ToolCatalogSnapshot viewSnapshot = snapshotsByView.get(toolView);
+        if (viewSnapshot == null) {
+            return Optional.empty();
+        }
+        return viewSnapshot.findByExternalName(externalName);
+    }
+
     public ToolCatalogSnapshot snapshot() {
         return snapshot;
+    }
+
+    public Future<ToolCatalogSnapshot> snapshotForView(ToolView toolView) {
+        return refresh(Objects.requireNonNull(toolView, "toolView must not be null"));
     }
 
     private Future<ToolCatalogSnapshot> refresh(ToolView toolView) {
@@ -100,6 +114,7 @@ public final class ToolCatalog {
                     toolsByProviderId
             );
             snapshot = refreshed;
+            snapshotsByView.put(toolView, refreshed);
             return refreshed;
         });
     }

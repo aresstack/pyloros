@@ -2,6 +2,7 @@ package com.aresstack.pyloros.manageragent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +12,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,7 +47,7 @@ class ManagerAgentProtocolServerTest {
         Session session = startServer();
 
         send(session.writer(), """
-                {"jsonrpc":"2.0","id":"1","method":"session/new","params":{"cwd":"/workspace"}}
+                {"jsonrpc":"2.0","id":"1","method":"session/new","params":{"cwd":"/workspace","mcpServers":{"pyloros":{"url":"http://127.0.0.1:8081/pyloros?view=agent"}}}}
                 """);
         JsonNode newSessionResponse = receive(session.reader());
         String sessionId = newSessionResponse.path("result").path("sessionId").asText(null);
@@ -100,7 +103,11 @@ class ManagerAgentProtocolServerTest {
         clientReaderPipe = new java.io.PipedInputStream(64 * 1024);
         java.io.PipedOutputStream serverOut = new java.io.PipedOutputStream(clientReaderPipe);
 
-        ManagerAgentProtocolServer server = new ManagerAgentProtocolServer(serverIn, serverOut);
+        LineDelimitedJsonRpcTransport transport = new LineDelimitedJsonRpcTransport(OBJECT_MAPPER, serverIn, serverOut);
+        ManagerAgentHandshakeHandler handshakeHandler = new ManagerAgentHandshakeHandler(
+                OBJECT_MAPPER, new ManagerAgentSessionState(), new StubMcpGateway());
+        ManagerAgentJsonRpcDispatcher dispatcher = new ManagerAgentJsonRpcDispatcher(handshakeHandler);
+        ManagerAgentProtocolServer server = new ManagerAgentProtocolServer(transport, dispatcher);
         executor = Executors.newSingleThreadExecutor();
         executor.submit(() -> {
             try {
@@ -126,5 +133,28 @@ class ManagerAgentProtocolServerTest {
     }
 
     private record Session(BufferedWriter writer, BufferedReader reader) {
+    }
+
+    private static final class StubMcpGateway implements ManagerAgentMcpGateway {
+        @Override
+        public JsonNode toolsList(McpServer server) {
+            ObjectNode response = OBJECT_MAPPER.createObjectNode();
+            response.put("jsonrpc", "2.0");
+            response.put("id", "list");
+            response.set("result", OBJECT_MAPPER.valueToTree(Map.of("tools", List.of(Map.of("name", "safe__status")))));
+            return response;
+        }
+
+        @Override
+        public JsonNode toolsCall(McpServer server, String toolName, JsonNode arguments) {
+            ObjectNode response = OBJECT_MAPPER.createObjectNode();
+            response.put("jsonrpc", "2.0");
+            response.put("id", "call");
+            response.set("result", OBJECT_MAPPER.valueToTree(Map.of(
+                    "content", List.of(Map.of("type", "text", "text", "ok")),
+                    "isError", false
+            )));
+            return response;
+        }
     }
 }
