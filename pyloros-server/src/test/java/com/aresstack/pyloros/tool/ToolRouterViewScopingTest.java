@@ -37,6 +37,26 @@ class ToolRouterViewScopingTest {
                 ((Map<?, ?>) ((List<?>) agentResult.get("content")).getFirst()).get("text"));
     }
 
+    @Test
+    void publicRefreshDoesNotAllowAgentDispatchForPublicOnlyTool() {
+        ToolProvider provider = new PublicOnlyProvider();
+        ProviderRegistry providerRegistry = new ProviderRegistry(List.of(provider));
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
+        ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
+
+        List<Map<String, Object>> publicTools = await(toolCatalog.listTools(ToolView.PUBLIC));
+        String externalToolName = (String) publicTools.getFirst().get("name");
+
+        assertTrue(toolCatalog.findByExternalName(externalToolName, ToolView.PUBLIC).isPresent());
+
+        Map<String, Object> agentResult = await(toolRouter.callTool(
+                new McpToolCall(externalToolName, JSON.createObjectNode()), ToolView.AGENT));
+
+        assertTrue((Boolean) agentResult.get("isError"));
+        assertEquals("Tool not found: " + externalToolName,
+                ((Map<?, ?>) ((List<?>) agentResult.get("content")).getFirst()).get("text"));
+    }
+
     private static <T> T await(Future<T> future) {
         return future.toCompletionStage().toCompletableFuture().join();
     }
