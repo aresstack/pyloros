@@ -204,7 +204,8 @@ Configuration example (`mcp.json`):
 | `AcpToolDefinitions` (run_task, start_task, etc.) | ✅ Implemented |
 | Minimal Java 21 manager-agent module shape (`pyloros-manager-agent`) | ✅ Implemented as standalone bootstrap subproject |
 | ACP/MCP SDK baseline for manager-agent module | ✅ Pinned to ACP `0.11.0` and MCP `1.1.3` (see R6-04) |
-| Production-ready standalone manager-agent runtime/binary | ⏳ Not implemented (bootstrap only) |
+| Minimal ACP manager-agent handshake (`session/new`, `session/prompt`, `session/update`) | ✅ Implemented in `pyloros-manager-agent` with stdio-safe logging |
+| Production-ready standalone manager-agent runtime/binary | ⏳ Not implemented (minimal handshake only, no planning/tool-orchestration/LLM integration) |
 | Smoke test documentation | ✅ See `docs/smoke-test/` |
 | Architecture documentation | ✅ This document |
 
@@ -223,6 +224,16 @@ can evolve and be started as a separate process using its application distributi
 For ACP stdio process compatibility, the manager-agent bootstrap module configures
 its runtime logging to `stderr` (`src/main/resources/logback.xml`), so `stdout`
 can remain reserved for ACP JSON-RPC payloads.
+
+### 7.2 Minimal handshake scope clarification (R6-05)
+
+The current R6-05 implementation in `pyloros-manager-agent` intentionally uses a
+minimal line-delimited JSON-RPC stdio adapter compatible with the existing
+Pyloros side (`AcpJsonRpcConnection` reads/writes newline-delimited messages).
+It is **not** yet a full ACP-SDK-abstraction or production ACP runtime. The
+SDK baseline (`acp-core`) is pinned and available, but only the minimal
+`session/new` + `session/prompt` + basic `session/update` handshake is
+implemented in this step.
 
 ---
 
