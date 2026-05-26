@@ -1,50 +1,43 @@
-# Report: R6-07 comment follow-up — cross-ACP manager-agent recursion gap
+# Report: R6-08 end-to-end smoke test for ACP manager agent with injected MCP tools
 
 ## What was verified, changed or implemented?
-- Verified and addressed the reported gap: validation previously considered ACP provider IDs only, but not whether another ACP provider is exposed in the manager agent's selected `agentToolView`.
-- Extended `AcpProviderFactory` to compute ACP provider exposure per view (`view -> set(providerIds)`) and pass it into `AgentToolViewValidator`.
-- Extended `AgentToolViewValidator` signature and logic to reject configurations where `agentToolView` includes any *other* ACP provider exposed in that view.
-- Added explicit error text including provider id, agentToolView, and the colliding ACP provider id:
-  - `... includes ACP provider 'other-acp' and may trigger recursive agent invocation.`
-- Preserved existing protections (public-view ban, self-reference ban, provider-id reference ban, own exposeInViews collision ban).
-- Added tests:
-  - `AgentToolViewValidatorTest` now covers cross-ACP exposure rejection.
-  - New `AcpProviderFactoryTest` verifies runtime registration behavior:
-    - manager provider rejected when another ACP provider is exposed in manager view,
-    - positive case still works when no ACP provider is exposed in manager view.
-- Updated manager-agent smoke test docs with cross-ACP exposure negative scenario.
+- Added an automated smoke test for the minimal manager-agent R6 flow that uses a real JSON-RPC protocol server plus an injected fake MCP HTTP endpoint.
+- The new test verifies:
+  - manager agent receives injected MCP server config from `session/new`,
+  - manager agent executes `tools/list`,
+  - manager agent executes safe `tools/call` (`pyloros__ping`),
+  - manager agent emits structured ACP responses via `session/update` text and completion events.
+- Updated the R6 smoke-test documentation with:
+  - the new automated test entry and command,
+  - explicit error-path documentation for missing agent process, missing MCP endpoint, and forbidden/recursive agent-view setup.
 
 ## Which files were changed or newly created?
-- Changed: `/home/runner/work/pyloros/pyloros/pyloros-app/src/main/java/com/aresstack/pyloros/config/AcpProviderFactory.java`
-- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentToolViewValidator.java`
-- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/acp/AgentToolViewValidatorTest.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/java/com/aresstack/pyloros/config/AcpProviderFactoryTest.java`
+- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentInjectedMcpSmokeTest.java`
 - Changed: `/home/runner/work/pyloros/pyloros/docs/smoke-test/r6-manager-agent-smoke-test.md`
 
 ## Which architecture decision was touched?
-- Reinforced the R6 manager-agent isolation decision: manager agent tool view must exclude ACP providers that can induce recursive agent invocation, including cross-ACP exposure through shared views.
+- Strengthened the existing R6 separation between Pyloros ACP infrastructure and standalone manager-agent runtime by validating injected MCP tool usage end-to-end without introducing workflow-manager or multi-agent orchestration behavior.
 
 ## Which tests, builds and runtime checks were executed?
-- Baseline before edits:
-  - `./gradlew --no-daemon :pyloros-server:test` → SUCCESS
-- Targeted checks after edits:
-  - `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.acp.AgentToolViewValidatorTest" :pyloros-app:test --tests "com.aresstack.pyloros.config.AcpProviderFactoryTest"` → SUCCESS
-- Broader module checks:
-  - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test` → SUCCESS
-- CI/validation checks:
-  - GitHub Actions runs inspected for base branch `copilot/release-6-java-21-acp-manager-agent` and current branch `copilot/r6-07-harden-agent-tool-view`
-  - `parallel_validation`:
-    - CodeQL Security Scan → SUCCESS (0 alerts)
+- Baseline before changes:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test :pyloros-server:test` → SUCCESS
+- Targeted checks during implementation:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test --tests "com.aresstack.pyloros.manageragent.ManagerAgentInjectedMcpSmokeTest" --tests "com.aresstack.pyloros.manageragent.ManagerAgentHandshakeHandlerTest"` → SUCCESS
+- Post-change module check:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test` → SUCCESS
+- Final validation:
+  - `parallel_validation` run twice:
+    - CodeQL Security Scan → SUCCESS (skipped as trivial test/doc-only changes)
     - Code Review → FAILED due external HTTP 400 header issue
 
 ## Result: successful or failed
-- Successful (requested cross-ACP recursion protection implemented and verified).
+- Successful (required smoke coverage and documentation delivered; code/test verification passed).
 
 ## If failed: exact error and recommended next step
-- External validation tool issue (non-code):
+- External validation service failure (non-code):
   - `HTTP error 400: bad request: Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
 - Recommended next step:
-  - Re-run `parallel_validation` once the external Code Review service/header issue is resolved.
+  - Re-run `parallel_validation` after the external Code Review service/header issue is resolved.
 
 ## Exact commit hash, or No commit created
-- `523502c`
+- `aa51aa9`
