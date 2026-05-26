@@ -16,4 +16,5 @@ dependencies {
 
 application {
     mainClass = 'com.aresstack.pyloros.manageragent.ManagerAgentApplication'
+    applicationName = 'pyloros-manager-agent'
 }
