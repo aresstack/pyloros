@@ -204,7 +204,8 @@ Configuration example (`mcp.json`):
 | `AcpToolDefinitions` (run_task, start_task, etc.) | ✅ Implemented |
 | Minimal Java 21 manager-agent module shape (`pyloros-manager-agent`) | ✅ Implemented as standalone bootstrap subproject |
 | ACP/MCP SDK baseline for manager-agent module | ✅ Pinned to ACP `0.11.0` and MCP `1.1.3` (see R6-04) |
-| Production-ready standalone manager-agent runtime/binary | ⏳ Not implemented (bootstrap only) |
+| Minimal ACP manager-agent handshake (`session/new`, `session/prompt`, `session/update`) | ✅ Implemented in `pyloros-manager-agent` with stdio-safe logging |
+| Production-ready standalone manager-agent runtime/binary | ⏳ Not implemented (minimal handshake only, no planning/tool-orchestration/LLM integration) |
 | Smoke test documentation | ✅ See `docs/smoke-test/` |
 | Architecture documentation | ✅ This document |
 
