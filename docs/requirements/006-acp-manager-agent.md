@@ -214,11 +214,11 @@ Configuration example (`mcp.json`):
 |--------|----------------|------------------|
 | `pyloros-server` | Pyloros core gateway (`ToolProvider`, `ToolRegistry`, MCP aggregation, ACP provider runtime integration) | Manager-agent orchestration logic, LLM stack choices |
 | `pyloros-app` | Runtime bootstrap/wiring for the Pyloros gateway process | ACP manager-agent runtime logic |
-| `pyloros-manager-agent` | Separate Java 21 process/JAR bootstrap for future ACP manager-agent runtime | Core MCP aggregation ownership, LangChain/Ollama core coupling |
+| `pyloros-manager-agent` | Separate Java 21 bootstrap subproject packaged as a Gradle application distribution/start script for future ACP manager-agent runtime | Core MCP aggregation ownership, LangChain/Ollama core coupling |
 
 The manager-agent module is intentionally independent from Pyloros core modules.
 No existing core module depends on `pyloros-manager-agent`, so the manager-agent
-can evolve and be started as a separate process/JAR.
+can evolve and be started as a separate process using its application distribution.
 
 For ACP stdio process compatibility, the manager-agent bootstrap module configures
 its runtime logging to `stderr` (`src/main/resources/logback.xml`), so `stdout`
