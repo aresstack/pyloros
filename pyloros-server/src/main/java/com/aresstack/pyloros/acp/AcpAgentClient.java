@@ -27,8 +27,16 @@ public final class AcpAgentClient implements AutoCloseable {
     }
 
     public CompletableFuture<String> createSession(String cwd) {
+        return createSession(cwd, Map.of());
+    }
+
+    public CompletableFuture<String> createSession(String cwd, Map<String, Object> mcpServers) {
         String normalizedCwd = requireText(cwd, "cwd");
-        return sendRequest("session/new", Map.of("cwd", normalizedCwd))
+        Map<String, Object> normalizedMcpServers = mcpServers == null ? Map.of() : Map.copyOf(mcpServers);
+        return sendRequest("session/new", Map.of(
+                        "cwd", normalizedCwd,
+                        "mcpServers", normalizedMcpServers
+                ))
                 .thenApply(this::extractSessionId);
     }
 

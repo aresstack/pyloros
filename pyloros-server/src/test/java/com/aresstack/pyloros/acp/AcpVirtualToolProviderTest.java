@@ -231,18 +231,40 @@ class AcpVirtualToolProviderTest {
         }
     }
 
+    @Test
+    void sessionNewIncludesInjectedMcpServerConfigurationFromProcessEnvironment() throws Exception {
+        try (ProviderContext context = newProvider("success", 5, Map.of(
+                "PYLOROS_MCP_URL", "http://127.0.0.1:8081/pyloros",
+                "PYLOROS_MCP_BEARER_TOKEN", "test-token"
+        ))) {
+            call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+
+            JsonNode params = context.agent().lastSessionNewParams();
+            assertNotNull(params);
+            assertEquals("http://127.0.0.1:8081/pyloros?view=agent",
+                    params.path("mcpServers").path("pyloros").path("url").asText());
+            assertEquals("Bearer test-token",
+                    params.path("mcpServers").path("pyloros").path("headers").path("Authorization").asText());
+        }
+    }
+
     private static ProviderContext newProvider(String behavior) throws IOException {
         return newProvider(behavior, 5);
     }
 
     private static ProviderContext newProvider(String behavior, int timeoutSeconds) throws IOException {
+        return newProvider(behavior, timeoutSeconds, Map.of());
+    }
+
+    private static ProviderContext newProvider(String behavior, int timeoutSeconds, Map<String, String> processEnvironment)
+            throws IOException {
         FakeAcpAgent agent = new FakeAcpAgent();
         agent.setBehavior(behavior);
         agent.start();
 
         AcpProviderConfiguration config = new AcpProviderConfiguration(
                 "copilot", "copilot/", "agent", List.of("public"),
-                new AcpProcessConfiguration("fake-acp", List.of(), null, Map.of()),
+                new AcpProcessConfiguration("fake-acp", List.of(), null, processEnvironment),
                 new AcpExecutionConfiguration(timeoutSeconds, 1000, 12000, 24000)
         );
         AgentTaskRepository repository = new InMemoryAgentTaskRepository();
@@ -298,7 +320,8 @@ class AcpVirtualToolProviderTest {
         return future.toCompletionStage().toCompletableFuture().join();
     }
 
-    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository, Vertx vertx, FakeAcpAgent agent) implements AutoCloseable {
+    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository, Vertx vertx, FakeAcpAgent agent)
+            implements AutoCloseable {
         @Override
         public void close() {
             agent.close();

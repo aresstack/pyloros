@@ -83,6 +83,13 @@ public final class McpRoutes {
         }
 
         String pathToolName = ToolCallRequestResolver.resolvePathToolName(context.pathParam("*"));
+        ToolView requestedToolView;
+        try {
+            requestedToolView = resolveRequestedToolView(context);
+        } catch (IllegalArgumentException exception) {
+            HttpJson.rpcError(context, null, -32602, exception.getMessage());
+            return;
+        }
 
         JsonNode request;
         try {
@@ -96,7 +103,7 @@ public final class McpRoutes {
             McpToolCall toolCall = ToolCallRequestResolver.resolvePathInvocationToolCall(request, pathToolName);
             logMcpPost(context, request, "path", toolCall.name());
             logToolsCall("path", toolCall);
-            toolRouter.callTool(toolCall)
+            toolRouter.callTool(toolCall, requestedToolView)
                     .onSuccess(result -> HttpJson.send(context, 200, result))
                     .onFailure(error -> HttpJson.send(context, 500, Map.of("error", error.getMessage())));
             return;
@@ -116,10 +123,10 @@ public final class McpRoutes {
 
         switch (method == null ? "" : method) {
             case "initialize" -> initialize(context, id);
-            case "tools/list" -> listTools(context, id);
+            case "tools/list" -> listTools(context, id, requestedToolView);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName);
+            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName, requestedToolView);
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
@@ -132,19 +139,27 @@ public final class McpRoutes {
         ));
     }
 
-    private void listTools(RoutingContext context, JsonNode id) {
-        toolCatalog.listTools(ToolView.PUBLIC)
+    private void listTools(RoutingContext context, JsonNode id, ToolView toolView) {
+        toolCatalog.listTools(toolView)
                 .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
-    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName) {
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName, ToolView toolView) {
         McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, fallbackToolName);
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
-        toolRouter.callTool(toolCall)
+        toolRouter.callTool(toolCall, toolView)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+    }
+
+    private ToolView resolveRequestedToolView(RoutingContext context) {
+        String requestedView = context.request().getParam("view");
+        if (requestedView == null || requestedView.isBlank()) {
+            return ToolView.PUBLIC;
+        }
+        return ToolView.named(requestedView.trim());
     }
 
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {

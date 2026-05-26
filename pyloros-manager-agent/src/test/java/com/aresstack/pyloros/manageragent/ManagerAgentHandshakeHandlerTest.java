@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -19,11 +20,14 @@ class ManagerAgentHandshakeHandlerTest {
 
     @Test
     void sessionHandshakeLogicIsTestableWithoutPipeTransport() throws Exception {
-        ManagerAgentHandshakeHandler handler = new ManagerAgentHandshakeHandler(OBJECT_MAPPER, new ManagerAgentSessionState());
+        RecordingMcpGateway mcpGateway = new RecordingMcpGateway();
+        ManagerAgentHandshakeHandler handler = new ManagerAgentHandshakeHandler(
+                OBJECT_MAPPER, new ManagerAgentSessionState(), mcpGateway);
         CapturingEmitter emitter = new CapturingEmitter(OBJECT_MAPPER);
 
         ObjectNode newSessionParams = OBJECT_MAPPER.createObjectNode();
         newSessionParams.put("cwd", "/workspace");
+        newSessionParams.set("mcpServers", validMcpServers());
         handler.handleSessionNew(OBJECT_MAPPER.valueToTree("1"), newSessionParams, emitter);
 
         String sessionId = emitter.messages().get(0).path("result").path("sessionId").asText(null);
@@ -47,12 +51,15 @@ class ManagerAgentHandshakeHandlerTest {
         JsonNode completionUpdate = emitter.messages().get(3);
         assertEquals("session/update", completionUpdate.path("method").asText());
         assertEquals("completion", completionUpdate.path("params").path("type").asText());
-        assertTrue(completionUpdate.path("params").path("result").asText().contains("hello"));
+        assertTrue(completionUpdate.path("params").path("result").asText().contains("safe__status"));
+        assertTrue(mcpGateway.listCalled);
+        assertTrue(mcpGateway.callCalled);
     }
 
     @Test
     void unknownSessionProducesStructuredErrorFromHandler() throws Exception {
-        ManagerAgentHandshakeHandler handler = new ManagerAgentHandshakeHandler(OBJECT_MAPPER, new ManagerAgentSessionState());
+        ManagerAgentHandshakeHandler handler = new ManagerAgentHandshakeHandler(
+                OBJECT_MAPPER, new ManagerAgentSessionState(), new RecordingMcpGateway());
         CapturingEmitter emitter = new CapturingEmitter(OBJECT_MAPPER);
 
         ObjectNode promptParams = OBJECT_MAPPER.createObjectNode();
@@ -64,6 +71,57 @@ class ManagerAgentHandshakeHandlerTest {
         JsonNode error = emitter.messages().get(0).path("error");
         assertEquals(-32001, error.path("code").asInt());
         assertTrue(error.path("message").asText().contains("Unknown sessionId"));
+    }
+
+    @Test
+    void missingInjectedMcpServerProducesStructuredError() throws Exception {
+        ManagerAgentHandshakeHandler handler = new ManagerAgentHandshakeHandler(
+                OBJECT_MAPPER, new ManagerAgentSessionState(), new RecordingMcpGateway());
+        CapturingEmitter emitter = new CapturingEmitter(OBJECT_MAPPER);
+
+        ObjectNode newSessionParams = OBJECT_MAPPER.createObjectNode();
+        newSessionParams.put("cwd", "/workspace");
+        handler.handleSessionNew(OBJECT_MAPPER.valueToTree("5"), newSessionParams, emitter);
+
+        JsonNode error = emitter.messages().get(0).path("error");
+        assertEquals(-32602, error.path("code").asInt());
+        assertTrue(error.path("message").asText().contains("mcpServers.pyloros.url is required"));
+    }
+
+    private static ObjectNode validMcpServers() {
+        ObjectNode mcpServers = OBJECT_MAPPER.createObjectNode();
+        ObjectNode pyloros = OBJECT_MAPPER.createObjectNode();
+        pyloros.put("url", "http://127.0.0.1:8081/pyloros?view=agent");
+        pyloros.set("headers", OBJECT_MAPPER.valueToTree(Map.of("Authorization", "Bearer token")));
+        mcpServers.set("pyloros", pyloros);
+        return mcpServers;
+    }
+
+    private static final class RecordingMcpGateway implements ManagerAgentMcpGateway {
+        private boolean listCalled;
+        private boolean callCalled;
+
+        @Override
+        public JsonNode toolsList(McpServer server) {
+            listCalled = true;
+            return OBJECT_MAPPER.valueToTree(Map.of(
+                    "jsonrpc", "2.0",
+                    "id", "list",
+                    "result", Map.of(
+                            "tools", List.of(Map.of("name", "safe__status"))
+                    )
+            ));
+        }
+
+        @Override
+        public JsonNode toolsCall(McpServer server, String toolName, JsonNode arguments) {
+            callCalled = true;
+            return OBJECT_MAPPER.valueToTree(Map.of(
+                    "jsonrpc", "2.0",
+                    "id", "call",
+                    "result", Map.of("content", List.of(Map.of("type", "text", "text", "ok")), "isError", false)
+            ));
+        }
     }
 
     private static final class CapturingEmitter implements ManagerAgentResponseEmitter {

@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +29,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final long EVENT_POLL_MILLIS = 200L;
     private static final int STDERR_PREVIEW_CHARS = 512;
+    private static final String INJECTED_MCP_URL_ENV = "PYLOROS_MCP_URL";
+    private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
     private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "acp-task-timeout");
         thread.setDaemon(true);
@@ -159,7 +163,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
-                String sessionId = client.createSession(resolveSessionCwd(request.cwd()))
+                String sessionId = client.createSession(resolveSessionCwd(request.cwd()), injectedMcpServers())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
                 task.setAcpSessionId(sessionId);
@@ -565,6 +569,41 @@ public final class AcpVirtualToolProvider implements ToolProvider {
 
     private String instantText(Instant instant) {
         return instant == null ? null : instant.toString();
+    }
+
+    private Map<String, Object> injectedMcpServers() {
+        Map<String, String> environment = config.process().environment();
+        if (environment == null || environment.isEmpty()) {
+            return Map.of();
+        }
+
+        String mcpUrl = normalizeNullableText(environment.get(INJECTED_MCP_URL_ENV));
+        if (mcpUrl == null) {
+            return Map.of();
+        }
+
+        String injectedUrl = appendViewQuery(mcpUrl, config.agentToolView());
+        Map<String, Object> pylorosServer = new LinkedHashMap<>();
+        pylorosServer.put("url", injectedUrl);
+
+        String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
+        if (bearerToken != null) {
+            pylorosServer.put("headers", Map.of("Authorization", "Bearer " + bearerToken));
+        }
+        return Map.of("pyloros", Map.copyOf(pylorosServer));
+    }
+
+    private static String appendViewQuery(String mcpUrl, String viewName) {
+        String separator = mcpUrl.contains("?") ? "&" : "?";
+        return mcpUrl + separator + "view=" + URLEncoder.encode(viewName, StandardCharsets.UTF_8);
+    }
+
+    private static String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private Throwable unwrap(Throwable throwable) {
