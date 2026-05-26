@@ -213,6 +213,38 @@ Expected rejection:
 Invalid agentToolView for ACP provider 'manager': 'public' must not be 'public' because it would expose the public tool view to the agent (recursion risk).
 ```
 
+### 7. Verify agent view excludes other ACP providers
+
+Configure another ACP provider that exposes itself in the manager view:
+
+```json
+{
+  "acpProviders": [
+    {
+      "id": "manager",
+      "type": "acp",
+      "prefix": "manager/",
+      "exposeInViews": ["public"],
+      "agentToolView": "manager-agent-view",
+      "process": { "command": "java", "args": ["-jar", "manager-agent.jar"] }
+    },
+    {
+      "id": "other-acp",
+      "type": "acp",
+      "prefix": "other/",
+      "exposeInViews": ["manager-agent-view"],
+      "agentToolView": "other-view",
+      "process": { "command": "java", "args": ["-jar", "other-agent.jar"] }
+    }
+  ]
+}
+```
+
+Expected rejection:
+```
+Invalid agentToolView for ACP provider 'manager': 'manager-agent-view' includes ACP provider 'other-acp' and may trigger recursive agent invocation.
+```
+
 ## Existing automated baseline in this repository
 
 The following unit and integration tests validate the R6 flow without a real agent process:
@@ -239,7 +271,7 @@ as a scripted smoke test:
 2. Call MCP `tools/list` and assert `manager/*` tool names are present.
 3. Call MCP `tools/call` with `manager/run_task` and assert successful response.
 4. Call MCP `tools/call` with `manager/start_task`, poll `get_task_status`, then `get_task_result`.
-5. Run negative config checks for recursion protection (`agentToolView` self/public).
+5. Run negative config checks for recursion protection (`agentToolView` self/public/cross-ACP-exposed).
 
 ## Success Criteria
 

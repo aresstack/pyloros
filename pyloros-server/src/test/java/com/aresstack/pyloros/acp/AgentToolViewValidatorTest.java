@@ -14,13 +14,19 @@ class AgentToolViewValidatorTest {
 
     @Test
     void testAllowsManagerAgentToolViewWhenIsolated() {
-        assertDoesNotThrow(() -> AgentToolViewValidator.validate(config("manager", "manager-agent-view"), Set.of("manager", "other-acp")));
+        assertDoesNotThrow(() -> AgentToolViewValidator.validate(
+                config("manager", "manager-agent-view"),
+                Set.of("manager", "other-acp"),
+                Map.of("public", Set.of("manager", "other-acp"))));
     }
 
     @Test
     void testRejectsManagerSelfReference() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("manager", "manager"), Set.of("manager", "other-acp")));
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "manager"),
+                        Set.of("manager", "other-acp"),
+                        Map.of()));
 
         assertEquals(
                 "Invalid agentToolView for ACP provider 'manager': 'manager' references the same provider ID "
@@ -31,7 +37,10 @@ class AgentToolViewValidatorTest {
     @Test
     void testRejectsManagerReferenceToOtherAcpProvider() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("manager", "other-acp"), Set.of("manager", "other-acp")));
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "other-acp"),
+                        Set.of("manager", "other-acp"),
+                        Map.of()));
 
         assertEquals(
                 "Invalid agentToolView for ACP provider 'manager': 'other-acp' references another ACP provider ID "
@@ -42,7 +51,7 @@ class AgentToolViewValidatorTest {
     @Test
     void testRejectsPublicView() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("manager", "public"), Set.of("manager")));
+                () -> AgentToolViewValidator.validate(config("manager", "public"), Set.of("manager"), Map.of()));
 
         assertEquals(
                 "Invalid agentToolView for ACP provider 'manager': 'public' must not be 'public' "
@@ -53,7 +62,7 @@ class AgentToolViewValidatorTest {
     @Test
     void testRejectsPublicViewCaseInsensitive() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("manager", "Public"), Set.of("manager")));
+                () -> AgentToolViewValidator.validate(config("manager", "Public"), Set.of("manager"), Map.of()));
 
         assertEquals(
                 "Invalid agentToolView for ACP provider 'manager': 'Public' must not be 'public' "
@@ -72,12 +81,26 @@ class AgentToolViewValidatorTest {
                 new AcpExecutionConfiguration());
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config, Set.of("manager")));
+                () -> AgentToolViewValidator.validate(config, Set.of("manager"), Map.of()));
 
         assertEquals(
                 "Invalid agentToolView for ACP provider 'manager': 'manager-agent-view' collides with exposeInViews "
                         + "[public, manager-agent-view] so the provider would see its own ACP tools "
                         + "(self-recursion risk).",
+                exception.getMessage());
+    }
+
+    @Test
+    void testRejectsAgentToolViewWhenOtherAcpProviderIsExposedInThatView() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "manager-agent-view"),
+                        Set.of("manager", "other-acp"),
+                        Map.of("manager-agent-view", Set.of("other-acp"))));
+
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'manager-agent-view' includes ACP provider "
+                        + "'other-acp' and may trigger recursive agent invocation.",
                 exception.getMessage());
     }
 
