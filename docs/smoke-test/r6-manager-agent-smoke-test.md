@@ -251,6 +251,7 @@ The following unit and integration tests validate the R6 flow without a real age
 
 | Test class | Coverage |
 |------------|----------|
+| `ManagerAgentInjectedMcpSmokeTest` | End-to-end manager-agent handshake with injected MCP endpoint, `tools/list`, safe `tools/call`, structured `session/update` output |
 | `AgentToolViewValidatorTest` | Recursion protection rules |
 | `AcpIntegrationTest` | Full session lifecycle with `FakeAcpAgent` |
 | `AcpVirtualToolProviderTest` | Provider behavior, timeout, cancellation |
@@ -259,8 +260,19 @@ The following unit and integration tests validate the R6 flow without a real age
 Run all ACP tests:
 
 ```bash
-./gradlew :pyloros-server:test --tests "com.aresstack.pyloros.acp.*"
+./gradlew :pyloros-manager-agent:test --tests "com.aresstack.pyloros.manageragent.ManagerAgentInjectedMcpSmokeTest" \
+  :pyloros-server:test --tests "com.aresstack.pyloros.acp.*"
 ```
+
+## Error paths (documented and test coverage)
+
+- **Missing agent process** (manual smoke): configure a non-existing process command for the ACP provider, then call `manager/run_task`.
+  Expected: task fails with launch error (`command_not_found`/process launch failed) from ACP provider runtime.
+- **Missing injected MCP endpoint**: covered by automated test
+  `ManagerAgentHandshakeHandlerTest#missingInjectedMcpServerProducesStructuredError`
+  (`Invalid params: mcpServers.pyloros.url is required`).
+- **Forbidden agent view / recursion protection**: covered by automated tests in
+  `AgentToolViewValidatorTest` (self-reference, public view, cross-ACP exposure).
 
 ## Later automatable smoke-test flow
 
