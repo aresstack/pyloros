@@ -1,65 +1,67 @@
-# Report: R6-05 handshake architecture refactor
+# Report: R6-06 inject Pyloros MCP aggregator into manager agent session
 
 ## What was verified, changed or implemented?
 
-- Processed the new @copilot review correction and implemented code refactoring (not only documentation).
-- Split the previous monolithic protocol class into separated roles:
-  - line-delimited stdio JSON-RPC transport/framing
-  - JSON-RPC request validation + dispatch
-  - session state storage
-  - handshake/session handler logic
-- Kept ACP wire behavior for this step (`session/new`, `session/prompt`, `session/update`, structured errors, stdout protocol only).
-- Used ACP Java SDK baseline where practical in this scope:
-  - ACP error code constants (`AcpErrorCodes`) for parse/request/params/method errors
-  - ACP schema response records for handshake results (`NewSessionResponse`, `PromptResponse`)
-- Added handler-level tests that validate handshake behavior without pipe transport.
-- Investigated CI workflow runs/logs on base and feature branches per stacked-PR instructions.
+- Implemented ACP session MCP injection for the manager-agent flow:
+  - ACP client now sends `session/new` with `cwd` plus `mcpServers`.
+  - ACP virtual provider now derives injected MCP server config from ACP process environment (`PYLOROS_MCP_URL`, optional `PYLOROS_MCP_BEARER_TOKEN`) and binds `agentToolView` via `?view=<agentToolView>`.
+- Implemented manager-agent MCP consumption path:
+  - `session/new` now validates and stores injected MCP endpoint config from `mcpServers.pyloros`.
+  - `session/prompt` now executes a minimal smoke flow: MCP `tools/list` then safe MCP `tools/call`, then emits ACP response/session updates.
+  - Missing/invalid injected MCP endpoint and MCP invocation failures are reported as structured ACP errors.
+- Implemented view-scoped MCP routing for server endpoint calls:
+  - MCP HTTP route now supports `view` query selection (`ToolView.named(...)`).
+  - `ToolRouter` supports dispatch scoped to a specific `ToolView`, used by routes for both `tools/list` and `tools/call`.
+- Added tests covering successful and error paths, including:
+  - manager-agent success path (`tools/list` + safe `tools/call`) and missing-endpoint failure.
+  - ACP runtime propagation of `mcpServers` into `session/new`.
+  - tool-router view scoping to ensure hidden tools are not callable in excluded views.
 
 ## Which files were changed or newly created?
 
-- Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentProtocolServer.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/LineDelimitedJsonRpcTransport.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentResponseEmitter.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentSessionState.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentHandshakeHandler.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentJsonRpcDispatcher.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentHandshakeHandler.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentSessionState.java`
+- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentMcpGateway.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentHandshakeHandlerTest.java`
 - Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentProtocolServerTest.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentHandshakeHandlerTest.java`
-- Changed: `/home/runner/work/pyloros/pyloros/docs/agent/report.md` (overwritten for this task)
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpAgentClient.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/acp/AcpVirtualToolProvider.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/tool/ToolRouter.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/acp/AcpVirtualToolProviderTest.java`
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/acp/FakeAcpAgent.java`
+- New: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/tool/ToolRouterViewScopingTest.java`
 
 ## Which architecture decision was touched?
 
-- R6 manager-agent handshake baseline now has explicit separation boundaries for transport/framing, dispatch, session state, and handshake logic to provide a maintainable base for #66 while preserving current minimal ACP scope.
+- R6 manager-agent MCP injection decision: the ACP manager-agent receives MCP aggregator configuration via `session/new` (`mcpServers`) and uses this injected endpoint for MCP `tools/list`/`tools/call`.
+- `agentToolView` scoping is preserved through injected endpoint view binding and view-scoped MCP route dispatch.
+- Recursion-protection constraints remain active (no change to `AgentToolViewValidator` behavior).
 
 ## Which tests, builds and runtime checks were executed?
 
-- Baseline before code changes:
-  - `./gradlew --no-daemon :pyloros-manager-agent:test` → SUCCESS
-- CI/workflow investigation via GitHub MCP Actions:
-  - Listed workflow runs for base branch `copilot/release-6-java-21-acp-manager-agent`
-  - Listed workflow runs for feature branch `copilot/r6-05-minimal-acp-manager-handshake`
-  - Queried failed job logs:
-    - run `26426113618` (base) → no failed jobs found (`total_jobs: 0`)
-    - run `26427829188` (feature) → no failed jobs found (`total_jobs: 0`)
-- After refactor:
+- Baseline before changes:
   - `./gradlew --no-daemon :pyloros-manager-agent:compileJava :pyloros-manager-agent:test` → SUCCESS
-  - `./gradlew --no-daemon :pyloros-manager-agent:installDist` → SUCCESS
-- Final validation:
-  - `parallel_validation` executed
-  - CodeQL → SUCCESS, 0 alerts
-  - Code Review tool → HTTP 400 backend/header issue (non-code failure)
+- After manager-agent + server changes:
+  - `./gradlew --no-daemon :pyloros-manager-agent:compileJava :pyloros-manager-agent:test` → SUCCESS
+  - `./gradlew --no-daemon :pyloros-server:compileJava :pyloros-server:test --tests "com.aresstack.pyloros.acp.AcpVirtualToolProviderTest" --tests "com.aresstack.pyloros.acp.AcpIntegrationTest"` → SUCCESS
+  - `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.tool.ToolRouterViewScopingTest" --tests "com.aresstack.pyloros.tool.ToolCatalogViewFilteringSemanticsTest"` → SUCCESS
+- Parallel validation:
+  - `parallel_validation` (run twice)
+  - CodeQL: SUCCESS, 0 alerts
+  - Code Review: FAILED due external backend/header issue (HTTP 400, anthropic-beta header)
 
 ## Result: successful or failed
 
-Successful (requested refactor implemented and validated; only external Code Review service issue remains).
+Successful (requested implementation and tests are complete; only external Code Review service/tooling failure remains).
 
 ## If failed: exact error and recommended next step
 
-- Non-blocking external tool failure:
-  - `Code review tool encountered an issue: HTTP error 400 ... Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
+- Non-blocking external tool failure from `parallel_validation` Code Review:
+  - `HTTP error 400: bad request: Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
 - Recommended next step:
-  - rerun `parallel_validation` when the review backend/header issue is resolved.
+  - Re-run `parallel_validation` Code Review when the backend/header issue is resolved.
 
 ## Exact commit hash, or No commit created
 
-- `e8bba5e`
+- `46a7f20`
