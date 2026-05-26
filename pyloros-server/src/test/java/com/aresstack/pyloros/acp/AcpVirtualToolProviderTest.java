@@ -264,6 +264,35 @@ class AcpVirtualToolProviderTest {
         }
     }
 
+    @Test
+    void sessionNewIncludesInjectedViewTokenHeaderWhenConfigured() throws Exception {
+        try (ProviderContext context = newProvider("success", 5, Map.of(
+                "PYLOROS_MCP_URL", "http://127.0.0.1:8081/pyloros"
+        ), "super-secret-token")) {
+            call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+
+            JsonNode params = context.agent().lastSessionNewParams();
+            assertNotNull(params);
+            assertEquals("super-secret-token",
+                    params.path("mcpServers").path("pyloros").path("headers").path("X-Pyloros-Injected-View-Token").asText());
+        }
+    }
+
+    @Test
+    void sessionNewOmitsInjectedViewTokenHeaderWhenNotConfigured() throws Exception {
+        try (ProviderContext context = newProvider("success", 5, Map.of(
+                "PYLOROS_MCP_URL", "http://127.0.0.1:8081/pyloros"
+        ))) {
+            call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));
+
+            JsonNode params = context.agent().lastSessionNewParams();
+            assertNotNull(params);
+            JsonNode headers = params.path("mcpServers").path("pyloros").path("headers");
+            assertFalse(headers.has("X-Pyloros-Injected-View-Token"),
+                    "token header must not be injected when no token is configured");
+        }
+    }
+
     private static ProviderContext newProvider(String behavior) throws IOException {
         return newProvider(behavior, 5);
     }
@@ -273,6 +302,12 @@ class AcpVirtualToolProviderTest {
     }
 
     private static ProviderContext newProvider(String behavior, int timeoutSeconds, Map<String, String> processEnvironment)
+            throws IOException {
+        return newProvider(behavior, timeoutSeconds, processEnvironment, "");
+    }
+
+    private static ProviderContext newProvider(String behavior, int timeoutSeconds, Map<String, String> processEnvironment,
+                                               String injectedViewToken)
             throws IOException {
         FakeAcpAgent agent = new FakeAcpAgent();
         agent.setBehavior(behavior);
@@ -291,7 +326,8 @@ class AcpVirtualToolProviderTest {
                 return agent.processHandle();
             }
         };
-        AcpVirtualToolProvider provider = new AcpVirtualToolProvider(vertx, config, repository, launcher, new AcpAuditLogger(), new AcpEventMapper());
+        AcpVirtualToolProvider provider = new AcpVirtualToolProvider(vertx, config, repository, launcher,
+                new AcpAuditLogger(), new AcpEventMapper(), injectedViewToken);
         return new ProviderContext(provider, repository, vertx, agent);
     }
 

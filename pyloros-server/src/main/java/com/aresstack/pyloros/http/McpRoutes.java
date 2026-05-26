@@ -29,6 +29,7 @@ public final class McpRoutes {
     private static final String TOOL_VIEW_QUERY_PARAM = "view";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
+    static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
 
     private final ServerConfig config;
     private final RequestAuthenticator authenticator;
@@ -169,17 +170,63 @@ public final class McpRoutes {
         return ToolView.named(requestedView.trim());
     }
 
-    private static boolean isTrustedInjectedViewRequest(RoutingContext context) {
+    private boolean isTrustedInjectedViewRequest(RoutingContext context) {
         String injectedViewHeader = context.request().getHeader(TRUSTED_VIEW_SOURCE_HEADER);
-        if (!TRUSTED_VIEW_SOURCE_VALUE.equalsIgnoreCase(injectedViewHeader == null ? "" : injectedViewHeader.trim())) {
-            return false;
-        }
+        String injectedTokenHeader = context.request().getHeader(TRUSTED_VIEW_TOKEN_HEADER);
         SocketAddress remoteAddress = context.request().remoteAddress();
-        if (remoteAddress == null) {
+        String remoteHost = remoteAddress == null ? null : remoteAddress.hostAddress();
+        return isTrustedInjectedViewRequest(
+                injectedViewHeader,
+                injectedTokenHeader,
+                remoteHost,
+                config.mcpInjectedViewToken());
+    }
+
+    /**
+     * Package-private for testability.
+     *
+     * <p>Returns {@code true} only when ALL of the following hold:
+     * <ul>
+     *   <li>{@code configuredToken} is non-blank — non-public views are disabled when no
+     *       shared secret has been configured/generated.</li>
+     *   <li>{@code injectedViewHeader} equals {@code "acp"} (case-insensitive) — declarative
+     *       marker that the caller intends to use the injected agent path.</li>
+     *   <li>{@code injectedTokenHeader} equals {@code configuredToken} via constant-time
+     *       comparison — proves the caller actually holds the secret Pyloros generated.</li>
+     *   <li>{@code remoteHost} is a loopback address — defence in depth, since the manager
+     *       agent is always a local subprocess.</li>
+     * </ul>
+     * Spoofing the markers without holding the token, or holding the token from off-host,
+     * both fall back to {@code public}.
+     */
+    static boolean isTrustedInjectedViewRequest(
+            String injectedViewHeader,
+            String injectedTokenHeader,
+            String remoteHost,
+            String configuredToken) {
+        if (configuredToken == null || configuredToken.isBlank()) {
             return false;
         }
-        String host = remoteAddress.hostAddress();
-        return "127.0.0.1".equals(host) || "::1".equals(host) || "0:0:0:0:0:0:0:1".equals(host);
+        if (injectedViewHeader == null
+                || !TRUSTED_VIEW_SOURCE_VALUE.equalsIgnoreCase(injectedViewHeader.trim())) {
+            return false;
+        }
+        if (injectedTokenHeader == null) {
+            return false;
+        }
+        if (!constantTimeEquals(injectedTokenHeader.trim(), configuredToken.trim())) {
+            return false;
+        }
+        if (remoteHost == null) {
+            return false;
+        }
+        return "127.0.0.1".equals(remoteHost) || "::1".equals(remoteHost) || "0:0:0:0:0:0:0:1".equals(remoteHost);
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        byte[] aBytes = a.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] bBytes = b.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return java.security.MessageDigest.isEqual(aBytes, bBytes);
     }
 
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {

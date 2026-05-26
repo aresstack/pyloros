@@ -31,6 +31,13 @@ public final class AcpProviderFactory {
     }
 
     public static List<ToolProvider> createProviders(List<AcpProviderJsonConfig> configs, Vertx vertx) {
+        return createProviders(configs, vertx, "");
+    }
+
+    public static List<ToolProvider> createProviders(
+            List<AcpProviderJsonConfig> configs,
+            Vertx vertx,
+            String injectedViewToken) {
         if (configs == null || configs.isEmpty()) {
             return List.of();
         }
@@ -41,7 +48,7 @@ public final class AcpProviderFactory {
 
         for (AcpProviderJsonConfig jsonConfig : configs) {
             try {
-                ToolProvider provider = createProvider(jsonConfig, allAcpProviderIds, acpProviderIdsByExposedView, vertx);
+                ToolProvider provider = createProvider(jsonConfig, allAcpProviderIds, acpProviderIdsByExposedView, vertx, injectedViewToken);
                 providers.add(provider);
                 log.info("[ACP-PROVIDER] registered provider={} prefix={} agentToolView={}",
                         jsonConfig.id(), jsonConfig.prefix(), jsonConfig.agentToolView());
@@ -58,13 +65,14 @@ public final class AcpProviderFactory {
             AcpProviderJsonConfig jsonConfig,
             Set<String> allAcpProviderIds,
             Map<String, Set<String>> acpProviderIdsByExposedView,
-            Vertx vertx) {
+            Vertx vertx,
+            String injectedViewToken) {
         validateType(jsonConfig);
         AcpProviderConfiguration providerConfig = toProviderConfiguration(jsonConfig);
         AgentToolViewValidator.validate(providerConfig, allAcpProviderIds, acpProviderIdsByExposedView);
 
         AgentTaskRepository repository = new InMemoryAgentTaskRepository();
-        return new AcpVirtualToolProvider(vertx, providerConfig, repository);
+        return new AcpVirtualToolProvider(vertx, providerConfig, repository, injectedViewToken);
     }
 
     private static void validateType(AcpProviderJsonConfig jsonConfig) {

@@ -146,10 +146,32 @@ The agent receives the Pyloros MCP aggregator as its tool server. Concretely:
 
 - The ACP process is launched with environment variables or command-line args
   pointing to the Pyloros MCP endpoint.
+- Pyloros injects the `mcpServers.pyloros` configuration into the agent via
+  `session/new`, including a `?view=agent` URL parameter and an unguessable
+  shared-secret `X-Pyloros-Injected-View-Token` header.
 - The agent uses standard MCP client calls (`tools/list`, `tools/call`) to
   discover and invoke the tools visible in its `agentToolView`.
 - The agent does **not** duplicate tool registry, MCP upstream management, or
   provider lifecycle — all of that is handled by Pyloros core.
+
+### 5.1 View-Selection Trust Boundary
+
+`McpRoutes` only honours a non-public `?view=...` query parameter when **all**
+of the following hold:
+
+1. Pyloros has a configured `mcp.injected-view.token` (auto-generated via
+   `SecureRandom` at startup if not explicitly set).
+2. The request carries `X-Pyloros-Injected-View: acp`.
+3. The request carries `X-Pyloros-Injected-View-Token` whose value matches the
+   configured token, compared in constant time (`MessageDigest.isEqual`).
+4. The request originates from a loopback address.
+
+Any other request — including a locally authenticated MCP caller that spoofs
+the `X-Pyloros-Injected-View` header without knowing the token — is forced
+back to the public view. Only the manager-agent path, which receives the token
+through the `session/new` `mcpServers.pyloros.headers` block, can select the
+configured agent view. The token never appears in `mcp.json`, the agent's
+process environment, or any logs by default.
 
 Configuration example (`mcp.json`):
 

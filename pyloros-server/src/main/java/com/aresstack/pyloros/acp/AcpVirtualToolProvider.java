@@ -36,6 +36,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
+    private static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
     private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "acp-task-timeout");
         thread.setDaemon(true);
@@ -48,10 +49,20 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private final AcpProcessLauncher processLauncher;
     private final AcpAuditLogger auditLogger;
     private final AcpEventMapper eventMapper;
+    private final String injectedViewToken;
     private final ConcurrentHashMap<AgentTaskId, AcpProcessHandle> activeProcesses = new ConcurrentHashMap<>();
 
     public AcpVirtualToolProvider(Vertx vertx, AcpProviderConfiguration config, AgentTaskRepository agentTaskRepository) {
-        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper());
+        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper(), "");
+    }
+
+    public AcpVirtualToolProvider(
+            Vertx vertx,
+            AcpProviderConfiguration config,
+            AgentTaskRepository agentTaskRepository,
+            String injectedViewToken) {
+        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper(),
+                injectedViewToken);
     }
 
     AcpVirtualToolProvider(
@@ -61,12 +72,24 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             AcpProcessLauncher processLauncher,
             AcpAuditLogger auditLogger,
             AcpEventMapper eventMapper) {
+        this(vertx, config, agentTaskRepository, processLauncher, auditLogger, eventMapper, "");
+    }
+
+    AcpVirtualToolProvider(
+            Vertx vertx,
+            AcpProviderConfiguration config,
+            AgentTaskRepository agentTaskRepository,
+            AcpProcessLauncher processLauncher,
+            AcpAuditLogger auditLogger,
+            AcpEventMapper eventMapper,
+            String injectedViewToken) {
         this.vertx = Objects.requireNonNull(vertx, "vertx must not be null");
         this.config = Objects.requireNonNull(config, "config must not be null");
         this.agentTaskRepository = Objects.requireNonNull(agentTaskRepository, "agentTaskRepository must not be null");
         this.processLauncher = Objects.requireNonNull(processLauncher, "processLauncher must not be null");
         this.auditLogger = Objects.requireNonNull(auditLogger, "auditLogger must not be null");
         this.eventMapper = Objects.requireNonNull(eventMapper, "eventMapper must not be null");
+        this.injectedViewToken = injectedViewToken == null ? "" : injectedViewToken.trim();
     }
 
     @Override
@@ -593,6 +616,9 @@ public final class AcpVirtualToolProvider implements ToolProvider {
 
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE);
+        if (!injectedViewToken.isEmpty()) {
+            headers.put(TRUSTED_VIEW_TOKEN_HEADER, injectedViewToken);
+        }
         String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
         if (bearerToken != null) {
             headers.put("Authorization", "Bearer " + bearerToken);
