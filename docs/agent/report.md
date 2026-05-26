@@ -1,56 +1,47 @@
-# Report: R6-05 minimal ACP manager-agent handshake
+# Report: R6-05 PR feedback follow-up
 
 ## What was verified, changed or implemented?
 
-- Implemented a minimal ACP stdio protocol server in `pyloros-manager-agent` that:
-  - accepts `session/new`
-  - accepts `session/prompt`
-  - returns simple `session/update` text + completion events
-  - returns structured JSON-RPC errors for invalid requests
-- Wired the protocol loop into the manager-agent bootstrap verticle so the module is startable as a process and serves ACP over stdio.
-- Added focused tests for handshake success path and structured error responses.
-- Updated Release 6 requirement documentation status to reflect minimal handshake support.
+- Processed the new @copilot PR feedback and implemented the requested documentation clarification to avoid overclaiming.
+- Added an explicit note in R6 requirements that the current manager-agent handshake is intentionally a minimal line-delimited JSON-RPC stdio adapter compatible with Pyloros `AcpJsonRpcConnection`, and not yet a full ACP-SDK abstraction / production ACP runtime.
+- Added issue-closing reference via commit message containing `Closes #65`.
+- Investigated workflow runs per stacked-PR guidance (base branch first, then feature branch) and checked failed-job logs availability.
 
 ## Which files were changed or newly created?
 
-- Changed: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentBootstrapVerticle.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/main/java/com/aresstack/pyloros/manageragent/ManagerAgentProtocolServer.java`
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentProtocolServerTest.java`
 - Changed: `/home/runner/work/pyloros/pyloros/docs/requirements/006-acp-manager-agent.md`
+- Changed: `/home/runner/work/pyloros/pyloros/docs/agent/report.md` (overwritten for this task)
 
 ## Which architecture decision was touched?
 
-- Release 6 manager-agent scope decision: keep `pyloros-manager-agent` as separate Java 21 bootstrap/application module, implement only minimal ACP handshake now, and keep logs stdio-safe (`stdout` for ACP JSON-RPC, logs via `stderr`).
+- R6 manager-agent scoping decision/documentation: current implementation remains a minimal ACP handshake adapter for line-delimited stdio JSON-RPC compatibility with existing Pyloros ACP transport behavior.
 
 ## Which tests, builds and runtime checks were executed?
 
-- Baseline before changes:
-  - `./gradlew --no-daemon :pyloros-manager-agent:compileJava :pyloros-manager-agent:test :pyloros-server:test` (SUCCESS)
-- After changes:
-  - `./gradlew --no-daemon :pyloros-manager-agent:compileJava :pyloros-manager-agent:test :pyloros-server:test` (SUCCESS)
-  - `./gradlew --no-daemon :pyloros-manager-agent:installDist` (SUCCESS)
-- Manual runtime smoke checks:
-  - Started `pyloros-manager-agent` distribution script with Java 21 and verified:
-    - `session/new` response with `sessionId`
-    - `session/prompt` response plus `session/update` text/completion events
-    - process exits cleanly after stdin close
-  - Verified structured error outputs for invalid request input (`Parse error`, invalid params)
+- CI/workflow investigation via GitHub MCP Actions:
+  - Listed workflow runs for base branch `copilot/release-6-java-21-acp-manager-agent`
+  - Listed workflow runs for feature branch `copilot/r6-05-minimal-acp-manager-handshake`
+  - Queried failed job logs for representative failed release workflow runs:
+    - run `26426113618` (base): no failed jobs found (`total_jobs: 0`)
+    - run `26426620308` (feature): no failed jobs found (`total_jobs: 0`)
+- Targeted validation:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test` → SUCCESS
 - Final validation:
-  - `parallel_validation` run twice
-  - CodeQL: SUCCESS, 0 alerts
-  - Code Review: tool-side HTTP 400 failure (`anthropic-beta` header issue), retried with same result
+  - `parallel_validation` executed
+  - CodeQL → SUCCESS (trivial-change skip)
+  - Code Review tool → failed with HTTP 400 tool/backend header error (non-code issue)
 
 ## Result: successful or failed
 
-Successful (implementation, tests, and runtime smoke checks passed; remaining issue is external Code Review tool failure).
+Successful (requested documentation + issue-closing reference applied; validation passes except known external Code Review tool failure).
 
 ## If failed: exact error and recommended next step
 
 - Non-blocking external tool failure:
   - `Code review tool encountered an issue: HTTP error 400 ... Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
 - Recommended next step:
-  - rerun `parallel_validation` once the review backend/header configuration is fixed; no code change indicated by this error.
+  - rerun `parallel_validation` once Code Review backend/header configuration is fixed.
 
 ## Exact commit hash, or No commit created
 
-- `4cd921f`
+- `55f7a45`
