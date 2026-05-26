@@ -54,7 +54,9 @@ class ManagerAgentProtocolServerTest {
                 {"jsonrpc":"2.0","id":"2","method":"session/prompt","params":{"sessionId":"%s","prompt":"hello"}}
                 """.formatted(sessionId));
         JsonNode promptResponse = receive(session.reader());
-        assertEquals(true, promptResponse.path("result").path("accepted").asBoolean());
+        assertEquals("2", promptResponse.path("id").asText());
+        assertTrue(promptResponse.path("result").isObject());
+        assertTrue(promptResponse.path("error").isMissingNode());
 
         JsonNode textUpdate = receive(session.reader());
         assertEquals("session/update", textUpdate.path("method").asText());
