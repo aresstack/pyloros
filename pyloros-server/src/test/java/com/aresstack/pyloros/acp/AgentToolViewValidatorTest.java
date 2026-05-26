@@ -13,58 +13,94 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class AgentToolViewValidatorTest {
 
     @Test
-    void testAllowsNonAcpAgentToolView() {
-        assertDoesNotThrow(() -> AgentToolViewValidator.validate(config("copilot", "agent"), Set.of("copilot", "other-acp")));
+    void testAllowsManagerAgentToolViewWhenIsolated() {
+        assertDoesNotThrow(() -> AgentToolViewValidator.validate(
+                config("manager", "manager-agent-view"),
+                Set.of("manager", "other-acp"),
+                Map.of("public", Set.of("manager", "other-acp"))));
     }
 
     @Test
-    void testRejectsSelfReference() {
+    void testRejectsManagerSelfReference() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("copilot", "copilot"), Set.of("copilot", "other-acp")));
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "manager"),
+                        Set.of("manager", "other-acp"),
+                        Map.of()));
 
-        assertEquals("agentToolView must not reference ACP provider itself: copilot", exception.getMessage());
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'manager' references the same provider ID "
+                        + "and would allow self-recursion.",
+                exception.getMessage());
     }
 
     @Test
-    void testRejectsOtherAcpProviderReference() {
+    void testRejectsManagerReferenceToOtherAcpProvider() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("copilot", "other-acp"), Set.of("copilot", "other-acp")));
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "other-acp"),
+                        Set.of("manager", "other-acp"),
+                        Map.of()));
 
-        assertEquals("agentToolView must not reference another ACP provider: other-acp", exception.getMessage());
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'other-acp' references another ACP provider ID "
+                        + "and may trigger recursive agent delegation.",
+                exception.getMessage());
     }
 
     @Test
     void testRejectsPublicView() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("copilot", "public"), Set.of("copilot")));
+                () -> AgentToolViewValidator.validate(config("manager", "public"), Set.of("manager"), Map.of()));
 
-        assertEquals("agentToolView must not be 'public' — ACP agents must not see the public tool view: public", exception.getMessage());
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'public' must not be 'public' "
+                        + "because it would expose the public tool view to the agent (recursion risk).",
+                exception.getMessage());
     }
 
     @Test
     void testRejectsPublicViewCaseInsensitive() {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config("copilot", "Public"), Set.of("copilot")));
+                () -> AgentToolViewValidator.validate(config("manager", "Public"), Set.of("manager"), Map.of()));
 
-        assertEquals("agentToolView must not be 'public' — ACP agents must not see the public tool view: Public", exception.getMessage());
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'Public' must not be 'public' "
+                        + "because it would expose the public tool view to the agent (recursion risk).",
+                exception.getMessage());
     }
 
     @Test
-    void testRejectsAgentToolViewInExposeInViews() {
+    void testRejectsManagerAgentToolViewInExposeInViews() {
         AcpProviderConfiguration config = new AcpProviderConfiguration(
-                "copilot",
-                "copilot/",
-                "shared",
-                List.of("public", "shared"),
+                "manager",
+                "manager/",
+                "manager-agent-view",
+                List.of("public", "manager-agent-view"),
                 new AcpProcessConfiguration("fake-acp", List.of(), null, Map.of()),
                 new AcpExecutionConfiguration());
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> AgentToolViewValidator.validate(config, Set.of("copilot")));
+                () -> AgentToolViewValidator.validate(config, Set.of("manager"), Map.of()));
 
         assertEquals(
-                "agentToolView must not be a view where the ACP provider is exposed (would cause recursion): "
-                        + "provider=copilot agentToolView=shared exposeInViews=[public, shared]",
+                "Invalid agentToolView for ACP provider 'manager': 'manager-agent-view' collides with exposeInViews "
+                        + "[public, manager-agent-view] so the provider would see its own ACP tools "
+                        + "(self-recursion risk).",
+                exception.getMessage());
+    }
+
+    @Test
+    void testRejectsAgentToolViewWhenOtherAcpProviderIsExposedInThatView() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> AgentToolViewValidator.validate(
+                        config("manager", "manager-agent-view"),
+                        Set.of("manager", "other-acp"),
+                        Map.of("manager-agent-view", Set.of("other-acp"))));
+
+        assertEquals(
+                "Invalid agentToolView for ACP provider 'manager': 'manager-agent-view' includes ACP provider "
+                        + "'other-acp' and may trigger recursive agent invocation.",
                 exception.getMessage());
     }
 

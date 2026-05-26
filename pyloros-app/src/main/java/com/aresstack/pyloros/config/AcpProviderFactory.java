@@ -13,8 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -35,10 +37,11 @@ public final class AcpProviderFactory {
 
         List<ToolProvider> providers = new ArrayList<>();
         Set<String> allAcpProviderIds = collectProviderIds(configs);
+        Map<String, Set<String>> acpProviderIdsByExposedView = collectProviderIdsByExposedView(configs);
 
         for (AcpProviderJsonConfig jsonConfig : configs) {
             try {
-                ToolProvider provider = createProvider(jsonConfig, allAcpProviderIds, vertx);
+                ToolProvider provider = createProvider(jsonConfig, allAcpProviderIds, acpProviderIdsByExposedView, vertx);
                 providers.add(provider);
                 log.info("[ACP-PROVIDER] registered provider={} prefix={} agentToolView={}",
                         jsonConfig.id(), jsonConfig.prefix(), jsonConfig.agentToolView());
@@ -51,10 +54,14 @@ public final class AcpProviderFactory {
         return providers;
     }
 
-    private static ToolProvider createProvider(AcpProviderJsonConfig jsonConfig, Set<String> allAcpProviderIds, Vertx vertx) {
+    private static ToolProvider createProvider(
+            AcpProviderJsonConfig jsonConfig,
+            Set<String> allAcpProviderIds,
+            Map<String, Set<String>> acpProviderIdsByExposedView,
+            Vertx vertx) {
         validateType(jsonConfig);
         AcpProviderConfiguration providerConfig = toProviderConfiguration(jsonConfig);
-        AgentToolViewValidator.validate(providerConfig, allAcpProviderIds);
+        AgentToolViewValidator.validate(providerConfig, allAcpProviderIds, acpProviderIdsByExposedView);
 
         AgentTaskRepository repository = new InMemoryAgentTaskRepository();
         return new AcpVirtualToolProvider(vertx, providerConfig, repository);
@@ -115,9 +122,27 @@ public final class AcpProviderFactory {
         Set<String> ids = new HashSet<>();
         for (AcpProviderJsonConfig config : configs) {
             if (config.id() != null && !config.id().isBlank()) {
-                ids.add(config.id());
+                ids.add(config.id().trim());
             }
         }
         return ids;
+    }
+
+    private static Map<String, Set<String>> collectProviderIdsByExposedView(List<AcpProviderJsonConfig> configs) {
+        Map<String, Set<String>> providerIdsByView = new HashMap<>();
+        for (AcpProviderJsonConfig config : configs) {
+            if (config.id() == null || config.id().isBlank()) {
+                continue;
+            }
+            String providerId = config.id().trim();
+            List<String> exposeInViews = config.exposeInViews() != null ? config.exposeInViews() : List.of("public");
+            for (String exposeInView : exposeInViews) {
+                if (exposeInView == null || exposeInView.isBlank()) {
+                    continue;
+                }
+                providerIdsByView.computeIfAbsent(exposeInView.trim(), ignored -> new HashSet<>()).add(providerId);
+            }
+        }
+        return providerIdsByView;
     }
 }
