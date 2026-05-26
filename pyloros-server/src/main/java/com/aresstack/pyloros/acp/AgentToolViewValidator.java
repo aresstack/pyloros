@@ -27,22 +27,29 @@ public final class AgentToolViewValidator {
         AcpProviderConfiguration providerConfig = Objects.requireNonNull(config, "config must not be null");
         Set<String> providerIds = Set.copyOf(Objects.requireNonNull(allAcpProviderIds, "allAcpProviderIds must not be null"));
         String agentToolView = providerConfig.agentToolView();
+        String providerId = providerConfig.id();
 
         if ("public".equalsIgnoreCase(agentToolView)) {
             throw new IllegalArgumentException(
-                    "agentToolView must not be 'public' — ACP agents must not see the public tool view: " + agentToolView);
+                    "Invalid agentToolView for ACP provider '" + providerId + "': '" + agentToolView + "' "
+                            + "must not be 'public' because it would expose the public tool view to the agent "
+                            + "(recursion risk).");
         }
-        if (providerConfig.id().equals(agentToolView)) {
-            throw new IllegalArgumentException("agentToolView must not reference ACP provider itself: " + agentToolView);
+        if (providerId.equals(agentToolView)) {
+            throw new IllegalArgumentException(
+                    "Invalid agentToolView for ACP provider '" + providerId + "': '" + agentToolView + "' "
+                            + "references the same provider ID and would allow self-recursion.");
         }
         if (providerIds.contains(agentToolView)) {
-            throw new IllegalArgumentException("agentToolView must not reference another ACP provider: " + agentToolView);
+            throw new IllegalArgumentException(
+                    "Invalid agentToolView for ACP provider '" + providerId + "': '" + agentToolView + "' "
+                            + "references another ACP provider ID and may trigger recursive agent delegation.");
         }
         if (providerConfig.exposeInViews().contains(agentToolView)) {
             throw new IllegalArgumentException(
-                    "agentToolView must not be a view where the ACP provider is exposed (would cause recursion): "
-                            + "provider=" + providerConfig.id() + " agentToolView=" + agentToolView
-                            + " exposeInViews=" + providerConfig.exposeInViews());
+                    "Invalid agentToolView for ACP provider '" + providerId + "': '" + agentToolView + "' "
+                            + "collides with exposeInViews " + providerConfig.exposeInViews()
+                            + " so the provider would see its own ACP tools (self-recursion risk).");
         }
     }
 }

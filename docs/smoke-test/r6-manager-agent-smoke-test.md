@@ -201,7 +201,7 @@ Attempt to configure an agent that references itself:
 
 Expected: Pyloros rejects the configuration at startup:
 ```
-[ACP-PROVIDER] failed to create provider=manager reason=agentToolView must not reference ACP provider itself: manager
+[ACP-PROVIDER] failed to create provider=manager reason=Invalid agentToolView for ACP provider 'manager': 'manager' references the same provider ID and would allow self-recursion.
 ```
 
 ### 6. Verify agent cannot see public view
@@ -210,7 +210,7 @@ Configure `agentToolView: "public"`:
 
 Expected rejection:
 ```
-agentToolView must not be 'public' — ACP agents must not see the public tool view: public
+Invalid agentToolView for ACP provider 'manager': 'public' must not be 'public' because it would expose the public tool view to the agent (recursion risk).
 ```
 
 ## Existing automated baseline in this repository
