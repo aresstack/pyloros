@@ -1,43 +1,43 @@
-# Report: R6-04 SDK spike review follow-up
+# Report: R6-03 review follow-up (README/doc distribution wording)
 
 ## What was verified, changed or implemented?
 
-1. Reviewed automated PR feedback and applied useful documentation fixes.
-2. Added the R6-04 SDK spike document under `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md`.
-3. Updated the reference link in `006-acp-manager-agent.md` to the R6-04 spike file.
-4. Moved issue traceability in the spike document from misleading closing wording to `Related: #64`.
-5. Marked SDK snippets explicitly as `API sketch, not compile-verified in this repository`.
-6. Normalized ACP/MCP method names and full Maven coordinates in the spike document.
+- Verified the actionable @copilot PR comment requesting README restoration and distribution wording precision.
+- Investigated Actions workflow runs for both stacked-base branch `copilot/release-6-java-21-acp-manager-agent` and current branch `copilot/define-java-21-acp-manager-agent`.
+- Restored `README.md` content to the integration-branch baseline and reapplied only minimal R6-03 additions.
+- Updated README wording to describe `pyloros-manager-agent` as a separate Gradle `application` distribution/start-script module (not fat/self-contained `java -jar`).
+- Kept ACP stdio-safety note (`stderr` logging, `stdout` reserved for ACP JSON-RPC).
+- Added a small manager-agent distribution section with `installDist` and generated script path.
+- Updated `docs/requirements/006-acp-manager-agent.md` wording from process/JAR phrasing to application-distribution/bootstrap-subproject phrasing.
 
 ## Which files were changed or newly created?
 
-| File | Change |
-|------|--------|
-| `docs/requirements/r6-04-acp-mcp-java-sdk-spike.md` | Added R6-04 SDK decision spike; normalized method names, full Maven coordinates, and API-sketch warning |
-| `docs/requirements/006-acp-manager-agent.md` | Added English reference to the R6-04 SDK decision spike |
-| `docs/agent/report.md` | Replaced with this report |
+- `README.md` (changed)
+- `docs/requirements/006-acp-manager-agent.md` (changed)
+- `docs/agent/report.md` (overwritten for current task report)
 
 ## Which architecture decision was touched?
 
-- No functional architecture change; documentation/decision record alignment for the R6-04 SDK spike and traceability to #64.
+- R6-03 module boundary/documentation decision: manager-agent stays a separate Java 21 bootstrap subproject packaged as Gradle application distribution/start scripts.
+- ACP stdio channel safety remains explicit: logs to `stderr`, `stdout` reserved for ACP JSON-RPC.
 
 ## Which tests, builds and runtime checks were executed?
 
-- `./gradlew --no-daemon :pyloros-server:test` → SUCCESS
-- `parallel_validation` (run twice):
-  - CodeQL: skipped as trivial/docs-only
-  - Code Review: external HTTP 400 header error (see below)
+- CI/workflow inspection via GitHub Actions MCP:
+  - Listed workflow runs for `copilot/release-6-java-21-acp-manager-agent`.
+  - Listed workflow runs for `copilot/define-java-21-acp-manager-agent`.
+  - Inspected run `26425479051` details and failed-job logs (`failed_jobs: 0`, no failed jobs in that run).
+- Local validation:
+  - `./gradlew --no-daemon :pyloros-manager-agent:compileJava :pyloros-manager-agent:installDist` → SUCCESS
 
-## Result
+## Result: successful or failed
 
 Successful
 
 ## If failed: exact error and recommended next step
 
-- Non-blocking tooling failure from Code Review in `parallel_validation`:
-  - `HTTP error 400: bad request: Unexpected value(s) context-1m-2025-08-07 for the anthropic-beta header`
-- Recommended next step: re-run `parallel_validation` Code Review once external header/tooling issue is resolved.
+- No blocking failure for this task.
 
-## Commit reference
+## Exact commit hash, or No commit created
 
-Commit history is recorded in the pull request.
+- No commit created

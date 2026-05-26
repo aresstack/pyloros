@@ -202,9 +202,27 @@ Configuration example (`mcp.json`):
 | `AgentTask` lifecycle management | ✅ Implemented |
 | `AcpProviderFactory` (mcp.json config) | ✅ Implemented |
 | `AcpToolDefinitions` (run_task, start_task, etc.) | ✅ Implemented |
-| Standalone Java 21 ACP manager-agent runtime/binary | ⏳ Planned / external to this repository |
+| Minimal Java 21 manager-agent module shape (`pyloros-manager-agent`) | ✅ Implemented as standalone bootstrap subproject |
+| ACP/MCP SDK baseline for manager-agent module | ✅ Pinned to ACP `0.11.0` and MCP `1.1.3` (see R6-04) |
+| Production-ready standalone manager-agent runtime/binary | ⏳ Not implemented (bootstrap only) |
 | Smoke test documentation | ✅ See `docs/smoke-test/` |
 | Architecture documentation | ✅ This document |
+
+### 7.1 R6-03 module boundaries (`pyloros-manager-agent`)
+
+| Module | Responsibility | Must not contain |
+|--------|----------------|------------------|
+| `pyloros-server` | Pyloros core gateway (`ToolProvider`, `ToolRegistry`, MCP aggregation, ACP provider runtime integration) | Manager-agent orchestration logic, LLM stack choices |
+| `pyloros-app` | Runtime bootstrap/wiring for the Pyloros gateway process | ACP manager-agent runtime logic |
+| `pyloros-manager-agent` | Separate Java 21 bootstrap subproject packaged as a Gradle application distribution/start script for future ACP manager-agent runtime | Core MCP aggregation ownership, LangChain/Ollama core coupling |
+
+The manager-agent module is intentionally independent from Pyloros core modules.
+No existing core module depends on `pyloros-manager-agent`, so the manager-agent
+can evolve and be started as a separate process using its application distribution.
+
+For ACP stdio process compatibility, the manager-agent bootstrap module configures
+its runtime logging to `stderr` (`src/main/resources/logback.xml`), so `stdout`
+can remain reserved for ACP JSON-RPC payloads.
 
 ---
 

@@ -220,12 +220,25 @@ A real ChatGPT / connector invocation test validates the external client layer a
 
 ## Architecture
 
+- `pyloros-server`: core MCP gateway and provider/tool aggregation logic
+- `pyloros-app`: runtime bootstrap for the Pyloros gateway process
+- `pyloros-manager-agent`: separate Java 21 Gradle `application` bootstrap module (distribution/start script), independent from core server/app runtime
+  - stdio safety: module-local logging is routed to `stderr` so ACP JSON-RPC `stdout` remains free
 - `PylorosApplication`: bootstrap and wiring only
 - `ProviderRegistry`: deterministic provider registration by `providerId`
 - `ToolCatalog`: immutable map-backed snapshots
 - `ToolRouter`: exact-name routing by external MCP tool name
 - `OAuthService`: OAuth token handling for the public Pyloros endpoint
 - external upstreams are discovered from `mcp.json`
+
+### Manager-agent application distribution (R6 scaffold)
+
+`pyloros-manager-agent` is currently packaged as a Gradle application distribution/start script (not a fat JAR):
+
+```bash
+./gradlew :pyloros-manager-agent:installDist
+./pyloros-manager-agent/build/install/pyloros-manager-agent/bin/pyloros-manager-agent
+```
 
 ## Plugin developer guide
 
