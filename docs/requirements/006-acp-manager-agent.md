@@ -225,6 +225,16 @@ For ACP stdio process compatibility, the manager-agent bootstrap module configur
 its runtime logging to `stderr` (`src/main/resources/logback.xml`), so `stdout`
 can remain reserved for ACP JSON-RPC payloads.
 
+### 7.2 Minimal handshake scope clarification (R6-05)
+
+The current R6-05 implementation in `pyloros-manager-agent` intentionally uses a
+minimal line-delimited JSON-RPC stdio adapter compatible with the existing
+Pyloros side (`AcpJsonRpcConnection` reads/writes newline-delimited messages).
+It is **not** yet a full ACP-SDK-abstraction or production ACP runtime. The
+SDK baseline (`acp-core`) is pinned and available, but only the minimal
+`session/new` + `session/prompt` + basic `session/update` handshake is
+implemented in this step.
+
 ---
 
 ## 8. Non-Goals for Release 6
