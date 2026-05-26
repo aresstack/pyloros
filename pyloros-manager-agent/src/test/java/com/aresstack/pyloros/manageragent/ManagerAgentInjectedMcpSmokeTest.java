@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -31,6 +33,7 @@ class ManagerAgentInjectedMcpSmokeTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
     @Test
+    @Timeout(value = 20, unit = TimeUnit.SECONDS)
     void promptFlowUsesInjectedMcpServerForToolsListAndSafeToolsCall() throws Exception {
         try (FakeMcpEndpoint mcpEndpoint = new FakeMcpEndpoint();
              SessionHarness harness = SessionHarness.start(new ManagerAgentMcpGateway.HttpManagerAgentMcpGateway(
