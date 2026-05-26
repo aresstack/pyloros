@@ -1,41 +1,50 @@
-# Report: R6-07 Harden agent tool view and recursion protection for manager agent
+# Report: R6-07 comment follow-up — cross-ACP manager-agent recursion gap
 
 ## What was verified, changed or implemented?
-- Verified baseline state by running `:pyloros-server:test` before changes.
-- Hardened `AgentToolViewValidator` error messages so invalid manager-agent `agentToolView` collisions explicitly describe recursion/self-recursion risk and involved provider/view.
-- Kept and validated the existing protection rules (`public` forbidden, self-provider ID forbidden, other ACP provider ID forbidden, own `exposeInViews` collision forbidden).
-- Extended unit coverage in `AgentToolViewValidatorTest` with manager-focused scenarios:
-  - valid isolated manager view is accepted,
-  - `public` view is rejected,
-  - self-reference recursion is rejected,
-  - reference to another ACP provider is rejected,
-  - own exposed-view collision is rejected.
-- Updated manager-agent smoke-test doc snippets to match the new clearer validation messages.
+- Verified and addressed the reported gap: validation previously considered ACP provider IDs only, but not whether another ACP provider is exposed in the manager agent's selected `agentToolView`.
+- Extended `AcpProviderFactory` to compute ACP provider exposure per view (`view -> set(providerIds)`) and pass it into `AgentToolViewValidator`.
+- Extended `AgentToolViewValidator` signature and logic to reject configurations where `agentToolView` includes any *other* ACP provider exposed in that view.
+- Added explicit error text including provider id, agentToolView, and the colliding ACP provider id:
+  - `... includes ACP provider 'other-acp' and may trigger recursive agent invocation.`
+- Preserved existing protections (public-view ban, self-reference ban, provider-id reference ban, own exposeInViews collision ban).
+- Added tests:
+  - `AgentToolViewValidatorTest` now covers cross-ACP exposure rejection.
+  - New `AcpProviderFactoryTest` verifies runtime registration behavior:
+    - manager provider rejected when another ACP provider is exposed in manager view,
+    - positive case still works when no ACP provider is exposed in manager view.
+- Updated manager-agent smoke test docs with cross-ACP exposure negative scenario.
 
 ## Which files were changed or newly created?
+- Changed: `/home/runner/work/pyloros/pyloros/pyloros-app/src/main/java/com/aresstack/pyloros/config/AcpProviderFactory.java`
 - Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/main/java/com/aresstack/pyloros/acp/AgentToolViewValidator.java`
 - Changed: `/home/runner/work/pyloros/pyloros/pyloros-server/src/test/java/com/aresstack/pyloros/acp/AgentToolViewValidatorTest.java`
+- New: `/home/runner/work/pyloros/pyloros/pyloros-app/src/test/java/com/aresstack/pyloros/config/AcpProviderFactoryTest.java`
 - Changed: `/home/runner/work/pyloros/pyloros/docs/smoke-test/r6-manager-agent-smoke-test.md`
 
 ## Which architecture decision was touched?
-- Reinforced the R6 manager-agent recursion protection decision: ACP manager agents must only use safe non-public tool views and must not resolve to self/other ACP provider recursion paths.
+- Reinforced the R6 manager-agent isolation decision: manager agent tool view must exclude ACP providers that can induce recursive agent invocation, including cross-ACP exposure through shared views.
 
 ## Which tests, builds and runtime checks were executed?
-- `./gradlew --no-daemon :pyloros-server:test` (baseline before changes) → SUCCESS
-- `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.acp.AgentToolViewValidatorTest"` → SUCCESS
-- `./gradlew --no-daemon :pyloros-server:test` (after changes) → SUCCESS
-- `parallel_validation`:
-  - CodeQL Security Scan → SUCCESS (0 alerts)
-  - Code Review → FAILED due external service HTTP 400 header issue
+- Baseline before edits:
+  - `./gradlew --no-daemon :pyloros-server:test` → SUCCESS
+- Targeted checks after edits:
+  - `./gradlew --no-daemon :pyloros-server:test --tests "com.aresstack.pyloros.acp.AgentToolViewValidatorTest" :pyloros-app:test --tests "com.aresstack.pyloros.config.AcpProviderFactoryTest"` → SUCCESS
+- Broader module checks:
+  - `./gradlew --no-daemon :pyloros-server:test :pyloros-app:test` → SUCCESS
+- CI/validation checks:
+  - GitHub Actions runs inspected for base branch `copilot/release-6-java-21-acp-manager-agent` and current branch `copilot/r6-07-harden-agent-tool-view`
+  - `parallel_validation`:
+    - CodeQL Security Scan → SUCCESS (0 alerts)
+    - Code Review → FAILED due external HTTP 400 header issue
 
 ## Result: successful or failed
-- Successful (code/test/doc changes implemented and validated; only external Code Review backend error remained).
+- Successful (requested cross-ACP recursion protection implemented and verified).
 
 ## If failed: exact error and recommended next step
-- External validation tool failure (non-code):
+- External validation tool issue (non-code):
   - `HTTP error 400: bad request: Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
 - Recommended next step:
   - Re-run `parallel_validation` once the external Code Review service/header issue is resolved.
 
 ## Exact commit hash, or No commit created
-- `faebbaf`
+- `523502c`
