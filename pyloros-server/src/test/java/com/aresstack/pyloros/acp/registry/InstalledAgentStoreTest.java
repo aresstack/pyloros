@@ -211,6 +211,36 @@ class InstalledAgentStoreTest {
         assertTrue(store.storeFile().toString().contains("acp-registry"));
     }
 
+    @Test
+    void removeInstalledAgent() {
+        store.save(createAgent("agent-a", "1.0.0", true));
+        store.save(createAgent("agent-b", "2.0.0", true));
+
+        Optional<InstalledAgent> removed = store.remove("agent-a");
+
+        assertTrue(removed.isPresent());
+        assertEquals("agent-a", removed.get().agentId());
+
+        List<InstalledAgent> remaining = store.listAll();
+        assertEquals(1, remaining.size());
+        assertEquals("agent-b", remaining.get(0).agentId());
+    }
+
+    @Test
+    void removeNonExistentAgentReturnsEmpty() {
+        Optional<InstalledAgent> removed = store.remove("nonexistent");
+        assertTrue(removed.isEmpty());
+    }
+
+    @Test
+    void removeLastAgentLeavesEmptyStore() {
+        store.save(createAgent("only-agent", "1.0.0", true));
+
+        store.remove("only-agent");
+
+        assertTrue(store.listAll().isEmpty());
+    }
+
     private static InstalledAgent createAgent(String agentId, String version, boolean enabled) {
         Instant now = Instant.now();
         return new InstalledAgent(

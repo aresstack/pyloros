@@ -20,7 +20,7 @@ import java.util.Optional;
  * Keeps installation state separate from the registry cache.
  * Uses atomic file writes to prevent corruption.
  */
-public final class InstalledAgentStore {
+public class InstalledAgentStore {
 
     private static final Logger log = LoggerFactory.getLogger(InstalledAgentStore.class);
     private static final String STORE_FILE_NAME = "installed-agents.json";
@@ -99,6 +99,33 @@ public final class InstalledAgentStore {
 
         log.info("Saved installed agent '{}'", sanitize(agent.agentId()));
         return agent;
+    }
+
+    /**
+     * Removes an installed agent by its ID.
+     * Returns the removed agent, or empty if not found.
+     */
+    public synchronized Optional<InstalledAgent> remove(String agentId) {
+        Objects.requireNonNull(agentId, "agentId must not be null");
+        Optional<InstalledAgent> existing = findById(agentId);
+        if (existing.isEmpty()) {
+            return Optional.empty();
+        }
+
+        InstalledAgentStoreDocument document = readDocument();
+        List<InstalledAgentStoreDocument.InstalledAgentEntry> updatedEntries = new ArrayList<>();
+        for (InstalledAgentStoreDocument.InstalledAgentEntry entry : document.agents()) {
+            if (entry.agentId() != null && entry.agentId().equals(agentId.trim())) {
+                continue;
+            }
+            updatedEntries.add(entry);
+        }
+
+        writeDocument(new InstalledAgentStoreDocument(
+                InstalledAgentStoreDocument.CURRENT_VERSION, updatedEntries));
+
+        log.info("Removed installed agent '{}'", sanitize(agentId));
+        return existing;
     }
 
     /**
