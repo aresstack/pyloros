@@ -427,7 +427,7 @@ class AgentLifecycleServiceTest {
 
     /**
      * A store adapter that delegates to the real store but fails on the first save call
-     * (to simulate a failed update). Subsequent saves succeed (for rollback).
+     * (the update attempt). Subsequent saves succeed (for rollback).
      */
     private static final class FailOnSecondSaveStoreAdapter implements AgentStoreOperations {
         private final InstalledAgentStore delegate;

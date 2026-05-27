@@ -47,7 +47,9 @@ public final class DefaultAgentInstaller implements AgentInstaller {
                     "Binary install plan is missing 'archive' metadata for installPath=" + plan.installPath());
         }
 
-        Path installDir = baseInstallDirectory.resolve(plan.installPath());
+        validateArchiveUrl(archiveUrl);
+
+        Path installDir = resolveAndValidateInstallPath(plan.installPath());
         try {
             Files.createDirectories(installDir);
         } catch (IOException e) {
@@ -95,7 +97,7 @@ public final class DefaultAgentInstaller implements AgentInstaller {
             return;
         }
 
-        Path installDir = baseInstallDirectory.resolve(plan.installPath());
+        Path installDir = resolveAndValidateInstallPath(plan.installPath());
         if (!Files.exists(installDir)) {
             log.debug("[INSTALLER] install directory does not exist, nothing to remove: {}", installDir);
             return;
@@ -163,5 +165,33 @@ public final class DefaultAgentInstaller implements AgentInstaller {
     private static boolean isBinaryDistribution(InstallPlan plan) {
         Map<String, String> metadata = plan.sourceMetadata();
         return "binary".equals(metadata.get("distributionType"));
+    }
+
+    /**
+     * Validates that the install path resolves within the base install directory
+     * to prevent path traversal attacks.
+     */
+    private Path resolveAndValidateInstallPath(String installPath) {
+        Path resolved = baseInstallDirectory.resolve(installPath).normalize();
+        if (!resolved.startsWith(baseInstallDirectory.normalize())) {
+            throw new AgentInstallException(
+                    "Install path '" + installPath + "' resolves outside base directory (path traversal rejected)");
+        }
+        return resolved;
+    }
+
+    /**
+     * Validates archive URL scheme to prevent SSRF attacks.
+     * Only https and http schemes are allowed.
+     */
+    private static void validateArchiveUrl(String url) {
+        if (url == null || url.isBlank()) {
+            throw new AgentInstallException("Archive URL must not be blank");
+        }
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
+            throw new AgentInstallException(
+                    "Archive URL scheme not allowed (only http/https): " + url);
+        }
     }
 }
