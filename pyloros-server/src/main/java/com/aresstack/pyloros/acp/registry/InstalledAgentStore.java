@@ -20,7 +20,7 @@ import java.util.Optional;
  * Keeps installation state separate from the registry cache.
  * Uses atomic file writes to prevent corruption.
  */
-public class InstalledAgentStore {
+public final class InstalledAgentStore implements AgentStoreOperations {
 
     private static final Logger log = LoggerFactory.getLogger(InstalledAgentStore.class);
     private static final String STORE_FILE_NAME = "installed-agents.json";

@@ -20,12 +20,14 @@ class AgentLifecycleServiceTest {
 
     private InstalledAgentStore store;
     private AgentLifecycleService service;
+    private NoOpAgentInstaller installer;
 
     @BeforeEach
     void setUp() {
         store = new InstalledAgentStore(tempDir.resolve("data/acp-registry"));
         DistributionResolver resolver = new DistributionResolver(LINUX_X86_64);
-        service = new AgentLifecycleService(store, resolver);
+        installer = new NoOpAgentInstaller();
+        service = new AgentLifecycleService(store, resolver, installer);
     }
 
     // --- Install tests ---
@@ -82,6 +84,29 @@ class AgentLifecycleServiceTest {
         assertEquals("binary", success.agent().distributionType());
         assertEquals("./goose", success.agent().resolvedCommand());
         assertEquals(List.of("acp"), success.agent().resolvedArgs());
+        // Verify installer was called for binary
+        assertEquals(1, installer.materializeCount());
+    }
+
+    @Test
+    void installBinaryAgentFailsOnMaterializationError() {
+        FailingAgentInstaller failingInstaller = new FailingAgentInstaller();
+        AgentLifecycleService failingService = new AgentLifecycleService(
+                store, new DistributionResolver(LINUX_X86_64), failingInstaller);
+
+        RegistryAgent agent = binaryRegistryAgent("goose", "1.35.0",
+                Map.of("linux-x86_64", new RegistryDistribution.BinaryTarget(
+                        "https://example.com/goose-linux.tar.bz2", "./goose", List.of("acp"), null)));
+
+        AgentLifecycleResult result = failingService.install(agent);
+
+        assertInstanceOf(AgentLifecycleResult.Failed.class, result);
+        var failed = (AgentLifecycleResult.Failed) result;
+        assertEquals("goose", failed.agentId());
+        assertTrue(failed.reason().contains("Simulated"));
+
+        // Agent should NOT be recorded in store
+        assertTrue(store.findById("goose").isEmpty());
     }
 
     @Test
@@ -129,14 +154,14 @@ class AgentLifecycleServiceTest {
         // Verify default prefix/view
         InstalledAgent installed = store.findById("test-agent").orElseThrow();
         assertEquals("test-agent/", installed.configuredPrefix());
-        assertEquals("agent", installed.agentToolView());
+        assertEquals("test-agent-agent-view", installed.agentToolView());
 
         RegistryAgent v2 = npxRegistryAgent("test-agent", "2.0.0", "test-agent-acp@2.0.0");
         service.update(v2);
 
         InstalledAgent updated = store.findById("test-agent").orElseThrow();
         assertEquals("test-agent/", updated.configuredPrefix());
-        assertEquals("agent", updated.agentToolView());
+        assertEquals("test-agent-agent-view", updated.agentToolView());
     }
 
     @Test
@@ -169,16 +194,12 @@ class AgentLifecycleServiceTest {
         RegistryAgent v1 = npxRegistryAgent("test-agent", "1.0.0", "test-agent-acp@1.0.0");
         service.install(v1);
 
-        // Use a store that fails on the second save (the update attempt)
+        // Use a store adapter that fails on the second save (the update attempt)
         // but succeeds on the third save (the rollback)
-        InstalledAgentStore failingStore = new FailOnSecondSaveStore(
-                tempDir.resolve("data/acp-registry"));
-        // Pre-populate with the installed agent
-        InstalledAgent installed = store.findById("test-agent").orElseThrow();
-        failingStore.save(installed);
+        FailOnSecondSaveStoreAdapter failingStore = new FailOnSecondSaveStoreAdapter(store);
 
         AgentLifecycleService failingService = new AgentLifecycleService(
-                failingStore, new DistributionResolver(LINUX_X86_64));
+                failingStore, new DistributionResolver(LINUX_X86_64), installer);
 
         RegistryAgent v2 = npxRegistryAgent("test-agent", "2.0.0", "test-agent-acp@2.0.0");
         AgentLifecycleResult result = failingService.update(v2);
@@ -190,7 +211,7 @@ class AgentLifecycleServiceTest {
         assertTrue(failed.rollbackDetail().contains("1.0.0"));
 
         // Verify previous version is still in the store (rollback succeeded)
-        Optional<InstalledAgent> restored = failingStore.findById("test-agent");
+        Optional<InstalledAgent> restored = store.findById("test-agent");
         assertTrue(restored.isPresent());
         assertEquals("1.0.0", restored.get().installedVersion());
     }
@@ -213,6 +234,18 @@ class AgentLifecycleServiceTest {
         // Verify removal from store
         Optional<InstalledAgent> stored = store.findById("test-agent");
         assertTrue(stored.isEmpty());
+    }
+
+    @Test
+    void uninstallBinaryAgentCallsInstallerRemove() {
+        RegistryAgent agent = binaryRegistryAgent("goose", "1.35.0",
+                Map.of("linux-x86_64", new RegistryDistribution.BinaryTarget(
+                        "https://example.com/goose-linux.tar.bz2", "./goose", List.of("acp"), null)));
+        service.install(agent);
+
+        service.uninstall("goose");
+
+        assertEquals(1, installer.removeCount());
     }
 
     @Test
@@ -301,12 +334,26 @@ class AgentLifecycleServiceTest {
     }
 
     @Test
-    void installSetsAgentToolViewToAgent() {
+    void installSetsAgentToolViewToPerAgentView() {
         RegistryAgent agent = npxRegistryAgent("my-agent", "1.0.0", "my-agent@1.0.0");
         service.install(agent);
 
         InstalledAgent installed = store.findById("my-agent").orElseThrow();
-        assertEquals("agent", installed.agentToolView());
+        assertEquals("my-agent-agent-view", installed.agentToolView());
+    }
+
+    @Test
+    void eachInstalledAgentGetsUniqueToolView() {
+        RegistryAgent agent1 = npxRegistryAgent("agent-a", "1.0.0", "agent-a@1.0.0");
+        RegistryAgent agent2 = npxRegistryAgent("agent-b", "1.0.0", "agent-b@1.0.0");
+        service.install(agent1);
+        service.install(agent2);
+
+        InstalledAgent installed1 = store.findById("agent-a").orElseThrow();
+        InstalledAgent installed2 = store.findById("agent-b").orElseThrow();
+        assertNotEquals(installed1.agentToolView(), installed2.agentToolView());
+        assertEquals("agent-a-agent-view", installed1.agentToolView());
+        assertEquals("agent-b-agent-view", installed2.agentToolView());
     }
 
     // --- Helper methods ---
@@ -337,26 +384,93 @@ class AgentLifecycleServiceTest {
     }
 
     /**
-     * A store subclass that throws on the second save call to simulate a failed update.
-     * The first save (pre-population) succeeds; the second (update attempt) fails;
-     * the third (rollback) succeeds.
+     * A no-op installer for testing npx/uvx lifecycle without actual materialization.
+     * Tracks calls for assertion purposes.
      */
-    private static final class FailOnSecondSaveStore extends InstalledAgentStore {
-        private int saveCount = 0;
+    private static final class NoOpAgentInstaller implements AgentInstaller {
+        private int materializeCount = 0;
+        private int removeCount = 0;
 
-        FailOnSecondSaveStore(Path baseDirectory) {
-            super(baseDirectory);
+        @Override
+        public void materialize(InstallPlan plan) {
+            materializeCount++;
         }
 
         @Override
-        public synchronized InstalledAgent save(InstalledAgent agent) {
+        public void remove(InstallPlan plan) {
+            removeCount++;
+        }
+
+        int materializeCount() {
+            return materializeCount;
+        }
+
+        int removeCount() {
+            return removeCount;
+        }
+    }
+
+    /**
+     * An installer that always fails materialization — for testing install failure paths.
+     */
+    private static final class FailingAgentInstaller implements AgentInstaller {
+        @Override
+        public void materialize(InstallPlan plan) {
+            throw new AgentInstallException("Simulated materialization failure");
+        }
+
+        @Override
+        public void remove(InstallPlan plan) {
+            // no-op
+        }
+    }
+
+    /**
+     * A store adapter that delegates to the real store but fails on the first save call
+     * (to simulate a failed update). Subsequent saves succeed (for rollback).
+     */
+    private static final class FailOnSecondSaveStoreAdapter implements AgentStoreOperations {
+        private final InstalledAgentStore delegate;
+        private int saveCount = 0;
+
+        FailOnSecondSaveStoreAdapter(InstalledAgentStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public List<InstalledAgent> listAll() {
+            return delegate.listAll();
+        }
+
+        @Override
+        public List<InstalledAgent> listEnabled() {
+            return delegate.listEnabled();
+        }
+
+        @Override
+        public Optional<InstalledAgent> findById(String agentId) {
+            return delegate.findById(agentId);
+        }
+
+        @Override
+        public InstalledAgent save(InstalledAgent agent) {
             saveCount++;
-            if (saveCount == 2) {
+            if (saveCount == 1) {
                 throw new InstalledAgentStoreException(
                         InstalledAgentStoreException.Kind.IO_ERROR,
                         "Simulated write failure during update");
             }
-            return super.save(agent);
+            return delegate.save(agent);
+        }
+
+        @Override
+        public Optional<InstalledAgent> remove(String agentId) {
+            return delegate.remove(agentId);
+        }
+
+        @Override
+        public Optional<InstalledAgent> setEnabled(String agentId, boolean enabled) {
+            return delegate.setEnabled(agentId, enabled);
         }
     }
 }

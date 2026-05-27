@@ -18,22 +18,26 @@ import java.util.Optional;
  *   <li>Existing installations are never silently overwritten</li>
  *   <li>Failed updates attempt rollback to the previous state</li>
  *   <li>All operations are audit-logged without exposing secrets</li>
+ *   <li>Binary distributions are materialized (downloaded/extracted) under the install path</li>
  * </ul>
  */
 public final class AgentLifecycleService {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLifecycleService.class);
 
-    private final InstalledAgentStore store;
+    private final AgentStoreOperations store;
     private final DistributionResolver resolver;
+    private final AgentInstaller installer;
 
-    public AgentLifecycleService(InstalledAgentStore store, DistributionResolver resolver) {
+    public AgentLifecycleService(AgentStoreOperations store, DistributionResolver resolver, AgentInstaller installer) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.resolver = Objects.requireNonNull(resolver, "resolver must not be null");
+        this.installer = Objects.requireNonNull(installer, "installer must not be null");
     }
 
     /**
      * Installs a registry agent. Rejects the operation if the agent is already installed.
+     * For binary distributions, downloads and extracts the archive before recording install.
      *
      * @param registryAgent the agent metadata from the registry
      * @return structured lifecycle result
@@ -72,6 +76,15 @@ public final class AgentLifecycleService {
                     agentId, e.getMessage(), AgentLifecycleResult.RejectionKind.UNSUPPORTED_PLATFORM);
         }
 
+        // Materialize the installation (downloads/extracts for binary; no-op for npx/uvx)
+        try {
+            installer.materialize(plan);
+        } catch (AgentInstallException e) {
+            log.error("[LIFECYCLE] install failed agentId={} reason={}", sanitize(agentId), e.getMessage());
+            return new AgentLifecycleResult.Failed(
+                    agentId, e.getMessage(), false, "Installation materialization failed");
+        }
+
         Instant now = Instant.now();
         InstalledAgent agent = new InstalledAgent(
                 agentId,
@@ -83,7 +96,7 @@ public final class AgentLifecycleService {
                 registryAgent.version(),
                 registryAgent.license() != null ? registryAgent.license() : "",
                 agentId + "/",
-                "agent",
+                agentId + "-agent-view",
                 true,
                 now,
                 now
@@ -152,6 +165,17 @@ public final class AgentLifecycleService {
                     agentId, e.getMessage(), AgentLifecycleResult.RejectionKind.UNSUPPORTED_PLATFORM);
         }
 
+        // Materialize the new version (downloads/extracts for binary; no-op for npx/uvx)
+        try {
+            installer.materialize(plan);
+        } catch (AgentInstallException e) {
+            log.error("[LIFECYCLE] update materialization failed agentId={} reason={}, no state change",
+                    sanitize(agentId), e.getMessage());
+            return new AgentLifecycleResult.Failed(
+                    agentId, e.getMessage(), true,
+                    "Materialization failed before state change; previous version preserved");
+        }
+
         // Attempt the update — on failure, rollback to previous state
         try {
             Instant now = Instant.now();
@@ -190,7 +214,7 @@ public final class AgentLifecycleService {
     }
 
     /**
-     * Uninstalls an agent by removing it from the store.
+     * Uninstalls an agent by removing it from the store and cleaning up materialized files.
      * Returns a structured error if the agent is not installed.
      *
      * @param agentId the agent to uninstall
@@ -200,6 +224,31 @@ public final class AgentLifecycleService {
         Objects.requireNonNull(agentId, "agentId must not be null");
 
         log.info("[LIFECYCLE] uninstall requested agentId={}", sanitize(agentId));
+
+        Optional<InstalledAgent> existing = store.findById(agentId);
+        if (existing.isEmpty()) {
+            log.warn("[LIFECYCLE] uninstall rejected agentId={} reason=not_installed", sanitize(agentId));
+            return new AgentLifecycleResult.Rejected(
+                    agentId,
+                    "Agent '" + agentId + "' is not installed",
+                    AgentLifecycleResult.RejectionKind.NOT_INSTALLED);
+        }
+
+        InstalledAgent agent = existing.get();
+
+        // Remove materialized files for binary distributions
+        try {
+            InstallPlan removalPlan = new InstallPlan(
+                    agent.resolvedCommand(),
+                    agent.resolvedArgs(),
+                    agent.installPath(),
+                    Map.of("distributionType", agent.distributionType())
+            );
+            installer.remove(removalPlan);
+        } catch (AgentInstallException e) {
+            log.warn("[LIFECYCLE] uninstall file removal failed agentId={} reason={}, continuing with store removal",
+                    sanitize(agentId), e.getMessage());
+        }
 
         Optional<InstalledAgent> removed = store.remove(agentId);
         if (removed.isEmpty()) {
