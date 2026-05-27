@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -17,11 +19,12 @@ class InstalledAgentAcpProviderFactoryTest {
     void enabledAgentProducesValidProviderConfiguration() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertEquals(1, configs.size());
-        AcpProviderConfiguration config = configs.get(0);
+        assertEquals(1, result.configurations().size());
+        assertTrue(result.failures().isEmpty());
+        AcpProviderConfiguration config = result.configurations().get(0);
         assertEquals("test-agent", config.id());
         assertEquals("test-agent/", config.prefix());
         assertEquals("agent", config.agentToolView());
@@ -31,53 +34,82 @@ class InstalledAgentAcpProviderFactoryTest {
     void disabledAgentIsNotRegistered() {
         InstalledAgent agent = createAgent("disabled-agent", "1.0.0", false, "disabled-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertTrue(configs.isEmpty());
+        assertTrue(result.configurations().isEmpty());
+        assertTrue(result.failures().isEmpty(), "disabled agents are not failures, just filtered");
     }
 
     @Test
     void prefixDefaultsToAgentIdSlash() {
         InstalledAgent agent = createAgent("my-cool-agent", "2.0.0", true, "my-cool-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, null);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, null);
 
-        assertEquals(1, configs.size());
-        assertEquals("my-cool-agent/", configs.get(0).prefix());
+        assertEquals(1, result.configurations().size());
+        assertEquals("my-cool-agent/", result.configurations().get(0).prefix());
+    }
+
+    @Test
+    void rootPrefixIsAllowedAsExplicitOptIn() {
+        InstalledAgent agent = createAgent("root-agent", "1.0.0", true, "/", "agent");
+
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, null);
+
+        assertEquals(1, result.configurations().size());
+        assertEquals("/", result.configurations().get(0).prefix());
+        assertTrue(result.failures().isEmpty());
+    }
+
+    @Test
+    void prefixWithoutTrailingSlashIsRejectedAsFailure() {
+        InstalledAgent agent = createAgent("bad-prefix", "1.0.0", true, "no-slash", "agent");
+
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+
+        assertTrue(result.configurations().isEmpty());
+        assertEquals(1, result.failures().size());
+        assertEquals("bad-prefix", result.failures().get(0).agentId());
+        assertTrue(result.failures().get(0).reason().contains("must end with '/'"));
     }
 
     @Test
     void agentToolViewIsNotPublic() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, null);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, null);
 
-        assertEquals(1, configs.size());
-        assertNotEquals("public", configs.get(0).agentToolView());
+        assertEquals(1, result.configurations().size());
+        assertNotEquals("public", result.configurations().get(0).agentToolView());
     }
 
     @Test
-    void agentWithPublicViewIsRejected() {
+    void agentWithPublicViewIsRejectedAsFailure() {
         InstalledAgent agent = createAgent("bad-agent", "1.0.0", true, "bad-agent/", "public");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertTrue(configs.isEmpty(), "agent with public agentToolView must be rejected");
+        assertTrue(result.configurations().isEmpty());
+        assertEquals(1, result.failures().size());
+        assertEquals("bad-agent", result.failures().get(0).agentId());
+        assertTrue(result.failures().get(0).reason().contains("public"));
     }
 
     @Test
     void mcpUrlInjectedIntoProcessEnvironment() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertEquals(1, configs.size());
-        AcpProviderConfiguration config = configs.get(0);
+        assertEquals(1, result.configurations().size());
+        AcpProviderConfiguration config = result.configurations().get(0);
         assertEquals(PYLOROS_MCP_URL, config.process().environment().get("PYLOROS_MCP_URL"));
         assertEquals(PYLOROS_MCP_TOKEN, config.process().environment().get("PYLOROS_MCP_BEARER_TOKEN"));
     }
@@ -86,44 +118,67 @@ class InstalledAgentAcpProviderFactoryTest {
     void mcpTokenOmittedWhenBlank() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, "");
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, "");
 
-        assertEquals(1, configs.size());
-        assertFalse(configs.get(0).process().environment().containsKey("PYLOROS_MCP_BEARER_TOKEN"));
+        assertEquals(1, result.configurations().size());
+        assertFalse(result.configurations().get(0).process().environment().containsKey("PYLOROS_MCP_BEARER_TOKEN"));
     }
 
     @Test
     void mcpTokenOmittedWhenNull() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, null);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, null);
 
-        assertEquals(1, configs.size());
-        assertFalse(configs.get(0).process().environment().containsKey("PYLOROS_MCP_BEARER_TOKEN"));
+        assertEquals(1, result.configurations().size());
+        assertFalse(result.configurations().get(0).process().environment().containsKey("PYLOROS_MCP_BEARER_TOKEN"));
     }
 
     @Test
-    void recursiveAgentViewIsRejected() {
-        // Agent whose agentToolView is "public" — triggers public-view recursion protection
-        InstalledAgent agent = createAgent("recursive-agent", "1.0.0", true, "recursive-agent/", "public");
-
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
-
-        assertTrue(configs.isEmpty(), "agent with public agentToolView should be rejected");
-    }
-
-    @Test
-    void selfReferencingAgentToolViewIsRejected() {
-        // Agent where agentToolView equals agent ID
+    void selfReferencingAgentToolViewIsRejectedAsFailure() {
         InstalledAgent agent = createAgent("my-agent", "1.0.0", true, "my-agent/", "my-agent");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertTrue(configs.isEmpty(), "agent whose agentToolView equals its own ID must be rejected");
+        assertTrue(result.configurations().isEmpty());
+        assertEquals(1, result.failures().size());
+        assertEquals("my-agent", result.failures().get(0).agentId());
+    }
+
+    @Test
+    void agentViewCollidingWithExistingNonRegistryProviderIsRejected() {
+        // Existing non-registry ACP provider "github" is exposed in view "shared-view"
+        InstalledAgent agent = createAgent("registry-agent", "1.0.0", true, "registry-agent/", "shared-view");
+
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent),
+                Set.of("github"),
+                Map.of("shared-view", Set.of("github")),
+                PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+
+        assertTrue(result.configurations().isEmpty());
+        assertEquals(1, result.failures().size());
+        assertEquals("registry-agent", result.failures().get(0).agentId());
+        assertTrue(result.failures().get(0).reason().contains("github"));
+    }
+
+    @Test
+    void agentViewReferencingExistingNonRegistryProviderIdIsRejected() {
+        // Agent uses agentToolView that equals an existing non-registry provider ID
+        InstalledAgent agent = createAgent("registry-agent", "1.0.0", true, "registry-agent/", "github");
+
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent),
+                Set.of("github"),
+                Map.of(),
+                PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+
+        assertTrue(result.configurations().isEmpty());
+        assertEquals(1, result.failures().size());
+        assertEquals("registry-agent", result.failures().get(0).agentId());
     }
 
     @Test
@@ -131,12 +186,13 @@ class InstalledAgentAcpProviderFactoryTest {
         InstalledAgent agentA = createAgent("agent-a", "1.0.0", true, "agent-a/", "view-a");
         InstalledAgent agentB = createAgent("agent-b", "2.0.0", true, "agent-b/", "view-b");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agentA, agentB), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agentA, agentB), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertEquals(2, configs.size());
-        assertTrue(configs.stream().anyMatch(c -> "agent-a".equals(c.id())));
-        assertTrue(configs.stream().anyMatch(c -> "agent-b".equals(c.id())));
+        assertEquals(2, result.configurations().size());
+        assertTrue(result.failures().isEmpty());
+        assertTrue(result.configurations().stream().anyMatch(c -> "agent-a".equals(c.id())));
+        assertTrue(result.configurations().stream().anyMatch(c -> "agent-b".equals(c.id())));
     }
 
     @Test
@@ -144,11 +200,12 @@ class InstalledAgentAcpProviderFactoryTest {
         InstalledAgent enabled = createAgent("enabled", "1.0.0", true, "enabled/", "view-e");
         InstalledAgent disabled = createAgent("disabled", "1.0.0", false, "disabled/", "view-d");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(enabled, disabled), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(enabled, disabled), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertEquals(1, configs.size());
-        assertEquals("enabled", configs.get(0).id());
+        assertEquals(1, result.configurations().size());
+        assertEquals("enabled", result.configurations().get(0).id());
+        assertTrue(result.failures().isEmpty());
     }
 
     @Test
@@ -156,7 +213,8 @@ class InstalledAgentAcpProviderFactoryTest {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
         assertThrows(IllegalArgumentException.class, () ->
-                InstalledAgentAcpProviderFactory.createConfigurations(List.of(agent), null, null));
+                InstalledAgentAcpProviderFactory.createConfigurations(
+                        List.of(agent), Set.of(), Map.of(), null, null));
     }
 
     @Test
@@ -164,15 +222,17 @@ class InstalledAgentAcpProviderFactoryTest {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "agent");
 
         assertThrows(IllegalArgumentException.class, () ->
-                InstalledAgentAcpProviderFactory.createConfigurations(List.of(agent), "   ", null));
+                InstalledAgentAcpProviderFactory.createConfigurations(
+                        List.of(agent), Set.of(), Map.of(), "   ", null));
     }
 
     @Test
-    void emptyAgentListReturnsEmptyConfigurations() {
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+    void emptyAgentListReturnsEmptyResult() {
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertTrue(configs.isEmpty());
+        assertTrue(result.configurations().isEmpty());
+        assertTrue(result.failures().isEmpty());
     }
 
     @Test
@@ -185,11 +245,11 @@ class InstalledAgentAcpProviderFactoryTest {
                 Instant.now(), Instant.now()
         );
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
 
-        assertEquals(1, configs.size());
-        AcpProviderConfiguration config = configs.get(0);
+        assertEquals(1, result.configurations().size());
+        AcpProviderConfiguration config = result.configurations().get(0);
         assertEquals("npx", config.process().command());
         assertEquals(List.of("--yes", "@acme/npx-agent"), config.process().args());
     }
@@ -198,11 +258,25 @@ class InstalledAgentAcpProviderFactoryTest {
     void exposeInViewsIsPublic() {
         InstalledAgent agent = createAgent("test-agent", "1.0.0", true, "test-agent/", "my-view");
 
-        List<AcpProviderConfiguration> configs = InstalledAgentAcpProviderFactory.createConfigurations(
-                List.of(agent), PYLOROS_MCP_URL, null);
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(agent), Set.of(), Map.of(), PYLOROS_MCP_URL, null);
 
-        assertEquals(1, configs.size());
-        assertEquals(List.of("public"), configs.get(0).exposeInViews());
+        assertEquals(1, result.configurations().size());
+        assertEquals(List.of("public"), result.configurations().get(0).exposeInViews());
+    }
+
+    @Test
+    void mixedValidAndInvalidAgentsReturnsBothConfigsAndFailures() {
+        InstalledAgent valid = createAgent("valid-agent", "1.0.0", true, "valid-agent/", "valid-view");
+        InstalledAgent invalid = createAgent("invalid-agent", "1.0.0", true, "invalid-agent/", "public");
+
+        var result = InstalledAgentAcpProviderFactory.createConfigurations(
+                List.of(valid, invalid), Set.of(), Map.of(), PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+
+        assertEquals(1, result.configurations().size());
+        assertEquals("valid-agent", result.configurations().get(0).id());
+        assertEquals(1, result.failures().size());
+        assertEquals("invalid-agent", result.failures().get(0).agentId());
     }
 
     private static InstalledAgent createAgent(String agentId, String version, boolean enabled,

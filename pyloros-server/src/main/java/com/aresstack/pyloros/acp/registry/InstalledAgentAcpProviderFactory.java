@@ -22,13 +22,17 @@ import java.util.Set;
  * <p>Only enabled agents are converted. Disabled agents are silently skipped.
  * Each agent receives:
  * <ul>
- *   <li>A default prefix of {@code <agentId>/} unless explicitly configured otherwise</li>
+ *   <li>A default prefix of {@code <agentId>/} — enforced if the configured prefix is blank or root</li>
  *   <li>A non-public {@code agentToolView} (agents must not see the public view)</li>
  *   <li>{@code PYLOROS_MCP_URL} and optionally {@code PYLOROS_MCP_BEARER_TOKEN} injected into the process environment</li>
  * </ul>
  *
- * <p>Root-level tools (empty prefix or {@code "/"}) are only allowed when explicitly configured
- * via {@link InstalledAgent#configuredPrefix()}.
+ * <p>Root-level tools (prefix {@code "/"}) are only allowed when explicitly configured.
+ * Blank or null prefixes are rejected as invalid.
+ *
+ * <p>Validation considers the <em>full ACP provider universe</em>: callers must supply the existing
+ * (non-registry) provider IDs and exposed-view map so that recursion protection covers cross-provider
+ * collisions.
  *
  * <p>The existing {@link AgentToolViewValidator} is reused to reject recursive or colliding agent views.
  */
@@ -40,19 +44,60 @@ public final class InstalledAgentAcpProviderFactory {
     }
 
     /**
-     * Converts a list of installed agents into validated ACP provider configurations.
-     * Disabled agents are filtered out. Invalid or recursive configurations are logged and skipped.
+     * Structured result of {@link #createConfigurations}, containing both successfully generated
+     * configurations and per-agent failure details.
      *
-     * @param agents           all installed agents (enabled and disabled)
-     * @param pylorosMcpUrl    the Pyloros MCP URL to inject (required, non-blank)
-     * @param pylorosMcpToken  optional bearer token for Pyloros MCP authentication (may be null or blank)
-     * @return list of valid provider configurations for enabled agents
+     * @param configurations successfully validated provider configurations
+     * @param failures       per-agent failure reasons for enabled agents that could not be registered
      */
-    public static List<AcpProviderConfiguration> createConfigurations(
+    public record Result(
+            List<AcpProviderConfiguration> configurations,
+            List<AgentFailure> failures
+    ) {
+        public Result {
+            configurations = List.copyOf(Objects.requireNonNull(configurations, "configurations must not be null"));
+            failures = List.copyOf(Objects.requireNonNull(failures, "failures must not be null"));
+        }
+    }
+
+    /**
+     * Describes a single agent that failed validation or configuration generation.
+     *
+     * @param agentId the installed agent ID
+     * @param reason  human-readable failure reason
+     */
+    public record AgentFailure(String agentId, String reason) {
+        public AgentFailure {
+            Objects.requireNonNull(agentId, "agentId must not be null");
+            Objects.requireNonNull(reason, "reason must not be null");
+        }
+    }
+
+    /**
+     * Converts a list of installed agents into validated ACP provider configurations.
+     * Disabled agents are filtered out. Returns a structured {@link Result} containing
+     * generated configs and per-agent failures for enabled agents that could not be registered.
+     *
+     * <p>Validation uses the full ACP provider universe: the caller must supply existing
+     * (non-registry) provider IDs and exposed-view mappings so that cross-provider recursion
+     * is detected.
+     *
+     * @param agents                       all installed agents (enabled and disabled)
+     * @param existingAcpProviderIds       provider IDs from non-registry ACP providers (e.g. mcp.json)
+     * @param existingExposedViewMap       exposed-view → provider-IDs map from non-registry ACP providers
+     * @param pylorosMcpUrl                the Pyloros MCP URL to inject (required, non-blank)
+     * @param pylorosMcpToken              optional bearer token for Pyloros MCP authentication (may be null or blank)
+     * @return structured result with generated configs and failures
+     */
+    public static Result createConfigurations(
             List<InstalledAgent> agents,
+            Set<String> existingAcpProviderIds,
+            Map<String, Set<String>> existingExposedViewMap,
             String pylorosMcpUrl,
             String pylorosMcpToken) {
         Objects.requireNonNull(agents, "agents must not be null");
+        Objects.requireNonNull(existingAcpProviderIds, "existingAcpProviderIds must not be null");
+        Objects.requireNonNull(existingExposedViewMap, "existingExposedViewMap must not be null");
         if (pylorosMcpUrl == null || pylorosMcpUrl.isBlank()) {
             throw new IllegalArgumentException("pylorosMcpUrl must not be null or blank");
         }
@@ -62,15 +107,29 @@ public final class InstalledAgentAcpProviderFactory {
                 .toList();
 
         if (enabledAgents.isEmpty()) {
-            return List.of();
+            return new Result(List.of(), List.of());
         }
 
-        Set<String> allProviderIds = collectProviderIds(enabledAgents);
-        Map<String, Set<String>> providerIdsByExposedView = collectProviderIdsByExposedView(enabledAgents);
+        // Merge existing provider universe with registry agent IDs
+        Set<String> allProviderIds = new HashSet<>(existingAcpProviderIds);
+        for (InstalledAgent agent : enabledAgents) {
+            allProviderIds.add(agent.agentId());
+        }
+
+        // Merge existing exposed-view map with registry agents (exposed in "public")
+        Map<String, Set<String>> providerIdsByExposedView = new HashMap<>();
+        existingExposedViewMap.forEach((view, ids) ->
+                providerIdsByExposedView.put(view, new HashSet<>(ids)));
+        for (InstalledAgent agent : enabledAgents) {
+            providerIdsByExposedView.computeIfAbsent("public", ignored -> new HashSet<>()).add(agent.agentId());
+        }
 
         List<AcpProviderConfiguration> configurations = new ArrayList<>();
+        List<AgentFailure> failures = new ArrayList<>();
+
         for (InstalledAgent agent : enabledAgents) {
             try {
+                validatePrefix(agent);
                 AcpProviderConfiguration config = toProviderConfiguration(agent, pylorosMcpUrl, pylorosMcpToken);
                 AgentToolViewValidator.validate(config, allProviderIds, providerIdsByExposedView);
                 configurations.add(config);
@@ -79,15 +138,37 @@ public final class InstalledAgentAcpProviderFactory {
             } catch (Exception e) {
                 log.error("[ACP-REGISTRY-PROVIDER] failed to create provider for agent={} reason={}",
                         agent.agentId(), e.getMessage());
+                failures.add(new AgentFailure(agent.agentId(), e.getMessage()));
             }
         }
 
-        return List.copyOf(configurations);
+        return new Result(configurations, failures);
+    }
+
+    /**
+     * Validates the prefix of an installed agent.
+     * The prefix must not be blank. Root prefix ({@code "/"}) is only allowed
+     * as an explicit opt-in — it must literally be "/" to be accepted.
+     * The default (and expected) prefix pattern is {@code <agentId>/}.
+     */
+    static void validatePrefix(InstalledAgent agent) {
+        String prefix = agent.configuredPrefix();
+        // configuredPrefix is already validated as non-blank by InstalledAgent record,
+        // but we enforce the semantic: root "/" is explicit opt-in, anything else must end with "/"
+        if ("/".equals(prefix)) {
+            // Explicit root opt-in — allowed but noteworthy
+            return;
+        }
+        if (!prefix.endsWith("/")) {
+            throw new IllegalArgumentException(
+                    "Prefix for agent '" + agent.agentId() + "' must end with '/' or be exactly '/' for root, got: '"
+                            + prefix + "'");
+        }
     }
 
     /**
      * Converts a single installed agent to an ACP provider configuration.
-     * Does not perform validation — use {@link #createConfigurations} for validated output.
+     * Does not perform cross-provider validation — use {@link #createConfigurations} for validated output.
      */
     static AcpProviderConfiguration toProviderConfiguration(
             InstalledAgent agent,
@@ -121,22 +202,5 @@ public final class InstalledAgentAcpProviderFactory {
                 processConfig,
                 new AcpExecutionConfiguration()
         );
-    }
-
-    private static Set<String> collectProviderIds(List<InstalledAgent> agents) {
-        Set<String> ids = new HashSet<>();
-        for (InstalledAgent agent : agents) {
-            ids.add(agent.agentId());
-        }
-        return ids;
-    }
-
-    private static Map<String, Set<String>> collectProviderIdsByExposedView(List<InstalledAgent> agents) {
-        Map<String, Set<String>> providerIdsByView = new HashMap<>();
-        for (InstalledAgent agent : agents) {
-            // Installed agents are always exposed in "public"
-            providerIdsByView.computeIfAbsent("public", ignored -> new HashSet<>()).add(agent.agentId());
-        }
-        return providerIdsByView;
     }
 }
