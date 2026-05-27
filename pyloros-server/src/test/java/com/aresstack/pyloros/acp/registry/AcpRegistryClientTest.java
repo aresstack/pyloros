@@ -179,47 +179,8 @@ class AcpRegistryClientTest {
         // Pre-populate cache
         Files.writeString(cacheFile, VALID_REGISTRY_JSON);
 
-        // Use an unreachable URL to trigger network failure
-        HttpClient failingClient = new HttpClient() {
-            @Override
-            public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
-                    throws IOException {
-                throw new IOException("Connection refused");
-            }
-
-            @Override
-            public java.util.Optional<java.net.CookieHandler> cookieHandler() { return java.util.Optional.empty(); }
-            @Override
-            public java.util.Optional<java.time.Duration> connectTimeout() { return java.util.Optional.empty(); }
-            @Override
-            public Redirect followRedirects() { return Redirect.NEVER; }
-            @Override
-            public java.util.Optional<java.net.ProxySelector> proxy() { return java.util.Optional.empty(); }
-            @Override
-            public javax.net.ssl.SSLContext sslContext() { return null; }
-            @Override
-            public javax.net.ssl.SSLParameters sslParameters() { return null; }
-            @Override
-            public java.util.Optional<java.net.Authenticator> authenticator() { return java.util.Optional.empty(); }
-            @Override
-            public Version version() { return Version.HTTP_1_1; }
-            @Override
-            public java.util.Optional<java.util.concurrent.Executor> executor() { return java.util.Optional.empty(); }
-            @Override
-            public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
-                    HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
-                return java.util.concurrent.CompletableFuture.failedFuture(new IOException("Connection refused"));
-            }
-            @Override
-            public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
-                    HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler,
-                    HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
-                return java.util.concurrent.CompletableFuture.failedFuture(new IOException("Connection refused"));
-            }
-        };
-
         AcpRegistryClient client = new AcpRegistryClient(
-                URI.create("http://unreachable.invalid/registry.json"), cache, failingClient);
+                URI.create("http://unreachable.invalid/registry.json"), cache, failingHttpClient());
 
         AcpRegistryLoadResult result = client.load();
 
@@ -234,7 +195,19 @@ class AcpRegistryClientTest {
         Path cacheFile = tempDir.resolve("nonexistent-cache.json");
         AcpRegistryCache cache = new AcpRegistryCache(cacheFile);
 
-        HttpClient failingClient = new HttpClient() {
+        AcpRegistryClient client = new AcpRegistryClient(
+                URI.create("http://unreachable.invalid/registry.json"), cache, failingHttpClient());
+
+        AcpRegistryLoadResult result = client.load();
+
+        assertInstanceOf(AcpRegistryLoadResult.Failure.class, result);
+        var failure = (AcpRegistryLoadResult.Failure) result;
+        assertTrue(failure.errors().get(0).contains("unavailable"));
+        assertTrue(failure.errors().get(0).contains("no cache"));
+    }
+
+    private static HttpClient failingHttpClient() {
+        return new HttpClient() {
             @Override
             public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
                     throws IOException {
@@ -271,16 +244,6 @@ class AcpRegistryClientTest {
                 return java.util.concurrent.CompletableFuture.failedFuture(new IOException("Connection refused"));
             }
         };
-
-        AcpRegistryClient client = new AcpRegistryClient(
-                URI.create("http://unreachable.invalid/registry.json"), cache, failingClient);
-
-        AcpRegistryLoadResult result = client.load();
-
-        assertInstanceOf(AcpRegistryLoadResult.Failure.class, result);
-        var failure = (AcpRegistryLoadResult.Failure) result;
-        assertTrue(failure.errors().get(0).contains("unavailable"));
-        assertTrue(failure.errors().get(0).contains("no cache"));
     }
 
     @Test
