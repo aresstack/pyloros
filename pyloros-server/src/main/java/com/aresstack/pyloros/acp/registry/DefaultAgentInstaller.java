@@ -3,12 +3,17 @@ package com.aresstack.pyloros.acp.registry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -27,11 +32,12 @@ import java.util.stream.Stream;
  * <ul>
  *   <li>All resolved paths are validated to stay within the base install directory</li>
  *   <li>Archive URLs are restricted to http/https schemes</li>
- *   <li>Extracted archive contents are verified to remain under the install directory</li>
+ *   <li>Archive entries are listed and validated before extraction (preflight check)</li>
+ *   <li>Extracted archive contents are verified post-extraction as defense-in-depth</li>
  *   <li>Command paths are normalized and validated against path traversal</li>
  * </ul>
  */
-public final class DefaultAgentInstaller implements AgentInstaller {
+public class DefaultAgentInstaller implements AgentInstaller {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentInstaller.class);
 
@@ -77,6 +83,9 @@ public final class DefaultAgentInstaller implements AgentInstaller {
                     "Failed to download archive from " + archiveUrl + " to " + archiveFile, e);
         }
 
+        // Preflight: list archive entries and validate all paths before extraction
+        validateArchiveEntries(archiveFile, installDir);
+
         try {
             extract(archiveFile, installDir);
         } catch (IOException e) {
@@ -90,7 +99,7 @@ public final class DefaultAgentInstaller implements AgentInstaller {
             }
         }
 
-        // Validate all extracted files remain within install directory (zip-slip protection)
+        // Post-extraction validation as defense-in-depth
         validateExtractedContents(installDir);
 
         // Verify the expected command exists and is within the install directory
@@ -192,9 +201,83 @@ public final class DefaultAgentInstaller implements AgentInstaller {
     }
 
     /**
+     * Lists archive entries without extracting and validates that every entry resolves
+     * within the target directory. Fails closed on absolute paths or '../' traversal,
+     * ensuring no files are written outside the install directory.
+     * This is the primary defense against zip-slip/tar-slip attacks.
+     */
+    private void validateArchiveEntries(Path archiveFile, Path targetDir) {
+        Path normalizedTargetDir = targetDir.toAbsolutePath().normalize();
+        List<String> entries = listArchiveEntries(archiveFile);
+
+        for (String entry : entries) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            // Reject entries with absolute paths immediately
+            if (entry.startsWith("/") || entry.startsWith("\\")) {
+                throw new AgentInstallException(
+                        "Archive contains absolute path entry '" + entry + "' (path traversal rejected, extraction aborted)");
+            }
+            Path resolved = targetDir.resolve(entry).normalize();
+            if (!resolved.startsWith(normalizedTargetDir)) {
+                throw new AgentInstallException(
+                        "Archive entry '" + entry + "' would escape install directory (path traversal rejected, extraction aborted)");
+            }
+        }
+        log.debug("[INSTALLER] preflight validation passed for {} entries", entries.size());
+    }
+
+    /**
+     * Lists entries in an archive file without extracting.
+     * Uses 'tar -tf' for tar archives and 'unzip -l' for zip archives.
+     * Package-private for testing.
+     */
+    List<String> listArchiveEntries(Path archiveFile) {
+        String fileName = archiveFile.getFileName().toString().toLowerCase(Locale.ROOT);
+        ProcessBuilder pb;
+        boolean isZip = fileName.endsWith(".zip");
+
+        if (isZip) {
+            pb = new ProcessBuilder("unzip", "-Z1", archiveFile.toString());
+        } else {
+            pb = new ProcessBuilder("tar", "-tf", archiveFile.toString());
+        }
+        pb.redirectErrorStream(true);
+
+        List<String> entries = new ArrayList<>();
+        try {
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (!trimmed.isEmpty()) {
+                        entries.add(trimmed);
+                    }
+                }
+            }
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new AgentInstallException(
+                        "Failed to list archive entries (exit code " + exitCode + "): " + archiveFile);
+            }
+        } catch (AgentInstallException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new AgentInstallException("Failed to list archive entries: " + archiveFile, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentInstallException("Archive entry listing was interrupted: " + archiveFile, e);
+        }
+        return entries;
+    }
+
+    /**
      * Validates that all extracted files remain within the install directory.
-     * Protects against zip-slip and tar path traversal attacks where archive entries
-     * contain absolute paths or '../' sequences.
+     * Defense-in-depth check after extraction; the primary defense is
+     * {@link #validateArchiveEntries} which validates before extraction.
      */
     private void validateExtractedContents(Path installDir) {
         Path normalizedInstallDir = installDir.toAbsolutePath().normalize();
