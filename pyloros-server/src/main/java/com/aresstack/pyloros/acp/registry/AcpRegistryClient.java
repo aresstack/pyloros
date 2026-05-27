@@ -118,6 +118,12 @@ public final class AcpRegistryClient {
     private AcpRegistryLoadResult fallbackToCache(String remoteError) {
         Optional<AcpRegistry> cached = cache.read();
         if (cached.isPresent()) {
+            List<String> errors = validate(cached.get());
+            if (!errors.isEmpty()) {
+                log.warn("Cached ACP registry is invalid: {}", errors);
+                return new AcpRegistryLoadResult.Failure(
+                        "Remote registry unavailable (" + remoteError + ") and cached registry is invalid");
+            }
             log.info("Using cached ACP registry as fallback");
             return new AcpRegistryLoadResult.Success(cached.get(), AcpRegistryLoadResult.Source.CACHE);
         }

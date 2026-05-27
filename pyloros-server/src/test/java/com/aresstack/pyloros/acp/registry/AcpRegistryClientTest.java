@@ -283,4 +283,33 @@ class AcpRegistryClientTest {
         assertEquals(1, loaded.get().agents().size());
         assertEquals("demo", loaded.get().agents().get(0).id());
     }
+
+    @Test
+    void failureWhenCacheIsInvalidAndNetworkError() throws IOException {
+        Path cacheFile = tempDir.resolve("invalid-cache.json");
+        // Cache with missing version and invalid agent (no distribution)
+        String invalidCacheJson = """
+                {
+                  "agents": [
+                    {
+                      "id": "stale",
+                      "name": "Stale Agent",
+                      "version": "1.0.0",
+                      "description": "stale"
+                    }
+                  ]
+                }
+                """;
+        Files.writeString(cacheFile, invalidCacheJson);
+
+        AcpRegistryCache cache = new AcpRegistryCache(cacheFile);
+        AcpRegistryClient client = new AcpRegistryClient(
+                URI.create("http://unreachable.invalid/registry.json"), cache, failingHttpClient());
+
+        AcpRegistryLoadResult result = client.load();
+
+        assertInstanceOf(AcpRegistryLoadResult.Failure.class, result);
+        var failure = (AcpRegistryLoadResult.Failure) result;
+        assertTrue(failure.errors().get(0).contains("cached registry is invalid"));
+    }
 }
