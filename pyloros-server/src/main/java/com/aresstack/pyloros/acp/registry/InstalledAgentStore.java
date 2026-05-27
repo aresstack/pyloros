@@ -152,6 +152,7 @@ public final class InstalledAgentStore {
                 Files.move(tempFile, storeFile,
                         StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (Exception moveEx) {
+                log.debug("Atomic move not supported, falling back to regular move: {}", moveEx.getMessage());
                 Files.move(tempFile, storeFile, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException e) {
