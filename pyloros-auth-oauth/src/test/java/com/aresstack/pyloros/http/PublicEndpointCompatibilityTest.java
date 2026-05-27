@@ -48,6 +48,8 @@ class PublicEndpointCompatibilityTest {
     private static final String AGENT_ONLY_TOOL_NAME = "test__agent_secret";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
+    private static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
+    private static final String INJECTED_VIEW_TOKEN = "test-injected-view-token";
 
     private Vertx vertx;
     private HttpServer server;
@@ -137,14 +139,40 @@ class PublicEndpointCompatibilityTest {
 
     @Test
     void queryViewParameterRequiresTrustedInjectedHeader() throws Exception {
+        // No marker, no token -> PUBLIC view.
         JsonNode untrusted = postRpc(CANONICAL_PATH + "?view=agent", "tools/list", "{}");
         assertFalse(untrusted.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
 
-        JsonNode trusted = postRpc(
+        // Marker only, no token -> PUBLIC view.
+        JsonNode markerOnly = postRpc(
                 CANONICAL_PATH + "?view=agent",
                 "tools/list",
                 "{}",
                 Map.of(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE)
+        );
+        assertFalse(markerOnly.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
+
+        // Marker plus wrong token -> PUBLIC view.
+        JsonNode wrongToken = postRpc(
+                CANONICAL_PATH + "?view=agent",
+                "tools/list",
+                "{}",
+                Map.of(
+                        TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE,
+                        TRUSTED_VIEW_TOKEN_HEADER, "not-the-real-token"
+                )
+        );
+        assertFalse(wrongToken.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
+
+        // Correct marker + correct token + loopback -> agent view.
+        JsonNode trusted = postRpc(
+                CANONICAL_PATH + "?view=agent",
+                "tools/list",
+                "{}",
+                Map.of(
+                        TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE,
+                        TRUSTED_VIEW_TOKEN_HEADER, INJECTED_VIEW_TOKEN
+                )
         );
         assertTrue(trusted.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
     }
@@ -252,6 +280,10 @@ class PublicEndpointCompatibilityTest {
             boolean oauthRefreshTokenRotationEnabled,
             String oauthRefreshTokenStorePath
     ) implements ServerConfig, OAuthConfig {
+        @Override
+        public String mcpInjectedViewToken() {
+            return INJECTED_VIEW_TOKEN;
+        }
     }
 
     private static final class TestToolProvider implements ToolProvider {
