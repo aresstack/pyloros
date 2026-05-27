@@ -9,7 +9,7 @@ public final class UnsupportedPlatformException extends RuntimeException {
     private final List<String> availablePlatforms;
 
     public UnsupportedPlatformException(TargetPlatform requestedPlatform, List<String> availablePlatforms) {
-        super("Unsupported platform: " + Objects.requireNonNull(requestedPlatform).label()
+        super("Unsupported platform: " + Objects.requireNonNull(requestedPlatform).platformKey()
                 + ". Available: " + Objects.requireNonNull(availablePlatforms));
         this.requestedPlatform = requestedPlatform;
         this.availablePlatforms = List.copyOf(availablePlatforms);

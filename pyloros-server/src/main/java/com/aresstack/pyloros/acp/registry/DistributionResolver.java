@@ -1,9 +1,18 @@
 package com.aresstack.pyloros.acp.registry;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Resolves a {@link DistributionSpec} into a deterministic {@link InstallPlan}
+ * without downloading or executing anything.
+ *
+ * <p>For binary distributions the resolver selects the matching platform target
+ * using the upstream ACP Registry platform key vocabulary
+ * (e.g. {@code linux-x86_64}, {@code darwin-aarch64}).
+ */
 public final class DistributionResolver {
 
     private final TargetPlatform platform;
@@ -16,12 +25,12 @@ public final class DistributionResolver {
         this(TargetPlatform.current());
     }
 
-    public InstallPlan resolve(RegistryDistribution distribution) {
-        Objects.requireNonNull(distribution, "distribution must not be null");
-        return switch (distribution.type()) {
-            case NPX -> resolveNpx(distribution);
-            case UVX -> resolveUvx(distribution);
-            case BINARY -> resolveBinary(distribution);
+    public InstallPlan resolve(DistributionSpec spec) {
+        Objects.requireNonNull(spec, "spec must not be null");
+        return switch (spec.type()) {
+            case NPX -> resolveNpx(spec);
+            case UVX -> resolveUvx(spec);
+            case BINARY -> resolveBinary(spec);
         };
     }
 
@@ -35,74 +44,74 @@ public final class DistributionResolver {
         };
     }
 
-    private InstallPlan resolveNpx(RegistryDistribution distribution) {
-        String packageSpec = distribution.packageName() + "@" + distribution.version();
+    private InstallPlan resolveNpx(DistributionSpec spec) {
+        List<String> args = new ArrayList<>();
+        args.add("-y");
+        args.add(spec.packageRef());
+        args.addAll(spec.args());
         return new InstallPlan(
                 "npx",
-                List.of("-y", packageSpec),
-                npxInstallPath(distribution),
-                sourceMetadata(distribution)
+                List.copyOf(args),
+                npxInstallPath(spec),
+                sourceMetadata(spec)
         );
     }
 
-    private InstallPlan resolveUvx(RegistryDistribution distribution) {
-        String packageSpec = distribution.packageName() + "==" + distribution.version();
+    private InstallPlan resolveUvx(DistributionSpec spec) {
+        List<String> args = new ArrayList<>();
+        args.add(spec.packageRef());
+        args.addAll(spec.args());
         return new InstallPlan(
                 "uvx",
-                List.of(packageSpec),
-                uvxInstallPath(distribution),
-                sourceMetadata(distribution)
+                List.copyOf(args),
+                uvxInstallPath(spec),
+                sourceMetadata(spec)
         );
     }
 
-    private InstallPlan resolveBinary(RegistryDistribution distribution) {
-        List<RegistryDistribution.BinaryTarget> targets = distribution.binaryTargets();
-        RegistryDistribution.BinaryTarget match = targets.stream()
-                .filter(t -> t.matches(platform))
-                .findFirst()
-                .orElseThrow(() -> {
-                    List<String> available = targets.stream()
-                            .map(t -> t.os() + "-" + t.arch())
-                            .toList();
-                    return new UnsupportedPlatformException(platform, available);
-                });
+    private InstallPlan resolveBinary(DistributionSpec spec) {
+        Map<String, DistributionSpec.BinaryTarget> targets = spec.binaryTargets();
+        String key = platform.platformKey();
+        DistributionSpec.BinaryTarget match = targets.get(key);
+        if (match == null) {
+            throw new UnsupportedPlatformException(platform, List.copyOf(targets.keySet()));
+        }
 
+        List<String> args = new ArrayList<>(match.args());
         return new InstallPlan(
-                match.downloadUrl(),
-                List.of(),
-                binaryInstallPath(distribution),
-                sourceMetadata(distribution, match)
+                match.cmd(),
+                List.copyOf(args),
+                binaryInstallPath(spec),
+                binarySourceMetadata(spec, key, match)
         );
     }
 
-    private static String npxInstallPath(RegistryDistribution distribution) {
-        return "npx-agents/" + distribution.packageName() + "/" + distribution.version();
+    private static String npxInstallPath(DistributionSpec spec) {
+        return "npx-agents/" + spec.packageRef();
     }
 
-    private static String uvxInstallPath(RegistryDistribution distribution) {
-        return "uvx-agents/" + distribution.packageName() + "/" + distribution.version();
+    private static String uvxInstallPath(DistributionSpec spec) {
+        return "uvx-agents/" + spec.packageRef();
     }
 
-    private String binaryInstallPath(RegistryDistribution distribution) {
-        return "bin-agents/" + distribution.packageName() + "/" + distribution.version() + "/" + platform.label();
+    private String binaryInstallPath(DistributionSpec spec) {
+        return "bin-agents/" + spec.packageRef() + "/" + platform.platformKey();
     }
 
-    private static Map<String, String> sourceMetadata(RegistryDistribution distribution) {
+    private static Map<String, String> sourceMetadata(DistributionSpec spec) {
         return Map.of(
-                "distributionType", distribution.type().name().toLowerCase(java.util.Locale.ROOT),
-                "packageName", distribution.packageName(),
-                "version", distribution.version()
+                "distributionType", spec.type().name().toLowerCase(java.util.Locale.ROOT),
+                "packageRef", spec.packageRef()
         );
     }
 
-    private static Map<String, String> sourceMetadata(RegistryDistribution distribution,
-                                                       RegistryDistribution.BinaryTarget target) {
+    private static Map<String, String> binarySourceMetadata(DistributionSpec spec, String platformKey,
+                                                             DistributionSpec.BinaryTarget target) {
         return Map.of(
-                "distributionType", distribution.type().name().toLowerCase(java.util.Locale.ROOT),
-                "packageName", distribution.packageName(),
-                "version", distribution.version(),
-                "downloadUrl", target.downloadUrl(),
-                "platform", target.os() + "-" + target.arch()
+                "distributionType", spec.type().name().toLowerCase(java.util.Locale.ROOT),
+                "packageRef", spec.packageRef(),
+                "archive", target.archive(),
+                "platform", platformKey
         );
     }
 }

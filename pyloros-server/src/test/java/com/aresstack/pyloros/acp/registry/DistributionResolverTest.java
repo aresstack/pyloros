@@ -3,6 +3,7 @@ package com.aresstack.pyloros.acp.registry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -11,75 +12,101 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DistributionResolverTest {
 
-    private static final TargetPlatform LINUX_X64 = new TargetPlatform("linux", "x64");
+    private static final TargetPlatform LINUX_X86_64 = new TargetPlatform("linux", "x86_64");
 
     @Test
     void npxPlanProducesDeterministicCommandAndArgs() {
-        var distribution = new RegistryDistribution(
-                DistributionType.NPX, "@anthropic/claude-agent", "1.2.3", List.of());
-        var resolver = new DistributionResolver(LINUX_X64);
+        var spec = new DistributionSpec(
+                DistributionType.NPX,
+                "@agentclientprotocol/claude-agent-acp@0.37.0",
+                List.of(),
+                Map.of());
+        var resolver = new DistributionResolver(LINUX_X86_64);
 
-        InstallPlan plan = resolver.resolve(distribution);
+        InstallPlan plan = resolver.resolve(spec);
 
         assertEquals("npx", plan.command());
-        assertEquals(List.of("-y", "@anthropic/claude-agent@1.2.3"), plan.args());
-        assertEquals("npx-agents/@anthropic/claude-agent/1.2.3", plan.installPath());
+        assertEquals(List.of("-y", "@agentclientprotocol/claude-agent-acp@0.37.0"), plan.args());
+        assertEquals("npx-agents/@agentclientprotocol/claude-agent-acp@0.37.0", plan.installPath());
         assertEquals("npx", plan.sourceMetadata().get("distributionType"));
-        assertEquals("@anthropic/claude-agent", plan.sourceMetadata().get("packageName"));
-        assertEquals("1.2.3", plan.sourceMetadata().get("version"));
+        assertEquals("@agentclientprotocol/claude-agent-acp@0.37.0", plan.sourceMetadata().get("packageRef"));
+    }
+
+    @Test
+    void npxPlanIncludesExtraArgs() {
+        var spec = new DistributionSpec(
+                DistributionType.NPX,
+                "deepagents-acp@0.1.7",
+                List.of(),
+                Map.of());
+        var resolver = new DistributionResolver(LINUX_X86_64);
+
+        InstallPlan plan = resolver.resolve(spec);
+
+        assertEquals("npx", plan.command());
+        assertEquals(List.of("-y", "deepagents-acp@0.1.7"), plan.args());
     }
 
     @Test
     void uvxPlanProducesDeterministicCommandAndArgs() {
-        var distribution = new RegistryDistribution(
-                DistributionType.UVX, "aider-chat", "0.42.0", List.of());
-        var resolver = new DistributionResolver(LINUX_X64);
+        var spec = new DistributionSpec(
+                DistributionType.UVX,
+                "fast-agent-acp==0.7.12",
+                List.of("-x"),
+                Map.of());
+        var resolver = new DistributionResolver(LINUX_X86_64);
 
-        InstallPlan plan = resolver.resolve(distribution);
+        InstallPlan plan = resolver.resolve(spec);
 
         assertEquals("uvx", plan.command());
-        assertEquals(List.of("aider-chat==0.42.0"), plan.args());
-        assertEquals("uvx-agents/aider-chat/0.42.0", plan.installPath());
+        assertEquals(List.of("fast-agent-acp==0.7.12", "-x"), plan.args());
+        assertEquals("uvx-agents/fast-agent-acp==0.7.12", plan.installPath());
         assertEquals("uvx", plan.sourceMetadata().get("distributionType"));
-        assertEquals("aider-chat", plan.sourceMetadata().get("packageName"));
-        assertEquals("0.42.0", plan.sourceMetadata().get("version"));
+        assertEquals("fast-agent-acp==0.7.12", plan.sourceMetadata().get("packageRef"));
     }
 
     @Test
-    void binaryPlanSelectsMatchingPlatform() {
-        var targets = List.of(
-                new RegistryDistribution.BinaryTarget("linux", "x64", "https://example.com/agent-linux-x64"),
-                new RegistryDistribution.BinaryTarget("darwin", "arm64", "https://example.com/agent-darwin-arm64")
+    void binaryPlanSelectsMatchingPlatformByRegistryKey() {
+        var targets = Map.of(
+                "linux-x86_64", new DistributionSpec.BinaryTarget(
+                        "https://github.com/block/goose/releases/download/v1.35.0/goose-x86_64-unknown-linux-gnu.tar.bz2",
+                        "./goose", List.of("acp")),
+                "darwin-aarch64", new DistributionSpec.BinaryTarget(
+                        "https://github.com/block/goose/releases/download/v1.35.0/goose-aarch64-apple-darwin.tar.bz2",
+                        "./goose", List.of("acp"))
         );
-        var distribution = new RegistryDistribution(
-                DistributionType.BINARY, "my-agent", "2.0.0", targets);
-        var resolver = new DistributionResolver(LINUX_X64);
+        var spec = new DistributionSpec(
+                DistributionType.BINARY, "goose", List.of(), targets);
+        var resolver = new DistributionResolver(LINUX_X86_64);
 
-        InstallPlan plan = resolver.resolve(distribution);
+        InstallPlan plan = resolver.resolve(spec);
 
-        assertEquals("https://example.com/agent-linux-x64", plan.command());
-        assertEquals(List.of(), plan.args());
-        assertEquals("bin-agents/my-agent/2.0.0/linux-x64", plan.installPath());
+        assertEquals("./goose", plan.command());
+        assertEquals(List.of("acp"), plan.args());
+        assertEquals("bin-agents/goose/linux-x86_64", plan.installPath());
         assertEquals("binary", plan.sourceMetadata().get("distributionType"));
-        assertEquals("https://example.com/agent-linux-x64", plan.sourceMetadata().get("downloadUrl"));
-        assertEquals("linux-x64", plan.sourceMetadata().get("platform"));
+        assertEquals("https://github.com/block/goose/releases/download/v1.35.0/goose-x86_64-unknown-linux-gnu.tar.bz2",
+                plan.sourceMetadata().get("archive"));
+        assertEquals("linux-x86_64", plan.sourceMetadata().get("platform"));
     }
 
     @Test
     void binaryPlanThrowsForUnsupportedPlatform() {
-        var targets = List.of(
-                new RegistryDistribution.BinaryTarget("darwin", "arm64", "https://example.com/agent-darwin-arm64")
+        var targets = Map.of(
+                "darwin-aarch64", new DistributionSpec.BinaryTarget(
+                        "https://example.com/agent-darwin-aarch64.tar.gz",
+                        "./agent", List.of())
         );
-        var distribution = new RegistryDistribution(
-                DistributionType.BINARY, "my-agent", "2.0.0", targets);
-        var resolver = new DistributionResolver(LINUX_X64);
+        var spec = new DistributionSpec(
+                DistributionType.BINARY, "my-agent", List.of(), targets);
+        var resolver = new DistributionResolver(LINUX_X86_64);
 
         UnsupportedPlatformException ex = assertThrows(
-                UnsupportedPlatformException.class, () -> resolver.resolve(distribution));
+                UnsupportedPlatformException.class, () -> resolver.resolve(spec));
 
-        assertEquals(LINUX_X64, ex.requestedPlatform());
-        assertEquals(List.of("darwin-arm64"), ex.availablePlatforms());
-        assertTrue(ex.getMessage().contains("linux-x64"));
+        assertEquals(LINUX_X86_64, ex.requestedPlatform());
+        assertEquals(List.of("darwin-aarch64"), ex.availablePlatforms());
+        assertTrue(ex.getMessage().contains("linux-x86_64"));
     }
 
     @Test
@@ -109,12 +136,20 @@ class DistributionResolverTest {
     }
 
     @Test
-    void targetPlatformNormalizesKnownValues() {
+    void targetPlatformNormalizesToUpstreamRegistryKeys() {
         assertEquals("linux", TargetPlatform.normalizeOs("Linux"));
         assertEquals("darwin", TargetPlatform.normalizeOs("Mac OS X"));
         assertEquals("windows", TargetPlatform.normalizeOs("Windows 10"));
-        assertEquals("x64", TargetPlatform.normalizeArch("amd64"));
-        assertEquals("x64", TargetPlatform.normalizeArch("x86_64"));
-        assertEquals("arm64", TargetPlatform.normalizeArch("aarch64"));
+        assertEquals("x86_64", TargetPlatform.normalizeArch("amd64"));
+        assertEquals("x86_64", TargetPlatform.normalizeArch("x86_64"));
+        assertEquals("aarch64", TargetPlatform.normalizeArch("aarch64"));
+        assertEquals("aarch64", TargetPlatform.normalizeArch("arm64"));
+    }
+
+    @Test
+    void platformKeyMatchesRegistryFormat() {
+        assertEquals("linux-x86_64", LINUX_X86_64.platformKey());
+        assertEquals("darwin-aarch64", new TargetPlatform("darwin", "aarch64").platformKey());
+        assertEquals("windows-x86_64", new TargetPlatform("windows", "x86_64").platformKey());
     }
 }
