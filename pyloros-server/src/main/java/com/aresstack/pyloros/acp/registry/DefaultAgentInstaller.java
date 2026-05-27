@@ -153,7 +153,7 @@ public final class DefaultAgentInstaller implements AgentInstaller {
         String fileName = archiveFile.getFileName().toString().toLowerCase(Locale.ROOT);
         ProcessBuilder pb;
         if (fileName.endsWith(".zip")) {
-            pb = new ProcessBuilder("unzip", archiveFile.toString(), "-d", targetDir.toString());
+            pb = new ProcessBuilder("unzip", "-o", "-q", archiveFile.toString(), "-d", targetDir.toString());
         } else {
             // tar-based (tar.gz, tar.bz2, tar.xz, etc.) — use --no-same-owner to avoid
             // permission issues, and extraction is confined to targetDir via -C
