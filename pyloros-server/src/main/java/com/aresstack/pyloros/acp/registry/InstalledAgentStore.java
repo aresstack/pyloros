@@ -107,7 +107,8 @@ public class InstalledAgentStore {
      */
     public synchronized Optional<InstalledAgent> remove(String agentId) {
         Objects.requireNonNull(agentId, "agentId must not be null");
-        Optional<InstalledAgent> existing = findById(agentId);
+        String trimmedId = agentId.trim();
+        Optional<InstalledAgent> existing = findById(trimmedId);
         if (existing.isEmpty()) {
             return Optional.empty();
         }
@@ -115,7 +116,7 @@ public class InstalledAgentStore {
         InstalledAgentStoreDocument document = readDocument();
         List<InstalledAgentStoreDocument.InstalledAgentEntry> updatedEntries = new ArrayList<>();
         for (InstalledAgentStoreDocument.InstalledAgentEntry entry : document.agents()) {
-            if (entry.agentId() != null && entry.agentId().equals(agentId.trim())) {
+            if (entry.agentId() != null && entry.agentId().equals(trimmedId)) {
                 continue;
             }
             updatedEntries.add(entry);
@@ -124,7 +125,7 @@ public class InstalledAgentStore {
         writeDocument(new InstalledAgentStoreDocument(
                 InstalledAgentStoreDocument.CURRENT_VERSION, updatedEntries));
 
-        log.info("Removed installed agent '{}'", sanitize(agentId));
+        log.info("Removed installed agent '{}'", sanitize(trimmedId));
         return existing;
     }
 

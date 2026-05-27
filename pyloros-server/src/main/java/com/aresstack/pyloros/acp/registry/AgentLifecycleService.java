@@ -257,7 +257,7 @@ public final class AgentLifecycleService {
         }
     }
 
-    static DistributionSpec toDistributionSpec(RegistryAgent registryAgent) {
+    private static DistributionSpec toDistributionSpec(RegistryAgent registryAgent) {
         RegistryDistribution dist = registryAgent.distribution();
         if (dist == null) {
             throw new UnsupportedDistributionException("null");
