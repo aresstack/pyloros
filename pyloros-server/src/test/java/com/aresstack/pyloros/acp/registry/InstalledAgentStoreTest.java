@@ -151,7 +151,7 @@ class InstalledAgentStoreTest {
         // Verify expected non-secret fields are present
         assertTrue(fileContent.contains("my-agent"));
         assertTrue(fileContent.contains("1.0.0"));
-        assertTrue(fileContent.contains("npm"));
+        assertTrue(fileContent.contains("npx"));
     }
 
     @Test
@@ -164,7 +164,7 @@ class InstalledAgentStoreTest {
                     {
                       "agentId": "valid-agent",
                       "installedVersion": "1.0.0",
-                      "distributionType": "npm",
+                      "distributionType": "npx",
                       "resolvedCommand": "npx",
                       "resolvedArgs": [],
                       "installPath": "/install",
@@ -216,7 +216,7 @@ class InstalledAgentStoreTest {
         return new InstalledAgent(
                 agentId,
                 version,
-                "npm",
+                "npx",
                 "npx",
                 List.of("--yes", "@acme/" + agentId),
                 "/install/" + agentId,

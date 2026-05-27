@@ -27,7 +27,7 @@ public record InstalledAgent(
     public InstalledAgent {
         agentId = requireText(agentId, "agentId");
         installedVersion = requireText(installedVersion, "installedVersion");
-        distributionType = requireText(distributionType, "distributionType");
+        distributionType = validateDistributionType(distributionType);
         resolvedCommand = requireText(resolvedCommand, "resolvedCommand");
         resolvedArgs = resolvedArgs == null ? List.of() : List.copyOf(resolvedArgs);
         installPath = installPath == null ? "" : installPath;
@@ -55,5 +55,19 @@ public record InstalledAgent(
             throw new IllegalArgumentException(fieldName + " must not be null or blank");
         }
         return value.trim();
+    }
+
+    private static String validateDistributionType(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "distributionType must not be null or blank; allowed values: binary, npx, uvx");
+        }
+        String trimmed = value.trim().toUpperCase();
+        try {
+            return DistributionType.valueOf(trimmed).name().toLowerCase();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Invalid distributionType '" + value + "'; allowed values: binary, npx, uvx");
+        }
     }
 }
