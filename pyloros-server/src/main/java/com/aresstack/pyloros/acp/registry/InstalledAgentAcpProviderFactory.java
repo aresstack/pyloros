@@ -22,13 +22,14 @@ import java.util.Set;
  * <p>Only enabled agents are converted. Disabled agents are silently skipped.
  * Each agent receives:
  * <ul>
- *   <li>A default prefix of {@code <agentId>/} — enforced if the configured prefix is blank or root</li>
+ *   <li>A prefix validated to end with {@code /} (or be exactly {@code /} for root opt-in)</li>
  *   <li>A non-public {@code agentToolView} (agents must not see the public view)</li>
  *   <li>{@code PYLOROS_MCP_URL} and optionally {@code PYLOROS_MCP_BEARER_TOKEN} injected into the process environment</li>
  * </ul>
  *
- * <p>Root-level tools (prefix {@code "/"}) are only allowed when explicitly configured.
- * Blank or null prefixes are rejected as invalid.
+ * <p>The expected default prefix is {@code <agentId>/}, set at install/configure time.
+ * Root-level tools (prefix {@code "/"}) are only allowed as explicit opt-in.
+ * Prefixes that do not end with {@code /} are rejected as invalid.
  *
  * <p>Validation considers the <em>full ACP provider universe</em>: callers must supply the existing
  * (non-registry) provider IDs and exposed-view map so that recursion protection covers cross-provider
@@ -146,15 +147,12 @@ public final class InstalledAgentAcpProviderFactory {
     }
 
     /**
-     * Validates the prefix of an installed agent.
-     * The prefix must not be blank. Root prefix ({@code "/"}) is only allowed
-     * as an explicit opt-in — it must literally be "/" to be accepted.
-     * The default (and expected) prefix pattern is {@code <agentId>/}.
+     * Validates the prefix format of an installed agent.
+     * The {@link InstalledAgent} record already ensures the prefix is non-blank.
+     * This method enforces format: must end with {@code /} or be exactly {@code /} for root opt-in.
      */
     static void validatePrefix(InstalledAgent agent) {
         String prefix = agent.configuredPrefix();
-        // configuredPrefix is already validated as non-blank by InstalledAgent record,
-        // but we enforce the semantic: root "/" is explicit opt-in, anything else must end with "/"
         if ("/".equals(prefix)) {
             // Explicit root opt-in — allowed but noteworthy
             return;
