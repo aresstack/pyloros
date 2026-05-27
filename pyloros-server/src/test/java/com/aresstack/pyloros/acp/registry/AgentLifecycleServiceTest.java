@@ -249,6 +249,50 @@ class AgentLifecycleServiceTest {
     }
 
     @Test
+    void uninstallFailsWhenFileRemovalFails() {
+        // Use an installer that fails on remove
+        FailingOnRemoveInstaller failRemoveInstaller = new FailingOnRemoveInstaller();
+        AgentLifecycleService failRemoveService = new AgentLifecycleService(
+                store, new DistributionResolver(LINUX_X86_64), failRemoveInstaller);
+
+        RegistryAgent agent = binaryRegistryAgent("goose", "1.35.0",
+                Map.of("linux-x86_64", new RegistryDistribution.BinaryTarget(
+                        "https://example.com/goose-linux.tar.bz2", "./goose", List.of("acp"), null)));
+        failRemoveService.install(agent);
+
+        AgentLifecycleResult result = failRemoveService.uninstall("goose");
+
+        assertInstanceOf(AgentLifecycleResult.Failed.class, result);
+        var failed = (AgentLifecycleResult.Failed) result;
+        assertEquals("goose", failed.agentId());
+        assertTrue(failed.reason().contains("Failed to remove"));
+
+        // Store entry must still exist since file removal failed
+        assertTrue(store.findById("goose").isPresent());
+    }
+
+    @Test
+    void installCleansUpFilesWhenStoreSaveFails() {
+        // Use a store adapter that fails on save to simulate persistence failure after materialization
+        TrackingInstaller trackingInstaller = new TrackingInstaller();
+        FailOnFirstSaveStoreAdapter failStore = new FailOnFirstSaveStoreAdapter(store);
+
+        AgentLifecycleService failService = new AgentLifecycleService(
+                failStore, new DistributionResolver(LINUX_X86_64), trackingInstaller);
+
+        RegistryAgent agent = binaryRegistryAgent("goose", "1.35.0",
+                Map.of("linux-x86_64", new RegistryDistribution.BinaryTarget(
+                        "https://example.com/goose-linux.tar.bz2", "./goose", List.of("acp"), null)));
+
+        AgentLifecycleResult result = failService.install(agent);
+
+        assertInstanceOf(AgentLifecycleResult.Failed.class, result);
+        // Verify materialized files were cleaned up
+        assertEquals(1, trackingInstaller.materializeCount());
+        assertEquals(1, trackingInstaller.removeCount());
+    }
+
+    @Test
     void uninstallMissingAgentReturnsStructuredError() {
         AgentLifecycleResult result = service.uninstall("nonexistent-agent");
 
@@ -422,6 +466,91 @@ class AgentLifecycleServiceTest {
         @Override
         public void remove(InstallPlan plan) {
             // no-op
+        }
+    }
+
+    /**
+     * An installer that always fails on remove — for testing uninstall failure paths.
+     */
+    private static final class FailingOnRemoveInstaller implements AgentInstaller {
+        @Override
+        public void materialize(InstallPlan plan) {
+            // no-op
+        }
+
+        @Override
+        public void remove(InstallPlan plan) {
+            throw new AgentInstallException("Simulated file removal failure");
+        }
+    }
+
+    /**
+     * An installer that tracks calls without side effects.
+     */
+    private static final class TrackingInstaller implements AgentInstaller {
+        private int materializeCount = 0;
+        private int removeCount = 0;
+
+        @Override
+        public void materialize(InstallPlan plan) {
+            materializeCount++;
+        }
+
+        @Override
+        public void remove(InstallPlan plan) {
+            removeCount++;
+        }
+
+        int materializeCount() {
+            return materializeCount;
+        }
+
+        int removeCount() {
+            return removeCount;
+        }
+    }
+
+    /**
+     * A store adapter that fails on the first save call — to simulate persistence failure
+     * after materialization during install.
+     */
+    private static final class FailOnFirstSaveStoreAdapter implements AgentStoreOperations {
+        private final InstalledAgentStore delegate;
+
+        FailOnFirstSaveStoreAdapter(InstalledAgentStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public List<InstalledAgent> listAll() {
+            return delegate.listAll();
+        }
+
+        @Override
+        public List<InstalledAgent> listEnabled() {
+            return delegate.listEnabled();
+        }
+
+        @Override
+        public Optional<InstalledAgent> findById(String agentId) {
+            return delegate.findById(agentId);
+        }
+
+        @Override
+        public InstalledAgent save(InstalledAgent agent) {
+            throw new InstalledAgentStoreException(
+                    InstalledAgentStoreException.Kind.IO_ERROR,
+                    "Simulated write failure during install");
+        }
+
+        @Override
+        public Optional<InstalledAgent> remove(String agentId) {
+            return delegate.remove(agentId);
+        }
+
+        @Override
+        public Optional<InstalledAgent> setEnabled(String agentId, boolean enabled) {
+            return delegate.setEnabled(agentId, enabled);
         }
     }
 

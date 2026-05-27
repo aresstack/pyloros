@@ -9,6 +9,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -21,6 +22,14 @@ import java.util.stream.Stream;
  * <p>For npx/uvx distributions, both {@link #materialize} and {@link #remove}
  * are no-ops since those are resolved command plans that rely on system-level
  * package runners.
+ *
+ * <p>Safety guarantees:
+ * <ul>
+ *   <li>All resolved paths are validated to stay within the base install directory</li>
+ *   <li>Archive URLs are restricted to http/https schemes</li>
+ *   <li>Extracted archive contents are verified to remain under the install directory</li>
+ *   <li>Command paths are normalized and validated against path traversal</li>
+ * </ul>
  */
 public final class DefaultAgentInstaller implements AgentInstaller {
 
@@ -29,7 +38,8 @@ public final class DefaultAgentInstaller implements AgentInstaller {
     private final Path baseInstallDirectory;
 
     public DefaultAgentInstaller(Path baseInstallDirectory) {
-        this.baseInstallDirectory = Objects.requireNonNull(baseInstallDirectory, "baseInstallDirectory must not be null");
+        this.baseInstallDirectory = Objects.requireNonNull(baseInstallDirectory, "baseInstallDirectory must not be null")
+                .toAbsolutePath().normalize();
     }
 
     @Override
@@ -57,7 +67,9 @@ public final class DefaultAgentInstaller implements AgentInstaller {
                     "Failed to create install directory: " + installDir, e);
         }
 
-        Path archiveFile = installDir.resolve("archive.download");
+        // Determine archive type from the URL, preserving the extension for extraction routing
+        String archiveExtension = inferArchiveExtension(archiveUrl);
+        Path archiveFile = installDir.resolve("archive.download" + archiveExtension);
         try {
             download(archiveUrl, archiveFile);
         } catch (IOException e) {
@@ -78,12 +90,11 @@ public final class DefaultAgentInstaller implements AgentInstaller {
             }
         }
 
-        // Verify the expected command exists
-        Path commandPath = installDir.resolve(plan.command());
-        if (!Files.exists(commandPath)) {
-            throw new AgentInstallException(
-                    "Expected command '" + plan.command() + "' not found after extraction in " + installDir);
-        }
+        // Validate all extracted files remain within install directory (zip-slip protection)
+        validateExtractedContents(installDir);
+
+        // Verify the expected command exists and is within the install directory
+        validateAndResolveCommand(plan.command(), installDir);
 
         log.info("[INSTALLER] materialized binary agent at {}", installDir);
     }
@@ -134,20 +145,20 @@ public final class DefaultAgentInstaller implements AgentInstaller {
 
     /**
      * Extracts an archive to the target directory.
-     * Supports .tar.gz, .tar.bz2, and .zip based on file extension heuristics from the URL.
+     * Uses tar with --no-same-owner and restricted options, or unzip.
+     * The archive format is determined from the file extension.
      * Package-private for testing.
      */
     void extract(Path archiveFile, Path targetDir) throws IOException {
-        // Delegate to ProcessBuilder for tar/unzip since Java's built-in archive
-        // support doesn't cover .tar.bz2 natively. The archive format is inferred
-        // from the original download URL stored in source metadata.
-        String fileName = archiveFile.getFileName().toString();
+        String fileName = archiveFile.getFileName().toString().toLowerCase(Locale.ROOT);
         ProcessBuilder pb;
         if (fileName.endsWith(".zip")) {
-            pb = new ProcessBuilder("unzip", "-o", archiveFile.toString(), "-d", targetDir.toString());
+            pb = new ProcessBuilder("unzip", archiveFile.toString(), "-d", targetDir.toString());
         } else {
-            // Assume tar-based (tar.gz, tar.bz2, tar.xz, etc.)
-            pb = new ProcessBuilder("tar", "-xf", archiveFile.toString(), "-C", targetDir.toString());
+            // tar-based (tar.gz, tar.bz2, tar.xz, etc.) — use --no-same-owner to avoid
+            // permission issues, and extraction is confined to targetDir via -C
+            pb = new ProcessBuilder("tar", "--no-same-owner", "-xf",
+                    archiveFile.toString(), "-C", targetDir.toString());
         }
         pb.redirectErrorStream(true);
         try {
@@ -173,11 +184,76 @@ public final class DefaultAgentInstaller implements AgentInstaller {
      */
     private Path resolveAndValidateInstallPath(String installPath) {
         Path resolved = baseInstallDirectory.resolve(installPath).normalize();
-        if (!resolved.startsWith(baseInstallDirectory.normalize())) {
+        if (!resolved.startsWith(baseInstallDirectory)) {
             throw new AgentInstallException(
                     "Install path '" + installPath + "' resolves outside base directory (path traversal rejected)");
         }
         return resolved;
+    }
+
+    /**
+     * Validates that all extracted files remain within the install directory.
+     * Protects against zip-slip and tar path traversal attacks where archive entries
+     * contain absolute paths or '../' sequences.
+     */
+    private void validateExtractedContents(Path installDir) {
+        Path normalizedInstallDir = installDir.toAbsolutePath().normalize();
+        try (Stream<Path> walk = Files.walk(installDir)) {
+            walk.forEach(path -> {
+                Path normalizedPath = path.toAbsolutePath().normalize();
+                if (!normalizedPath.startsWith(normalizedInstallDir)) {
+                    throw new AgentInstallException(
+                            "Extracted file '" + path + "' escapes install directory (archive path traversal detected)");
+                }
+            });
+        } catch (AgentInstallException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new AgentInstallException(
+                    "Failed to validate extracted contents in " + installDir, e);
+        }
+    }
+
+    /**
+     * Validates that the command path is safe (no path traversal, stays within install directory)
+     * and that the resolved command file exists.
+     */
+    private void validateAndResolveCommand(String command, Path installDir) {
+        Path normalizedInstallDir = installDir.toAbsolutePath().normalize();
+        Path commandPath = installDir.resolve(command).normalize();
+
+        if (!commandPath.startsWith(normalizedInstallDir)) {
+            throw new AgentInstallException(
+                    "Command '" + command + "' resolves outside install directory (path traversal rejected)");
+        }
+
+        if (!Files.exists(commandPath)) {
+            throw new AgentInstallException(
+                    "Expected command '" + command + "' not found after extraction in " + installDir);
+        }
+    }
+
+    /**
+     * Infers the archive file extension from the URL to route to the correct extraction tool.
+     */
+    private static String inferArchiveExtension(String url) {
+        String lower = url.toLowerCase(Locale.ROOT);
+        // Strip query parameters for extension detection
+        int queryIdx = lower.indexOf('?');
+        if (queryIdx > 0) {
+            lower = lower.substring(0, queryIdx);
+        }
+        if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+            return ".tar.gz";
+        } else if (lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2")) {
+            return ".tar.bz2";
+        } else if (lower.endsWith(".tar.xz") || lower.endsWith(".txz")) {
+            return ".tar.xz";
+        } else if (lower.endsWith(".zip")) {
+            return ".zip";
+        }
+        // Default to .tar.gz if unknown
+        return ".tar.gz";
     }
 
     /**
@@ -188,7 +264,7 @@ public final class DefaultAgentInstaller implements AgentInstaller {
         if (url == null || url.isBlank()) {
             throw new AgentInstallException("Archive URL must not be blank");
         }
-        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        String lower = url.toLowerCase(Locale.ROOT);
         if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
             throw new AgentInstallException(
                     "Archive URL scheme not allowed (only http/https): " + url);

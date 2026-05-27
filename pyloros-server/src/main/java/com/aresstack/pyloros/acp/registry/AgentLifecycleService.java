@@ -38,6 +38,7 @@ public final class AgentLifecycleService {
     /**
      * Installs a registry agent. Rejects the operation if the agent is already installed.
      * For binary distributions, downloads and extracts the archive before recording install.
+     * If store persistence fails after materialization, materialized files are cleaned up.
      *
      * @param registryAgent the agent metadata from the registry
      * @return structured lifecycle result
@@ -102,7 +103,17 @@ public final class AgentLifecycleService {
                 now
         );
 
-        store.save(agent);
+        try {
+            store.save(agent);
+        } catch (Exception e) {
+            // Store persistence failed — remove materialized files to avoid orphaned artifacts
+            log.error("[LIFECYCLE] install store.save failed agentId={} reason={}, removing materialized files",
+                    sanitize(agentId), e.getMessage());
+            cleanupMaterializedFiles(plan);
+            return new AgentLifecycleResult.Failed(
+                    agentId, e.getMessage(), false,
+                    "Store persistence failed after materialization; materialized files cleaned up");
+        }
 
         log.info("[LIFECYCLE] install completed agentId={} version={} distributionType={} installPath={}",
                 sanitize(agentId), sanitize(agent.installedVersion()),
@@ -176,7 +187,7 @@ public final class AgentLifecycleService {
                     "Materialization failed before state change; previous version preserved");
         }
 
-        // Attempt the update — on failure, rollback to previous state
+        // Attempt the update — on failure, rollback to previous state and clean up new files
         try {
             Instant now = Instant.now();
             InstalledAgent updatedAgent = new InstalledAgent(
@@ -209,12 +220,15 @@ public final class AgentLifecycleService {
         } catch (Exception e) {
             log.error("[LIFECYCLE] update failed agentId={} reason={}, attempting rollback",
                     sanitize(agentId), e.getMessage());
+            // Remove newly materialized files since we're rolling back
+            cleanupMaterializedFiles(plan);
             return rollback(agentId, previousAgent, e.getMessage());
         }
     }
 
     /**
-     * Uninstalls an agent by removing it from the store and cleaning up materialized files.
+     * Uninstalls an agent by removing materialized files and then removing it from the store.
+     * If binary file removal fails, the store entry is preserved and a structured error is returned.
      * Returns a structured error if the agent is not installed.
      *
      * @param agentId the agent to uninstall
@@ -236,7 +250,8 @@ public final class AgentLifecycleService {
 
         InstalledAgent agent = existing.get();
 
-        // Remove materialized files for binary distributions
+        // Remove materialized files for binary distributions first — if this fails,
+        // preserve the store entry so the agent remains in a known state
         try {
             InstallPlan removalPlan = new InstallPlan(
                     agent.resolvedCommand(),
@@ -246,8 +261,13 @@ public final class AgentLifecycleService {
             );
             installer.remove(removalPlan);
         } catch (AgentInstallException e) {
-            log.warn("[LIFECYCLE] uninstall file removal failed agentId={} reason={}, continuing with store removal",
+            log.error("[LIFECYCLE] uninstall file removal failed agentId={} reason={}",
                     sanitize(agentId), e.getMessage());
+            return new AgentLifecycleResult.Failed(
+                    agentId,
+                    "Failed to remove agent files: " + e.getMessage(),
+                    false,
+                    "Store entry preserved; manual cleanup may be required");
         }
 
         Optional<InstalledAgent> removed = store.remove(agentId);
@@ -303,6 +323,18 @@ public final class AgentLifecycleService {
                     failureReason,
                     false,
                     "Rollback also failed: " + rollbackEx.getMessage());
+        }
+    }
+
+    /**
+     * Best-effort cleanup of materialized files for a plan.
+     * Logs but does not propagate exceptions from removal.
+     */
+    private void cleanupMaterializedFiles(InstallPlan plan) {
+        try {
+            installer.remove(plan);
+        } catch (Exception cleanupEx) {
+            log.warn("[LIFECYCLE] cleanup of materialized files failed: {}", cleanupEx.getMessage());
         }
     }
 
