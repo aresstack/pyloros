@@ -9,7 +9,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +32,11 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final long EVENT_POLL_MILLIS = 200L;
     private static final int STDERR_PREVIEW_CHARS = 512;
+    private static final String INJECTED_MCP_URL_ENV = "PYLOROS_MCP_URL";
+    private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
+    private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
+    private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
+    private static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
     private static final ScheduledExecutorService TIMEOUT_EXECUTOR = Executors.newSingleThreadScheduledExecutor(runnable -> {
         Thread thread = new Thread(runnable, "acp-task-timeout");
         thread.setDaemon(true);
@@ -39,10 +49,20 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private final AcpProcessLauncher processLauncher;
     private final AcpAuditLogger auditLogger;
     private final AcpEventMapper eventMapper;
+    private final String injectedViewToken;
     private final ConcurrentHashMap<AgentTaskId, AcpProcessHandle> activeProcesses = new ConcurrentHashMap<>();
 
     public AcpVirtualToolProvider(Vertx vertx, AcpProviderConfiguration config, AgentTaskRepository agentTaskRepository) {
-        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper());
+        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper(), "");
+    }
+
+    public AcpVirtualToolProvider(
+            Vertx vertx,
+            AcpProviderConfiguration config,
+            AgentTaskRepository agentTaskRepository,
+            String injectedViewToken) {
+        this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper(),
+                injectedViewToken);
     }
 
     AcpVirtualToolProvider(
@@ -52,12 +72,24 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             AcpProcessLauncher processLauncher,
             AcpAuditLogger auditLogger,
             AcpEventMapper eventMapper) {
+        this(vertx, config, agentTaskRepository, processLauncher, auditLogger, eventMapper, "");
+    }
+
+    AcpVirtualToolProvider(
+            Vertx vertx,
+            AcpProviderConfiguration config,
+            AgentTaskRepository agentTaskRepository,
+            AcpProcessLauncher processLauncher,
+            AcpAuditLogger auditLogger,
+            AcpEventMapper eventMapper,
+            String injectedViewToken) {
         this.vertx = Objects.requireNonNull(vertx, "vertx must not be null");
         this.config = Objects.requireNonNull(config, "config must not be null");
         this.agentTaskRepository = Objects.requireNonNull(agentTaskRepository, "agentTaskRepository must not be null");
         this.processLauncher = Objects.requireNonNull(processLauncher, "processLauncher must not be null");
         this.auditLogger = Objects.requireNonNull(auditLogger, "auditLogger must not be null");
         this.eventMapper = Objects.requireNonNull(eventMapper, "eventMapper must not be null");
+        this.injectedViewToken = injectedViewToken == null ? "" : injectedViewToken.trim();
     }
 
     @Override
@@ -159,7 +191,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
-                String sessionId = client.createSession(resolveSessionCwd(request.cwd()))
+                String sessionId = client.createSession(resolveSessionCwd(request.cwd()), injectedMcpServers())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
                 task.setAcpSessionId(sessionId);
@@ -565,6 +597,72 @@ public final class AcpVirtualToolProvider implements ToolProvider {
 
     private String instantText(Instant instant) {
         return instant == null ? null : instant.toString();
+    }
+
+    private Map<String, Object> injectedMcpServers() {
+        Map<String, String> environment = config.process().environment();
+        if (environment == null || environment.isEmpty()) {
+            return Map.of();
+        }
+
+        String mcpUrl = normalizeNullableText(environment.get(INJECTED_MCP_URL_ENV));
+        if (mcpUrl == null) {
+            return Map.of();
+        }
+
+        String injectedUrl = appendViewQuery(mcpUrl, config.agentToolView());
+        Map<String, Object> pylorosServer = new LinkedHashMap<>();
+        pylorosServer.put("url", injectedUrl);
+
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE);
+        if (!injectedViewToken.isEmpty()) {
+            headers.put(TRUSTED_VIEW_TOKEN_HEADER, injectedViewToken);
+        }
+        String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
+        if (bearerToken != null) {
+            headers.put("Authorization", "Bearer " + bearerToken);
+        }
+        if (!headers.isEmpty()) {
+            pylorosServer.put("headers", Map.copyOf(headers));
+        }
+        return Map.of("pyloros", Map.copyOf(pylorosServer));
+    }
+
+    private static String appendViewQuery(String mcpUrl, String viewName) {
+        String encodedView = URLEncoder.encode(viewName, StandardCharsets.UTF_8);
+        try {
+            URI uri = URI.create(mcpUrl);
+            List<String> queryParts = new ArrayList<>();
+            String rawQuery = uri.getRawQuery();
+            if (rawQuery != null && !rawQuery.isBlank()) {
+                for (String queryPart : rawQuery.split("&")) {
+                    if (queryPart.isBlank()) {
+                        continue;
+                    }
+                    String key = queryPart.contains("=") ? queryPart.substring(0, queryPart.indexOf('=')) : queryPart;
+                    if ("view".equalsIgnoreCase(key)) {
+                        continue;
+                    }
+                    queryParts.add(queryPart);
+                }
+            }
+            queryParts.add("view=" + encodedView);
+            String query = String.join("&", queryParts);
+            URI withView = new URI(uri.getScheme(), uri.getRawAuthority(), uri.getRawPath(), query, uri.getRawFragment());
+            return withView.toString();
+        } catch (IllegalArgumentException | URISyntaxException ignored) {
+            String separator = mcpUrl.contains("?") ? "&" : "?";
+            return mcpUrl + separator + "view=" + encodedView;
+        }
+    }
+
+    private static String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private Throwable unwrap(Throwable throwable) {

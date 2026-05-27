@@ -1,36 +1,43 @@
-What was verified, changed or implemented?
-- Addressed PR comment #4358403129 for issue #25 by adding a documented **Release 4 smoke test** in a user-facing repository document.
-- Added a new `Release 4 smoke test (documented checklist)` section to `/docs/plugin-development.md`.
-- The smoke-test documentation now explicitly covers:
-  - example plugin path
-  - ServiceLoader discovery
-  - plugin enable/disable config behavior
-  - tools/list visibility expectations
-  - ToolRouter call expectation
-  - expected external tool naming (`example-tools__echo`, and `/` separator variant)
-- Verified the documented commands run successfully in this repository.
+# Report: R6-08 end-to-end smoke test for ACP manager agent with injected MCP tools
 
-Which files were changed or newly created?
-- Changed:
-  - `/home/runner/work/pyloros/pyloros/docs/plugin-development.md`
-  - `/home/runner/work/pyloros/pyloros/docs/agent/report.md`
-- Created: none
+## What was verified, changed or implemented?
+- Added an automated smoke test for the minimal manager-agent R6 flow that uses a real JSON-RPC protocol server plus an injected fake MCP HTTP endpoint.
+- The new test verifies:
+  - manager agent receives injected MCP server config from `session/new`,
+  - manager agent executes `tools/list`,
+  - manager agent executes safe `tools/call` (`pyloros__ping`),
+  - manager agent emits structured ACP responses via `session/update` text and completion events.
+- Updated the R6 smoke-test documentation with:
+  - the new automated test entry and command,
+  - explicit error-path documentation for missing agent process, missing MCP endpoint, and forbidden/recursive agent-view setup.
 
-Which architecture decision was touched?
-- None. This change documents existing R4 plugin architecture and verification flow; no runtime architecture or code path was changed.
+## Which files were changed or newly created?
+- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentInjectedMcpSmokeTest.java`
+- Changed: `/home/runner/work/pyloros/pyloros/docs/smoke-test/r6-manager-agent-smoke-test.md`
 
-Which tests, builds and runtime checks were executed?
-- `./gradlew --no-daemon :pyloros-example-plugin:compileJava :pyloros-server:test --tests "com.aresstack.pyloros.plugin.ServiceLoaderDiscoveryTest" :pyloros-app:test --tests "com.aresstack.pyloros.ExampleEchoPluginIntegrationTest"`
-- CI investigation via GitHub Actions MCP tools for recent runs and failed-run logs retrieval:
-  - `list_workflow_runs`
-  - `list_workflow_jobs` (run `26414259755`)
-  - `get_job_logs` failed-only (run `26414259755`)
+## Which architecture decision was touched?
+- Strengthened the existing R6 separation between Pyloros ACP infrastructure and standalone manager-agent runtime by validating injected MCP tool usage end-to-end without introducing workflow-manager or multi-agent orchestration behavior.
 
-Result: successful
+## Which tests, builds and runtime checks were executed?
+- Baseline before changes:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test :pyloros-server:test` → SUCCESS
+- Targeted checks during implementation:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test --tests "com.aresstack.pyloros.manageragent.ManagerAgentInjectedMcpSmokeTest" --tests "com.aresstack.pyloros.manageragent.ManagerAgentHandshakeHandlerTest"` → SUCCESS
+- Post-change module check:
+  - `./gradlew --no-daemon :pyloros-manager-agent:test` → SUCCESS
+- Final validation:
+  - `parallel_validation` run twice:
+    - CodeQL Security Scan → SUCCESS (skipped as trivial test/doc-only changes)
+    - Code Review → FAILED due external HTTP 400 header issue
 
-If failed: exact error and recommended next step
-- No failures in the documented smoke-test verification command.
-- GitHub Actions MCP check returned no failed jobs for inspected run `26414259755`; no immediate action required from this PR comment task.
+## Result: successful or failed
+- Successful (required smoke coverage and documentation delivered; code/test verification passed).
 
-Exact commit hash, or No commit created
-- No commit created
+## If failed: exact error and recommended next step
+- External validation service failure (non-code):
+  - `HTTP error 400: bad request: Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
+- Recommended next step:
+  - Re-run `parallel_validation` after the external Code Review service/header issue is resolved.
+
+## Exact commit hash, or No commit created
+- `aa51aa9`

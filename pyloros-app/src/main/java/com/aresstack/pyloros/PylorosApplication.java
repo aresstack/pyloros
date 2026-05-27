@@ -85,7 +85,7 @@ public final class PylorosApplication extends AbstractVerticle {
 
         providers.add(new com.aresstack.pyloros.tool.UserSkillDeleteToolProvider());
         loadPlugins(providers);
-        registerExternalProviders(providers);
+        registerExternalProviders(providers, config);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
@@ -159,7 +159,7 @@ public final class PylorosApplication extends AbstractVerticle {
         }
     }
 
-    private void registerExternalProviders(List<ToolProvider> providers) {
+    private void registerExternalProviders(List<ToolProvider> providers, PylorosConfig config) {
         McpJsonConfigLoader loader = new McpJsonConfigLoader();
         Optional<LoadedMcpJsonConfig> loaded = loader.load(launchArgs);
         if (loaded.isEmpty()) {
@@ -180,7 +180,8 @@ public final class PylorosApplication extends AbstractVerticle {
             }
         }
 
-        List<ToolProvider> acpProviders = AcpProviderFactory.createProviders(mcpJson.config().acpProviders(), vertx);
+        List<ToolProvider> acpProviders = AcpProviderFactory.createProviders(
+                mcpJson.config().acpProviders(), vertx, config.mcpInjectedViewToken());
         providers.addAll(acpProviders);
     }
 

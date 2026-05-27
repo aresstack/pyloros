@@ -11,6 +11,7 @@ import com.aresstack.pyloros.tool.ToolView;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.net.SocketAddress;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -25,6 +26,10 @@ public final class McpRoutes {
 
     private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
     private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
+    private static final String TOOL_VIEW_QUERY_PARAM = "view";
+    private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
+    private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
+    static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
 
     private final ServerConfig config;
     private final RequestAuthenticator authenticator;
@@ -83,6 +88,13 @@ public final class McpRoutes {
         }
 
         String pathToolName = ToolCallRequestResolver.resolvePathToolName(context.pathParam("*"));
+        ToolView requestedToolView;
+        try {
+            requestedToolView = resolveRequestedToolView(context);
+        } catch (IllegalArgumentException exception) {
+            HttpJson.rpcError(context, null, -32602, exception.getMessage());
+            return;
+        }
 
         JsonNode request;
         try {
@@ -96,7 +108,7 @@ public final class McpRoutes {
             McpToolCall toolCall = ToolCallRequestResolver.resolvePathInvocationToolCall(request, pathToolName);
             logMcpPost(context, request, "path", toolCall.name());
             logToolsCall("path", toolCall);
-            toolRouter.callTool(toolCall)
+            toolRouter.callTool(toolCall, requestedToolView)
                     .onSuccess(result -> HttpJson.send(context, 200, result))
                     .onFailure(error -> HttpJson.send(context, 500, Map.of("error", error.getMessage())));
             return;
@@ -116,10 +128,10 @@ public final class McpRoutes {
 
         switch (method == null ? "" : method) {
             case "initialize" -> initialize(context, id);
-            case "tools/list" -> listTools(context, id);
+            case "tools/list" -> listTools(context, id, requestedToolView);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName);
+            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName, requestedToolView);
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
@@ -132,19 +144,89 @@ public final class McpRoutes {
         ));
     }
 
-    private void listTools(RoutingContext context, JsonNode id) {
-        toolCatalog.listTools(ToolView.PUBLIC)
+    private void listTools(RoutingContext context, JsonNode id, ToolView toolView) {
+        toolCatalog.listTools(toolView)
                 .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
-    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName) {
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName, ToolView toolView) {
         McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, fallbackToolName);
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
-        toolRouter.callTool(toolCall)
+        toolRouter.callTool(toolCall, toolView)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+    }
+
+    private ToolView resolveRequestedToolView(RoutingContext context) {
+        String requestedView = context.request().getParam(TOOL_VIEW_QUERY_PARAM);
+        if (requestedView == null || requestedView.isBlank()) {
+            return ToolView.PUBLIC;
+        }
+        if (!isTrustedInjectedViewRequest(context)) {
+            return ToolView.PUBLIC;
+        }
+        return ToolView.named(requestedView.trim());
+    }
+
+    private boolean isTrustedInjectedViewRequest(RoutingContext context) {
+        String injectedViewHeader = context.request().getHeader(TRUSTED_VIEW_SOURCE_HEADER);
+        String injectedTokenHeader = context.request().getHeader(TRUSTED_VIEW_TOKEN_HEADER);
+        SocketAddress remoteAddress = context.request().remoteAddress();
+        String remoteHost = remoteAddress == null ? null : remoteAddress.hostAddress();
+        return isTrustedInjectedViewRequest(
+                injectedViewHeader,
+                injectedTokenHeader,
+                remoteHost,
+                config.mcpInjectedViewToken());
+    }
+
+    /**
+     * Package-private for testability.
+     *
+     * <p>Returns {@code true} only when ALL of the following hold:
+     * <ul>
+     *   <li>{@code configuredToken} is non-blank — non-public views are disabled when no
+     *       shared secret has been configured/generated.</li>
+     *   <li>{@code injectedViewHeader} equals {@code "acp"} (case-insensitive) — declarative
+     *       marker that the caller intends to use the injected agent path.</li>
+     *   <li>{@code injectedTokenHeader} equals {@code configuredToken} via constant-time
+     *       comparison — proves the caller actually holds the secret Pyloros generated.</li>
+     *   <li>{@code remoteHost} is a loopback address — defence in depth, since the manager
+     *       agent is always a local subprocess.</li>
+     * </ul>
+     * Spoofing the markers without holding the token, or holding the token from off-host,
+     * both fall back to {@code public}.
+     */
+    static boolean isTrustedInjectedViewRequest(
+            String injectedViewHeader,
+            String injectedTokenHeader,
+            String remoteHost,
+            String configuredToken) {
+        if (configuredToken == null || configuredToken.isBlank()) {
+            return false;
+        }
+        if (injectedViewHeader == null
+                || !TRUSTED_VIEW_SOURCE_VALUE.equalsIgnoreCase(injectedViewHeader.trim())) {
+            return false;
+        }
+        if (injectedTokenHeader == null) {
+            return false;
+        }
+        if (!constantTimeEquals(injectedTokenHeader.trim(), configuredToken.trim())) {
+            return false;
+        }
+        if (remoteHost == null) {
+            return false;
+        }
+        return "127.0.0.1".equals(remoteHost) || "::1".equals(remoteHost) || "0:0:0:0:0:0:0:1".equals(remoteHost);
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        byte[] aBytes = a.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] bBytes = b.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        return java.security.MessageDigest.isEqual(aBytes, bBytes);
     }
 
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {

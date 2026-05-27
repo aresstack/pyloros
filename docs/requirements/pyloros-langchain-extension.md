@@ -1,5 +1,18 @@
 ---
 
+> **⚠️ SUPERSEDED by Release 6 (Issue #44)**
+>
+> This document describes the Release 5 approach of embedding LangChain4j/Ollama
+> as a core `ProviderType.LANGCHAIN`. That approach has been abandoned.
+>
+> Release 6 replaces it with an **ACP Manager Agent** architecture:
+> agent logic lives outside the Pyloros core as an ACP-based sidecar agent
+> that receives the Pyloros MCP aggregator as an injected tool server.
+>
+> See `docs/requirements/006-acp-manager-agent.md` for the current architecture.
+
+---
+
 ## 23. LangChain als virtueller Natural-Language Provider
 
 ## 23.1 Ziel
@@ -1004,6 +1017,10 @@ Pyloros darf auch starten, wenn `pyloros-ai` unavailable ist.
 ---
 
 ## 23.20 Empfohlene Implementierungsstufe
+
+> **Historischer Release-5-Plan (obsolet):**
+> Nicht mehr umsetzen. Für den aktuellen Ansatz siehe
+> `docs/requirements/006-acp-manager-agent.md`.
 
 ### Milestone 7: LangChain Virtual Provider
 

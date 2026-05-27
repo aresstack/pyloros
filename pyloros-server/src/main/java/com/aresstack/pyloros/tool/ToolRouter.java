@@ -22,6 +22,10 @@ public final class ToolRouter {
     }
 
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
+        return callTool(toolCall, ToolView.PUBLIC);
+    }
+
+    public Future<Map<String, Object>> callTool(McpToolCall toolCall, ToolView toolView) {
         if (toolCall == null || toolCall.name() == null || toolCall.name().isBlank()) {
             log.info("[TOOL-ROUTER] catalog lookup externalName={} hit=false", "null");
             return toolNotFound("null");
@@ -32,11 +36,21 @@ public final class ToolRouter {
         // Always refresh the catalog before dispatch so that tools/call works correctly
         // even when tools/list was not called in this session (e.g. connector uses a cached
         // tool list from a previous session or from OpenAI's side).
-        return toolCatalog.listTools().compose(ignored -> dispatch(requestedExternalName, toolCall));
+        return toolCatalog.snapshotForView(toolView)
+                .compose(snapshot -> dispatch(requestedExternalName, toolCall, snapshot));
     }
 
     private Future<Map<String, Object>> dispatch(String requestedExternalName, McpToolCall toolCall) {
         ToolCatalogEntry entry = toolCatalog.findByExternalName(requestedExternalName).orElse(null);
+        return dispatchWithEntry(requestedExternalName, toolCall, entry);
+    }
+
+    private Future<Map<String, Object>> dispatch(String requestedExternalName, McpToolCall toolCall, ToolCatalogSnapshot snapshot) {
+        ToolCatalogEntry entry = snapshot.findByExternalName(requestedExternalName).orElse(null);
+        return dispatchWithEntry(requestedExternalName, toolCall, entry);
+    }
+
+    private Future<Map<String, Object>> dispatchWithEntry(String requestedExternalName, McpToolCall toolCall, ToolCatalogEntry entry) {
         if (entry == null) {
             log.info("[TOOL-ROUTER] catalog lookup externalName={} hit=false", requestedExternalName);
             return toolNotFound(requestedExternalName);

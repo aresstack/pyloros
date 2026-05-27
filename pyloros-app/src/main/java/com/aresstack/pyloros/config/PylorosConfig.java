@@ -19,7 +19,8 @@ public record PylorosConfig(
         int oauthAccessTokenTtlSeconds,
         int oauthRefreshTokenTtlSeconds,
         boolean oauthRefreshTokenRotationEnabled,
-        String oauthRefreshTokenStorePath
+        String oauthRefreshTokenStorePath,
+        String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
     public static PylorosConfig load() {
@@ -38,8 +39,19 @@ public record PylorosConfig(
                 intValue("oauth.access-token.ttl.seconds", "OAUTH_ACCESS_TOKEN_TTL_SECONDS", properties, 3600),
                 intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000),
                 Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false")),
-                value("oauth.refresh-token.store.path", "OAUTH_REFRESH_TOKEN_STORE_PATH", properties, "data/oauth-refresh-tokens.json")
+                value("oauth.refresh-token.store.path", "OAUTH_REFRESH_TOKEN_STORE_PATH", properties, "data/oauth-refresh-tokens.json"),
+                resolveInjectedViewToken(properties)
         );
+    }
+
+    private static String resolveInjectedViewToken(Properties properties) {
+        String configured = value("mcp.injected-view.token", "MCP_INJECTED_VIEW_TOKEN", properties, "");
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
+        }
+        byte[] random = new byte[32];
+        new java.security.SecureRandom().nextBytes(random);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(random);
     }
 
     private static Properties loadProperties() {

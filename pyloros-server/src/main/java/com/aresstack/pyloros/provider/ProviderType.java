@@ -4,9 +4,6 @@ public enum ProviderType {
     NATIVE,
     MCP,
     ACP,
-    LANGCHAIN,
-    COMPOSITE,
-    REST,
     UNKNOWN
 }
     

@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Fake ACP agent for integration tests. Runs in-process using PipedInputStream/PipedOutputStream
@@ -33,6 +34,7 @@ public final class FakeAcpAgent implements AutoCloseable {
     private final ExecutorService executor;
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicReference<JsonNode> lastSessionNewParams = new AtomicReference<>();
     private volatile String behavior = "success";
 
     public FakeAcpAgent() throws IOException {
@@ -67,6 +69,10 @@ public final class FakeAcpAgent implements AutoCloseable {
         return new AcpProcessHandle(new FakeProcess());
     }
 
+    public JsonNode lastSessionNewParams() {
+        return lastSessionNewParams.get();
+    }
+
     private void agentLoop() {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(agentReadsFrom, StandardCharsets.UTF_8));
              BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(agentWritesTo, StandardCharsets.UTF_8))) {
@@ -79,6 +85,7 @@ public final class FakeAcpAgent implements AutoCloseable {
                     continue;
                 }
                 if ("session/new".equals(method)) {
+                    lastSessionNewParams.set(request.get("params"));
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("accepted", true));
