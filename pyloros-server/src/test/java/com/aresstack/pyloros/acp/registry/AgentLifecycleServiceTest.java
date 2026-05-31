@@ -528,6 +528,29 @@ class AgentLifecycleServiceTest {
         var updated = store.findById("update-cmd-same").orElseThrow();
         assertEquals(AgentAuthMethod.TERMINAL_AUTH, updated.authMethod());
         assertEquals(AgentAuthStatus.CONFIGURED, updated.authStatus());
+    }    
+    @Test
+    void updateTerminalAuthWithStaleNotRequiredStatusResetsToRequired() {
+        // Install with TERMINAL_AUTH and a setup command
+        RegistryAgent v1 = npxRegistryAgentWithAuth("stale-not-required", "1.0.0", "terminal@1.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "same-setup-command", "Needs auth");
+        service.install(v1);
+
+        // Simulate stale state: TERMINAL_AUTH with NOT_REQUIRED (this was a bug in old versions)
+        var installed = store.findById("stale-not-required").orElseThrow();
+        InstalledAgent notRequired = installed.withAuthStatus(AgentAuthStatus.NOT_REQUIRED);
+        store.save(notRequired);
+
+        // Update with the SAME setup command (new version)
+        RegistryAgent v2 = npxRegistryAgentWithAuth("stale-not-required", "2.0.0", "terminal@2.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "same-setup-command", "Needs auth");
+        AgentLifecycleResult result = service.update(v2);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var updated = store.findById("stale-not-required").orElseThrow();
+        assertEquals(AgentAuthMethod.TERMINAL_AUTH, updated.authMethod());
+        assertEquals(AgentAuthStatus.REQUIRED, updated.authStatus(), 
+            "Stale NOT_REQUIRED status with TERMINAL_AUTH must be reset to REQUIRED");
     }
 
     // --- Helper methods ---

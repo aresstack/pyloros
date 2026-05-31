@@ -398,8 +398,14 @@ public final class AgentLifecycleService {
         if (previousMethod == AgentAuthMethod.TERMINAL_AUTH
                 && previousAgent.authSetupCommand() != null
                 && previousAgent.authSetupCommand().equals(newAuthRequirements.setupCommand())) {
-            // setup command unchanged — preserve the previous auth status
-            return previousAgent.authStatus();
+            // setup command unchanged — preserve only CONFIGURED or REQUIRED status
+            // NOT_REQUIRED is incompatible with TERMINAL_AUTH and must be reset to REQUIRED
+            AgentAuthStatus previousStatus = previousAgent.authStatus();
+            if (previousStatus == AgentAuthStatus.CONFIGURED || previousStatus == AgentAuthStatus.REQUIRED) {
+                return previousStatus;
+            }
+            // For NOT_REQUIRED or any other invalid status with TERMINAL_AUTH, reset to REQUIRED
+            return AgentAuthStatus.REQUIRED;
         }
 
         return AgentAuthStatus.REQUIRED;
