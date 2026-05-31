@@ -18,6 +18,12 @@ public record RegistryAgent(
         List<String> authors,
         String license,
         String icon,
-        RegistryDistribution distribution
+        RegistryDistribution distribution,
+        AuthRequirements auth
 ) {
+    public RegistryAgent {
+        if (auth == null) {
+            auth = new AuthRequirements(AgentAuthMethod.NONE, "", "");
+        }
+    }
 }

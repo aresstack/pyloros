@@ -242,6 +242,7 @@ class InstalledAgentAcpProviderFactoryTest {
                 List.of("--yes", "@acme/npx-agent"),
                 "/install/npx-agent", "v1", "MIT",
                 "npx-agent/", "agent-view", true,
+                AgentAuthMethod.NONE, AgentAuthStatus.NOT_REQUIRED, "", "",
                 Instant.now(), Instant.now()
         );
 
@@ -286,7 +287,9 @@ class InstalledAgentAcpProviderFactoryTest {
                 agentId, version, "npx", "npx",
                 List.of("--yes", "@acme/" + agentId),
                 "/install/" + agentId, "v1", "MIT",
-                prefix, agentToolView, enabled, now, now
+                prefix, agentToolView, enabled,
+                AgentAuthMethod.NONE, AgentAuthStatus.NOT_REQUIRED, "", "",
+                now, now
         );
     }
 }

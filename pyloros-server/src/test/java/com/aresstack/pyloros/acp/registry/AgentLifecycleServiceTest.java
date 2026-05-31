@@ -359,7 +359,7 @@ class AgentLifecycleServiceTest {
     void installAgentWithNoDistributionIsRejected() {
         RegistryAgent agent = new RegistryAgent(
                 "no-dist", "No Distribution", "1.0.0", "An agent without distribution",
-                null, null, null, "MIT", null, null);
+                null, null, null, "MIT", null, null, null);
 
         AgentLifecycleResult result = service.install(agent);
 
@@ -408,7 +408,8 @@ class AgentLifecycleServiceTest {
                 null, null, null, "MIT", null,
                 new RegistryDistribution(null,
                         new RegistryDistribution.PackageDistribution(packageName, List.of(), null),
-                        null));
+                        null),
+                null);
     }
 
     private static RegistryAgent uvxRegistryAgent(String id, String version, String packageName) {
@@ -416,7 +417,8 @@ class AgentLifecycleServiceTest {
                 id, id, version, "A test agent",
                 null, null, null, "MIT", null,
                 new RegistryDistribution(null, null,
-                        new RegistryDistribution.PackageDistribution(packageName, List.of(), null)));
+                        new RegistryDistribution.PackageDistribution(packageName, List.of(), null)),
+                null);
     }
 
     private static RegistryAgent binaryRegistryAgent(String id, String version,
@@ -424,7 +426,8 @@ class AgentLifecycleServiceTest {
         return new RegistryAgent(
                 id, id, version, "A binary agent",
                 null, null, null, "Apache-2.0", null,
-                new RegistryDistribution(targets, null, null));
+                new RegistryDistribution(targets, null, null),
+                null);
     }
 
     /**

@@ -161,7 +161,18 @@ public final class AcpRegistryClient {
             if (agent.distribution() == null) {
                 errors.add("Agent at index " + i + " has no distribution");
             }
+            // Auth is optional — but if present, validate the method is a known value
+            AuthRequirements auth = agent.auth();
+            if (auth != null && auth.method() != null && auth.method() == AgentAuthMethod.TERMINAL_AUTH
+                    && (auth.setupCommand() == null || auth.setupCommand().isBlank())) {
+                errors.add("Agent at index " + i + " (" + sanitizeForError(agent.id())
+                        + ") declares TERMINAL_AUTH but has no setupCommand");
+            }
         }
         return errors;
+    }
+
+    private static String sanitizeForError(String value) {
+        return value == null ? "<null>" : value.replaceAll("[^a-zA-Z0-9._\\-/]", "_");
     }
 }

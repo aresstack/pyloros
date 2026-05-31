@@ -255,6 +255,10 @@ class InstalledAgentStoreTest {
                 agentId + "/",
                 "agent",
                 enabled,
+                AgentAuthMethod.NONE,
+                AgentAuthStatus.NOT_REQUIRED,
+                "",
+                "",
                 now,
                 now
         );

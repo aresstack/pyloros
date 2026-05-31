@@ -271,7 +271,8 @@ class AcpRegistryClientTest {
                 new RegistryAgent("demo", "Demo", "1.0.0", "A demo agent", null, null, null, "MIT", null,
                         new RegistryDistribution(null,
                                 new RegistryDistribution.PackageDistribution("demo@1.0.0", List.of(), null),
-                                null))
+                                null),
+                        null)
         ));
 
         cache.write(registry);

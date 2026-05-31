@@ -130,6 +130,21 @@ public final class InstalledAgentAcpProviderFactory {
 
         for (InstalledAgent agent : enabledAgents) {
             try {
+                // Auth-required agents must not be registered as ACP providers until
+                // their auth has been configured.
+                if (agent.authStatus() == AgentAuthStatus.REQUIRED) {
+                    String reason = String.format(
+                            "Agent '%s' requires authentication (%s). %s %sRun setup command: %s",
+                            agent.agentId(),
+                            agent.authMethod(),
+                            agent.authDescription(),
+                            System.lineSeparator(),
+                            agent.authSetupCommand());
+                    log.warn("[ACP-REGISTRY-PROVIDER] agent={} skipped reason=auth_required authMethod={}",
+                            agent.agentId(), agent.authMethod());
+                    failures.add(new AgentFailure(agent.agentId(), reason));
+                    continue;
+                }
                 validatePrefix(agent);
                 AcpProviderConfiguration config = toProviderConfiguration(agent, pylorosMcpUrl, pylorosMcpToken);
                 AgentToolViewValidator.validate(config, allProviderIds, providerIdsByExposedView);

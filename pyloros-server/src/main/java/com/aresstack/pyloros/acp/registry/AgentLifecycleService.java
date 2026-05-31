@@ -87,6 +87,13 @@ public final class AgentLifecycleService {
         }
 
         Instant now = Instant.now();
+        AuthRequirements auth = registryAgent.auth() != null
+                ? registryAgent.auth()
+                : new AuthRequirements(AgentAuthMethod.NONE, "", "");
+        AgentAuthStatus initialAuthStatus = auth.method() == AgentAuthMethod.NONE
+                ? AgentAuthStatus.NOT_REQUIRED
+                : AgentAuthStatus.REQUIRED;
+
         InstalledAgent agent = new InstalledAgent(
                 agentId,
                 registryAgent.version(),
@@ -99,6 +106,10 @@ public final class AgentLifecycleService {
                 agentId + "/",
                 agentId + "-agent-view",
                 true,
+                auth.method(),
+                initialAuthStatus,
+                auth.setupCommand(),
+                auth.description(),
                 now,
                 now
         );
@@ -190,6 +201,10 @@ public final class AgentLifecycleService {
         // Attempt the update — on failure, rollback to previous state and clean up new files
         try {
             Instant now = Instant.now();
+            AuthRequirements auth = registryAgent.auth() != null
+                    ? registryAgent.auth()
+                    : new AuthRequirements(AgentAuthMethod.NONE, "", "");
+
             InstalledAgent updatedAgent = new InstalledAgent(
                     agentId,
                     registryAgent.version(),
@@ -202,6 +217,10 @@ public final class AgentLifecycleService {
                     previousAgent.configuredPrefix(),
                     previousAgent.agentToolView(),
                     previousAgent.enabled(),
+                    auth.method(),
+                    previousAgent.authStatus(),
+                    auth.setupCommand(),
+                    auth.description(),
                     previousAgent.installedAt(),
                     now
             );

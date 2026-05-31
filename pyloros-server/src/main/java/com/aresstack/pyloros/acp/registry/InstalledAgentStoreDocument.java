@@ -37,6 +37,10 @@ public record InstalledAgentStoreDocument(
             String configuredPrefix,
             String agentToolView,
             boolean enabled,
+            String authMethod,
+            String authStatus,
+            String authSetupCommand,
+            String authDescription,
             String installedAt,
             String updatedAt
     ) {

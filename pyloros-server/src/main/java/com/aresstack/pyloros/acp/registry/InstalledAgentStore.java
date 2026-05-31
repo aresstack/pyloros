@@ -203,6 +203,10 @@ public final class InstalledAgentStore implements AgentStoreOperations {
                 entry.configuredPrefix(),
                 entry.agentToolView(),
                 entry.enabled(),
+                parseAuthMethod(entry.authMethod()),
+                parseAuthStatus(entry.authStatus()),
+                entry.authSetupCommand() != null ? entry.authSetupCommand() : "",
+                entry.authDescription() != null ? entry.authDescription() : "",
                 parseInstant(entry.installedAt(), "installedAt"),
                 parseInstant(entry.updatedAt(), "updatedAt")
         );
@@ -221,9 +225,35 @@ public final class InstalledAgentStore implements AgentStoreOperations {
                 agent.configuredPrefix(),
                 agent.agentToolView(),
                 agent.enabled(),
+                agent.authMethod().name(),
+                agent.authStatus().name(),
+                agent.authSetupCommand(),
+                agent.authDescription(),
                 agent.installedAt().toString(),
                 agent.updatedAt().toString()
         );
+    }
+
+    private static AgentAuthMethod parseAuthMethod(String value) {
+        if (value == null || value.isBlank()) {
+            return AgentAuthMethod.NONE;
+        }
+        try {
+            return AgentAuthMethod.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return AgentAuthMethod.NONE;
+        }
+    }
+
+    private static AgentAuthStatus parseAuthStatus(String value) {
+        if (value == null || value.isBlank()) {
+            return AgentAuthStatus.NOT_REQUIRED;
+        }
+        try {
+            return AgentAuthStatus.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return AgentAuthStatus.NOT_REQUIRED;
+        }
     }
 
     private static Instant parseInstant(String value, String fieldName) {

@@ -20,6 +20,10 @@ public record InstalledAgent(
         String configuredPrefix,
         String agentToolView,
         boolean enabled,
+        AgentAuthMethod authMethod,
+        AgentAuthStatus authStatus,
+        String authSetupCommand,
+        String authDescription,
         Instant installedAt,
         Instant updatedAt
 ) {
@@ -35,6 +39,14 @@ public record InstalledAgent(
         license = license == null ? "" : license;
         configuredPrefix = requireText(configuredPrefix, "configuredPrefix");
         agentToolView = requireText(agentToolView, "agentToolView");
+        if (authMethod == null) {
+            authMethod = AgentAuthMethod.NONE;
+        }
+        if (authStatus == null) {
+            authStatus = AgentAuthStatus.NOT_REQUIRED;
+        }
+        authSetupCommand = authSetupCommand == null ? "" : authSetupCommand;
+        authDescription = authDescription == null ? "" : authDescription;
         Objects.requireNonNull(installedAt, "installedAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
     }
@@ -46,7 +58,22 @@ public record InstalledAgent(
         return new InstalledAgent(
                 agentId, installedVersion, distributionType, resolvedCommand,
                 resolvedArgs, installPath, sourceRegistryVersion, license,
-                configuredPrefix, agentToolView, enabled, installedAt, Instant.now()
+                configuredPrefix, agentToolView, enabled,
+                authMethod, authStatus, authSetupCommand, authDescription,
+                installedAt, Instant.now()
+        );
+    }
+
+    /**
+     * Returns a copy of this agent with the auth status set to the given value.
+     */
+    public InstalledAgent withAuthStatus(AgentAuthStatus newAuthStatus) {
+        return new InstalledAgent(
+                agentId, installedVersion, distributionType, resolvedCommand,
+                resolvedArgs, installPath, sourceRegistryVersion, license,
+                configuredPrefix, agentToolView, enabled,
+                authMethod, newAuthStatus, authSetupCommand, authDescription,
+                installedAt, Instant.now()
         );
     }
 
