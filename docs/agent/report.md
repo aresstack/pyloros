@@ -1,43 +1,40 @@
-# Report: R6-08 end-to-end smoke test for ACP manager agent with injected MCP tools
+# Report: Fix OAuth token exchange — ChatGPT reconnect fails with invalid_client
 
 ## What was verified, changed or implemented?
-- Added an automated smoke test for the minimal manager-agent R6 flow that uses a real JSON-RPC protocol server plus an injected fake MCP HTTP endpoint.
-- The new test verifies:
-  - manager agent receives injected MCP server config from `session/new`,
-  - manager agent executes `tools/list`,
-  - manager agent executes safe `tools/call` (`pyloros__ping`),
-  - manager agent emits structured ACP responses via `session/update` text and completion events.
-- Updated the R6 smoke-test documentation with:
-  - the new automated test entry and command,
-  - explicit error-path documentation for missing agent process, missing MCP endpoint, and forbidden/recursive agent-view setup.
+
+**Root cause**: ChatGPT sends no `client_secret` during `/oauth/token` exchange when using PKCE (OAuth 2.0 Public Client behavior). Pyloros `isKnownOAuthClient()` required BOTH `clientId` AND `clientSecret` to match config, but ChatGPT only sends `client_id=angel` (no secret). This caused `401 invalid_client`.
+
+**Fix**: Split client authentication by grant type:
+- `authorization_code` grant: only check `clientId` (PKCE + authorization code provide sufficient security; OAuth 2.0 allows public clients to skip client_secret)
+- `refresh_token` grant: still check both `clientId` AND `clientSecret` via existing `isKnownOAuthClient()`
+- Added debug logging in `readClientCredentials` (shows source: Basic Auth vs form params, and whether a secret was sent)
 
 ## Which files were changed or newly created?
-- New: `/home/runner/work/pyloros/pyloros/pyloros-manager-agent/src/test/java/com/aresstack/pyloros/manageragent/ManagerAgentInjectedMcpSmokeTest.java`
-- Changed: `/home/runner/work/pyloros/pyloros/docs/smoke-test/r6-manager-agent-smoke-test.md`
+
+- **Changed**: `pyloros-auth-oauth/src/main/java/com/aresstack/pyloros/oauth/OAuthService.java`
+  - Lines 101-133: `exchangeAuthorizationCode` — split clientId-only check from full isKnownOAuthClient; isKnownOAuthClient only called for refresh_token
+  - Added `hasSecret` to log line and configurable client_id mismatch warning
+
+- **Changed**: `pyloros-auth-oauth/src/main/java/com/aresstack/pyloros/http/OAuthRoutes.java`
+  - Lines 91-114: `readClientCredentials` — added INFO logging showing credential source and whether secret was present
 
 ## Which architecture decision was touched?
-- Strengthened the existing R6 separation between Pyloros ACP infrastructure and standalone manager-agent runtime by validating injected MCP tool usage end-to-end without introducing workflow-manager or multi-agent orchestration behavior.
+
+- OAuth client authentication: previously required client_secret for ALL grant types; now only requires it for `refresh_token`. This aligns with OAuth 2.0 RFC 6749 Section 2.3.1 which allows public clients to skip client authentication, and with PKCE (RFC 7636) which provides code_verifier-based security for authorization_code exchange.
 
 ## Which tests, builds and runtime checks were executed?
-- Baseline before changes:
-  - `./gradlew --no-daemon :pyloros-manager-agent:test :pyloros-server:test` → SUCCESS
-- Targeted checks during implementation:
-  - `./gradlew --no-daemon :pyloros-manager-agent:test --tests "com.aresstack.pyloros.manageragent.ManagerAgentInjectedMcpSmokeTest" --tests "com.aresstack.pyloros.manageragent.ManagerAgentHandshakeHandlerTest"` → SUCCESS
-- Post-change module check:
-  - `./gradlew --no-daemon :pyloros-manager-agent:test` → SUCCESS
-- Final validation:
-  - `parallel_validation` run twice:
-    - CodeQL Security Scan → SUCCESS (skipped as trivial test/doc-only changes)
-    - Code Review → FAILED due external HTTP 400 header issue
+
+- `./gradlew :pyloros-auth-oauth:test` → SUCCESS (3.9s)
+- Full project rebuild (`build_project` with rebuild=true) → SUCCESS (no errors)
 
 ## Result: successful or failed
-- Successful (required smoke coverage and documentation delivered; code/test verification passed).
+
+- **Successful** — code change compiles, all existing OAuth tests pass
 
 ## If failed: exact error and recommended next step
-- External validation service failure (non-code):
-  - `HTTP error 400: bad request: Unexpected value(s) 'context-1m-2025-08-07' for the 'anthropic-beta' header`
-- Recommended next step:
-  - Re-run `parallel_validation` after the external Code Review service/header issue is resolved.
+
+- N/A
 
 ## Exact commit hash, or No commit created
-- `aa51aa9`
+
+- No commit created (no push requested)
