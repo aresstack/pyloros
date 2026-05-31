@@ -9,7 +9,7 @@ Pyloros recognizes that installed ACP registry agents may require authentication
 | Method | Description | Pyloros Behavior |
 |---|---|---|
 | `NONE` | Agent requires no authentication | Normal install and provider registration |
-| `AGENT_AUTH` | Agent handles its own browser/OAuth flow | Agent is installed; Pyloros starts it and the agent manages its own login |
+| `AGENT_AUTH` | Agent handles its own browser/OAuth flow | Agent is installed with `CONFIGURED` status and provider-eligible; Pyloros stores no credentials and does not execute any auth; the agent manages its own login at startup |
 | `TERMINAL_AUTH` | Agent requires a terminal setup command before use | Agent is installed with `REQUIRED` status; setup command is presented to the user |
 
 ## Lifecycle
@@ -44,9 +44,10 @@ Registry metadata → AgentLifecycleService.install()
 
 For agents using `AGENT_AUTH`:
 1. Registry declares `auth.method = "AGENT_AUTH"` with a description
-2. On install, the agent is persisted with `authStatus = REQUIRED` (user must confirm)
+2. On install, the agent is persisted with `authStatus = CONFIGURED` (provider-eligible)
 3. Pyloros does not intercept the agent's OAuth browser flow
-4. After user confirms auth is configured, status is updated to `CONFIGURED`
+4. Pyloros stores no credentials and does not execute any auth — the agent manages its own login at startup
+5. No status update to `CONFIGURED` is needed since the agent is already provider-eligible
 
 ## Security Model
 

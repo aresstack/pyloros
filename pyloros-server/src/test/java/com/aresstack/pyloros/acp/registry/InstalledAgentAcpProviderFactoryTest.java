@@ -281,7 +281,14 @@ class InstalledAgentAcpProviderFactoryTest {
     }
 
     private static InstalledAgent createAgent(String agentId, String version, boolean enabled,
-                                              String prefix, String agentToolView) {
+                                               String prefix, String agentToolView) {
+        return createAgent(agentId, version, enabled, prefix, agentToolView,
+                AgentAuthMethod.NONE, AgentAuthStatus.NOT_REQUIRED);
+    }
+
+    private static InstalledAgent createAgent(String agentId, String version, boolean enabled,
+                                               String prefix, String agentToolView,
+                                               AgentAuthMethod authMethod, AgentAuthStatus authStatus) {
         Instant now = Instant.now();
         return new InstalledAgent(
                 agentId, version, "npx", "npx",

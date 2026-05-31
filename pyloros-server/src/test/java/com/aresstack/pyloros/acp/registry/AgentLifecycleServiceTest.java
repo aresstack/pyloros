@@ -400,6 +400,136 @@ class AgentLifecycleServiceTest {
         assertEquals("agent-b-agent-view", installed2.agentToolView());
     }
 
+    // --- Auth-aware install tests ---
+
+    @Test
+    void installAgentWithAgentAuthSetsConfigured() {
+        RegistryAgent agent = npxRegistryAgentWithAuth("agent-auth-agent", "1.0.0", "agent@1.0.0",
+                AgentAuthMethod.AGENT_AUTH, "", "OAuth login");
+
+        AgentLifecycleResult result = service.install(agent);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var installed = store.findById("agent-auth-agent").orElseThrow();
+        assertEquals(AgentAuthMethod.AGENT_AUTH, installed.authMethod());
+        assertEquals(AgentAuthStatus.CONFIGURED, installed.authStatus());
+    }
+
+    @Test
+    void installAgentWithTerminalAuthSetsRequired() {
+        RegistryAgent agent = npxRegistryAgentWithAuth("terminal-agent", "1.0.0", "terminal@1.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "Run setup", "Needs authentication");
+
+        AgentLifecycleResult result = service.install(agent);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var installed = store.findById("terminal-agent").orElseThrow();
+        assertEquals(AgentAuthMethod.TERMINAL_AUTH, installed.authMethod());
+        assertEquals(AgentAuthStatus.REQUIRED, installed.authStatus());
+    }
+
+    @Test
+    void installAgentWithNoneAuthSetsNotRequired() {
+        RegistryAgent agent = npxRegistryAgentWithAuth("none-agent", "1.0.0", "none@1.0.0",
+                AgentAuthMethod.NONE, "", "");
+
+        AgentLifecycleResult result = service.install(agent);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var installed = store.findById("none-agent").orElseThrow();
+        assertEquals(AgentAuthMethod.NONE, installed.authMethod());
+        assertEquals(AgentAuthStatus.NOT_REQUIRED, installed.authStatus());
+    }
+
+    // --- Auth-aware update tests ---
+
+    @Test
+    void updateNoneToTerminalAuthSetsRequired() {
+        RegistryAgent v1 = npxRegistryAgent("update-none-terminal", "1.0.0", "none@1.0.0");
+        service.install(v1);
+
+        RegistryAgent v2 = npxRegistryAgentWithAuth("update-none-terminal", "2.0.0", "none@2.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "Run setup", "Needs authentication");
+        AgentLifecycleResult result = service.update(v2);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var updated = store.findById("update-none-terminal").orElseThrow();
+        assertEquals(AgentAuthMethod.TERMINAL_AUTH, updated.authMethod());
+        assertEquals(AgentAuthStatus.REQUIRED, updated.authStatus());
+    }
+
+    @Test
+    void updateTerminalAuthToNoneSetsNotRequired() {
+        // Install with TERMINAL_AUTH
+        RegistryAgent v1 = npxRegistryAgentWithAuth("update-terminal-none", "1.0.0", "terminal@1.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "Run setup", "Needs authentication");
+        service.install(v1);
+
+        // Verify initial state
+        var installed = store.findById("update-terminal-none").orElseThrow();
+        assertEquals(AgentAuthStatus.REQUIRED, installed.authStatus());
+
+        // Simulate user setting status to CONFIGURED
+        InstalledAgent configured = installed.withAuthStatus(AgentAuthStatus.CONFIGURED);
+        store.save(configured);
+
+        // Update to NONE
+        RegistryAgent v2 = npxRegistryAgentWithAuth("update-terminal-none", "2.0.0", "terminal@2.0.0",
+                AgentAuthMethod.NONE, "", "");
+        AgentLifecycleResult result = service.update(v2);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var updated = store.findById("update-terminal-none").orElseThrow();
+        assertEquals(AgentAuthMethod.NONE, updated.authMethod());
+        assertEquals(AgentAuthStatus.NOT_REQUIRED, updated.authStatus());
+    }
+
+    @Test
+    void updateTerminalAuthSetupCommandChangedSetsRequired() {
+        // Install with TERMINAL_AUTH and a setup command
+        RegistryAgent v1 = npxRegistryAgentWithAuth("update-cmd-change", "1.0.0", "terminal@1.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "old-setup-command", "Needs old auth");
+        service.install(v1);
+
+        // Simulate user setting status to CONFIGURED
+        var installed = store.findById("update-cmd-change").orElseThrow();
+        InstalledAgent configured = installed.withAuthStatus(AgentAuthStatus.CONFIGURED);
+        store.save(configured);
+
+        // Update with a new setup command
+        RegistryAgent v2 = npxRegistryAgentWithAuth("update-cmd-change", "2.0.0", "terminal@2.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "new-setup-command", "Needs new auth");
+        AgentLifecycleResult result = service.update(v2);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var updated = store.findById("update-cmd-change").orElseThrow();
+        assertEquals(AgentAuthMethod.TERMINAL_AUTH, updated.authMethod());
+        assertEquals(AgentAuthStatus.REQUIRED, updated.authStatus());
+    }
+
+    @Test
+    void updateTerminalAuthSetupCommandUnchangedPreservesConfigured() {
+        // Install with TERMINAL_AUTH and a setup command
+        RegistryAgent v1 = npxRegistryAgentWithAuth("update-cmd-same", "1.0.0", "terminal@1.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "same-setup-command", "Needs same auth");
+        service.install(v1);
+
+        // Simulate user setting status to CONFIGURED
+        var installed = store.findById("update-cmd-same").orElseThrow();
+        InstalledAgent configured = installed.withAuthStatus(AgentAuthStatus.CONFIGURED);
+        store.save(configured);
+
+        // Update with the SAME setup command (new version)
+        RegistryAgent v2 = npxRegistryAgentWithAuth("update-cmd-same", "2.0.0", "terminal@2.0.0",
+                AgentAuthMethod.TERMINAL_AUTH, "same-setup-command", "Needs same auth");
+        AgentLifecycleResult result = service.update(v2);
+
+        assertInstanceOf(AgentLifecycleResult.Success.class, result);
+        var updated = store.findById("update-cmd-same").orElseThrow();
+        assertEquals(AgentAuthMethod.TERMINAL_AUTH, updated.authMethod());
+        assertEquals(AgentAuthStatus.CONFIGURED, updated.authStatus());
+    }
+
     // --- Helper methods ---
 
     private static RegistryAgent npxRegistryAgent(String id, String version, String packageName) {
@@ -428,6 +558,17 @@ class AgentLifecycleServiceTest {
                 null, null, null, "Apache-2.0", null,
                 new RegistryDistribution(targets, null, null),
                 null);
+    }
+
+    private static RegistryAgent npxRegistryAgentWithAuth(String id, String version, String packageName,
+                                                           AgentAuthMethod authMethod, String setupCommand, String description) {
+        return new RegistryAgent(
+                id, id, version, "A test agent",
+                null, null, null, "MIT", null,
+                new RegistryDistribution(null,
+                        new RegistryDistribution.PackageDistribution(packageName, List.of(), null),
+                        null),
+                new AuthRequirements(authMethod, setupCommand, description));
     }
 
     /**
@@ -606,3 +747,4 @@ class AgentLifecycleServiceTest {
         }
     }
 }
+

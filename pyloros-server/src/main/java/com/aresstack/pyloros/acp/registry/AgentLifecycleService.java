@@ -90,9 +90,7 @@ public final class AgentLifecycleService {
         AuthRequirements auth = registryAgent.auth() != null
                 ? registryAgent.auth()
                 : new AuthRequirements(AgentAuthMethod.NONE, "", "");
-        AgentAuthStatus initialAuthStatus = auth.method() == AgentAuthMethod.NONE
-                ? AgentAuthStatus.NOT_REQUIRED
-                : AgentAuthStatus.REQUIRED;
+        AgentAuthStatus initialAuthStatus = deriveInitialAuthStatus(auth.method());
 
         InstalledAgent agent = new InstalledAgent(
                 agentId,
@@ -218,7 +216,7 @@ public final class AgentLifecycleService {
                     previousAgent.agentToolView(),
                     previousAgent.enabled(),
                     auth.method(),
-                    previousAgent.authStatus(),
+                    deriveAuthStatusForUpdate(previousAgent, auth),
                     auth.setupCommand(),
                     auth.description(),
                     previousAgent.installedAt(),
@@ -355,6 +353,56 @@ public final class AgentLifecycleService {
         } catch (Exception cleanupEx) {
             log.warn("[LIFECYCLE] cleanup of materialized files failed: {}", cleanupEx.getMessage());
         }
+    }
+
+    /**
+     * Derives the auth status for a given auth method on install.
+     *
+     * @param method the auth method
+     * @return the corresponding auth status
+     */
+    private static AgentAuthStatus deriveInitialAuthStatus(AgentAuthMethod method) {
+        if (method == null) {
+            return AgentAuthStatus.NOT_REQUIRED;
+        }
+        return switch (method) {
+            case NONE -> AgentAuthStatus.NOT_REQUIRED;
+            case TERMINAL_AUTH -> AgentAuthStatus.REQUIRED;
+            case AGENT_AUTH -> AgentAuthStatus.CONFIGURED;
+        };
+    }
+
+    /**
+     * Derives the auth status for an update operation based on the previous agent state
+     * and the new auth requirements.
+     *
+     * @param previousAgent       the previously installed agent
+     * @param newAuthRequirements the new auth requirements from the registry
+     * @return the updated auth status
+     */
+    private static AgentAuthStatus deriveAuthStatusForUpdate(
+            InstalledAgent previousAgent,
+            AuthRequirements newAuthRequirements) {
+        AgentAuthMethod newMethod = newAuthRequirements.method();
+        AgentAuthMethod previousMethod = previousAgent.authMethod();
+
+        if (newMethod == AgentAuthMethod.NONE) {
+            return AgentAuthStatus.NOT_REQUIRED;
+        }
+
+        if (newMethod == AgentAuthMethod.AGENT_AUTH) {
+            return AgentAuthStatus.CONFIGURED;
+        }
+
+        // newMethod is TERMINAL_AUTH
+        if (previousMethod == AgentAuthMethod.TERMINAL_AUTH
+                && previousAgent.authSetupCommand() != null
+                && previousAgent.authSetupCommand().equals(newAuthRequirements.setupCommand())) {
+            // setup command unchanged — preserve the previous auth status
+            return previousAgent.authStatus();
+        }
+
+        return AgentAuthStatus.REQUIRED;
     }
 
     private static DistributionSpec toDistributionSpec(RegistryAgent registryAgent) {

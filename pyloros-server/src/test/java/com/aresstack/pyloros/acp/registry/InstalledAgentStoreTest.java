@@ -241,7 +241,7 @@ class InstalledAgentStoreTest {
         assertTrue(store.listAll().isEmpty());
     }
 
-    private static InstalledAgent createAgent(String agentId, String version, boolean enabled) {
+        private static InstalledAgent createAgent(String agentId, String version, boolean enabled) {
         Instant now = Instant.now();
         return new InstalledAgent(
                 agentId,
@@ -262,5 +262,76 @@ class InstalledAgentStoreTest {
                 now,
                 now
         );
+    }
+
+    @Test
+    void invalidPersistedAuthMethodIsSkipped() throws IOException {
+        String json = """
+                {
+                  "version": 1,
+                  "agents": [
+                    {
+                      "agentId": "valid-agent",
+                      "installedVersion": "1.0.0",
+                      "distributionType": "npx",
+                      "resolvedCommand": "npx",
+                      "resolvedArgs": [],
+                      "installPath": "/install",
+                      "sourceRegistryVersion": "v1",
+                      "license": "MIT",
+                      "configuredPrefix": "valid/",
+                      "agentToolView": "agent",
+                      "enabled": true,
+                      "authMethod": "INVALID_METHOD",
+                      "authStatus": "NOT_REQUIRED",
+                      "installedAt": "2024-01-01T00:00:00Z",
+                      "updatedAt": "2024-01-01T00:00:00Z"
+                    }
+                  ]
+                }
+                """;
+
+        Path storeDir = tempDir.resolve("data/acp-registry");
+        Files.createDirectories(storeDir);
+        Files.writeString(storeDir.resolve("installed-agents.json"), json);
+
+        List<InstalledAgent> agents = store.listAll();
+        assertTrue(agents.isEmpty(), "Agent with invalid authMethod should be skipped");
+    }
+
+    @Test
+    void invalidPersistedAuthStatusIsSkipped() throws IOException {
+        String json = """
+                {
+                  "version": 1,
+                  "agents": [
+                    {
+                      "agentId": "valid-agent",
+                      "installedVersion": "1.0.0",
+                      "distributionType": "npx",
+                      "resolvedCommand": "npx",
+                      "resolvedArgs": [],
+                      "installPath": "/install",
+                      "sourceRegistryVersion": "v1",
+                      "license": "MIT",
+                      "configuredPrefix": "valid/",
+                      "agentToolView": "agent",
+                      "enabled": true,
+                      "authMethod": "NONE",
+                      "authStatus": "INVALID_STATUS",
+                      "installedAt": "2024-01-01T00:00:00Z",
+                      "updatedAt": "2024-01-01T00:00:00Z"
+                    }
+                  ]
+                }
+                """;
+
+        Path storeDir = tempDir.resolve("data/acp-registry2");
+        Files.createDirectories(storeDir);
+        Files.writeString(storeDir.resolve("installed-agents.json"), json);
+
+        InstalledAgentStore store2 = new InstalledAgentStore(tempDir.resolve("data/acp-registry2"));
+        List<InstalledAgent> agents = store2.listAll();
+        assertTrue(agents.isEmpty(), "Agent with invalid authStatus should be skipped");
     }
 }

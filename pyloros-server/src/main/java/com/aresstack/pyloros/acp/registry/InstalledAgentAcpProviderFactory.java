@@ -130,8 +130,9 @@ public final class InstalledAgentAcpProviderFactory {
 
         for (InstalledAgent agent : enabledAgents) {
             try {
-                // Auth-required agents must not be registered as ACP providers until
-                // their auth has been configured.
+                // TERMINAL_AUTH agents with REQUIRED status must not be registered as ACP providers
+                // until the user has run the setup command and their status is updated to CONFIGURED.
+                // AGENT_AUTH agents are installed with CONFIGURED status and are always provider-eligible.
                 if (agent.authStatus() == AgentAuthStatus.REQUIRED) {
                     String reason = String.format(
                             "Agent '%s' requires authentication (%s). %s %sRun setup command: %s",

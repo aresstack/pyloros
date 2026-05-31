@@ -190,26 +190,32 @@ public final class InstalledAgentStore implements AgentStoreOperations {
         }
     }
 
-    private static InstalledAgent toInstalledAgent(InstalledAgentStoreDocument.InstalledAgentEntry entry) {
-        return new InstalledAgent(
-                entry.agentId(),
-                entry.installedVersion(),
-                entry.distributionType(),
-                entry.resolvedCommand(),
-                entry.resolvedArgs(),
-                entry.installPath(),
-                entry.sourceRegistryVersion(),
-                entry.license(),
-                entry.configuredPrefix(),
-                entry.agentToolView(),
-                entry.enabled(),
-                parseAuthMethod(entry.authMethod()),
-                parseAuthStatus(entry.authStatus()),
-                entry.authSetupCommand() != null ? entry.authSetupCommand() : "",
-                entry.authDescription() != null ? entry.authDescription() : "",
-                parseInstant(entry.installedAt(), "installedAt"),
-                parseInstant(entry.updatedAt(), "updatedAt")
-        );
+    private static InstalledAgent toInstalledAgent(InstalledAgentStoreDocument.InstalledAgentEntry entry) throws InstalledAgentStoreException {
+        try {
+            return new InstalledAgent(
+                    entry.agentId(),
+                    entry.installedVersion(),
+                    entry.distributionType(),
+                    entry.resolvedCommand(),
+                    entry.resolvedArgs(),
+                    entry.installPath(),
+                    entry.sourceRegistryVersion(),
+                    entry.license(),
+                    entry.configuredPrefix(),
+                    entry.agentToolView(),
+                    entry.enabled(),
+                    parseAuthMethod(entry.authMethod()),
+                    parseAuthStatus(entry.authStatus()),
+                    entry.authSetupCommand() != null ? entry.authSetupCommand() : "",
+                    entry.authDescription() != null ? entry.authDescription() : "",
+                    parseInstant(entry.installedAt(), "installedAt"),
+                    parseInstant(entry.updatedAt(), "updatedAt")
+            );
+        } catch (InvalidAuthDataException e) {
+            throw new InstalledAgentStoreException(
+                    InstalledAgentStoreException.Kind.CORRUPTED,
+                    "Corrupted auth data for agent '" + entry.agentId() + "': " + e.getMessage(), e);
+        }
     }
 
     private static InstalledAgentStoreDocument.InstalledAgentEntry toEntry(InstalledAgent agent) {
@@ -234,25 +240,31 @@ public final class InstalledAgentStore implements AgentStoreOperations {
         );
     }
 
-    private static AgentAuthMethod parseAuthMethod(String value) {
+    private static final class InvalidAuthDataException extends Exception {
+        InvalidAuthDataException(String message) {
+            super(message);
+        }
+    }
+
+    private static AgentAuthMethod parseAuthMethod(String value) throws InvalidAuthDataException {
         if (value == null || value.isBlank()) {
             return AgentAuthMethod.NONE;
         }
         try {
             return AgentAuthMethod.valueOf(value);
         } catch (IllegalArgumentException e) {
-            return AgentAuthMethod.NONE;
+            throw new InvalidAuthDataException("Invalid authMethod '" + value + "'");
         }
     }
 
-    private static AgentAuthStatus parseAuthStatus(String value) {
+    private static AgentAuthStatus parseAuthStatus(String value) throws InvalidAuthDataException {
         if (value == null || value.isBlank()) {
             return AgentAuthStatus.NOT_REQUIRED;
         }
         try {
             return AgentAuthStatus.valueOf(value);
         } catch (IllegalArgumentException e) {
-            return AgentAuthStatus.NOT_REQUIRED;
+            throw new InvalidAuthDataException("Invalid authStatus '" + value + "'");
         }
     }
 

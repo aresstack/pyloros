@@ -255,12 +255,11 @@ class AgentAuthFlowTest {
                 store, new DistributionResolver(), new NoOpAgentInstaller());
         AgentLifecycleResult result = service.install(registryAgent);
 
-        // AGENT_AUTH should still install (the agent manages auth itself),
-        // but authStatus should be REQUIRED (not yet configured)
+        // AGENT_AUTH should install and be provider-eligible (CONFIGURED)
         assertInstanceOf(AgentLifecycleResult.Success.class, result);
         var success = (AgentLifecycleResult.Success) result;
         assertEquals(AgentAuthMethod.AGENT_AUTH, success.agent().authMethod());
-        assertEquals(AgentAuthStatus.REQUIRED, success.agent().authStatus());
+        assertEquals(AgentAuthStatus.CONFIGURED, success.agent().authStatus());
     }
 
     // -------------------------------------------------------------------
