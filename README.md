@@ -134,38 +134,52 @@ Fat jar output:
 
 ## Start Pyloros
 
-### Start using default `mcp.json` discovery
+> **Wichtig:** Vor jedem Start muessen die OAuth-Umgebungsvariablen gesetzt sein.
+> Ohne sie schlaegt die ChatGPT-Verbindung mit `401 invalid_client` fehl.
+> Jedes neue PowerShell-Fenster verliert die Variablen — sie muessen **jedes Mal**
+> neu gesetzt werden.
+
+### Schnellstart (Kopieren und Ausfuehren)
+
+```powershell
+Set-Location 'C:\Projects\pyloros'
+
+$env:OAUTH_CLIENT_ID='angel'
+$env:OAUTH_CLIENT_SECRET='<das gleiche Secret wie in deiner ChatGPT-Connector-Konfiguration>'
+
+& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar
+```
+
+### Start mit JAVA_HOME
 
 ```powershell
 Set-Location 'C:\Projects\pyloros'
 $env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
-$env:OAUTH_CLIENT_ID='<your-client-id>'
-$env:OAUTH_CLIENT_SECRET='<your-client-secret>'
+$env:OAUTH_CLIENT_ID='angel'
+$env:OAUTH_CLIENT_SECRET='<das gleiche Secret wie in deiner ChatGPT-Connector-Konfiguration>'
 & "$env:JAVA_HOME\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar
 ```
 
-### Start with an explicit `mcp.json` path via CLI
+### Start mit explizitem `mcp.json`-Pfad
 
 ```powershell
 Set-Location 'C:\Projects\pyloros'
-$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-$env:OAUTH_CLIENT_ID='<your-client-id>'
-$env:OAUTH_CLIENT_SECRET='<your-client-secret>'
-& "$env:JAVA_HOME\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar --mcp-config=C:\path\to\mcp.json
+$env:OAUTH_CLIENT_ID='angel'
+$env:OAUTH_CLIENT_SECRET='<das gleiche Secret wie in deiner ChatGPT-Connector-Konfiguration>'
+& "C:\Program Files\Zulu\zulu-21\bin\java.exe" -jar .\pyloros-app\build\libs\pyloros.jar --mcp-config=C:\pfad\zu\mcp.json
 ```
 
-### Start with an explicit `mcp.json` path via system property
+### OAuth-Umgebungsvariablen
 
-```powershell
-Set-Location 'C:\Projects\pyloros'
-$env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-$env:OAUTH_CLIENT_ID='<your-client-id>'
-$env:OAUTH_CLIENT_SECRET='<your-client-secret>'
-& "$env:JAVA_HOME\bin\java.exe" -Dmcp.config=C:\path\to\mcp.json -jar .\pyloros-app\build\libs\pyloros.jar
-```
+| Variable | Beschreibung |
+|---|---|
+| `OAUTH_CLIENT_ID` | Dein OAuth-Client-Identifier (z. B. `angel`) |
+| `OAUTH_CLIENT_SECRET` | Das Secret aus deiner ChatGPT-Connector-Konfiguration |
+
+Diese Variablen ueberschreiben die Defaults aus `application.properties`.
+Sind sie nicht gesetzt, verwendet Pyloros die Werte aus der Properties-Datei —
+die aber nicht mit dem ChatGPT-Connector uebereinstimmen muessen.
 
 ## Local health check
 
