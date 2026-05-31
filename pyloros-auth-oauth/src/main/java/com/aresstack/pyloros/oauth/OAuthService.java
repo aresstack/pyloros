@@ -104,13 +104,10 @@ public final class OAuthService {
                                                    String refreshToken,
                                                    String redirectUri,
                                                    String codeVerifier) {
-        log.info("[OAUTH] token grantType={} code={} redirectUri={} clientId={} hasVerifier={} hasSecret={}",
-                grantType, code, redirectUri, credentials.clientId(),
-                codeVerifier != null, !credentials.clientSecret().isEmpty());
+        log.info("[OAUTH] token grantType={} code={} redirectUri={} clientId={} hasVerifier={}",
+                grantType, code, redirectUri, credentials.clientId(), codeVerifier != null);
 
-        if (!Objects.equals(credentials.clientId(), config.oauthClientId())) {
-            log.warn("[OAUTH] token rejected reason=unknown_client_id requestClientId={} configuredClientId={}",
-                    credentials.clientId(), config.oauthClientId());
+        if (!isKnownOAuthClient(credentials)) {
             throw new OAuthException(401, "invalid_client");
         }
 
@@ -122,10 +119,6 @@ public final class OAuthService {
             return exchangeFromAuthorizationCode(credentials, code, redirectUri, codeVerifier);
         }
         if ("refresh_token".equals(grantType)) {
-            if (!isKnownOAuthClient(credentials)) {
-                log.warn("[OAUTH] refresh rejected reason=client_secret_mismatch clientId={}", credentials.clientId());
-                throw new OAuthException(401, "invalid_client");
-            }
             return exchangeFromRefreshToken(credentials, refreshToken);
         }
 

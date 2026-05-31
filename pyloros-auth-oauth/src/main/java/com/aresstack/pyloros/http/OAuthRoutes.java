@@ -95,22 +95,14 @@ public final class OAuthRoutes {
             String decoded = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
             int separatorIndex = decoded.indexOf(':');
             if (separatorIndex >= 0) {
-                ClientCredentials credentials = new ClientCredentials(
-                        decoded.substring(0, separatorIndex),
-                        decoded.substring(separatorIndex + 1));
-                log.info("[OAUTH] client credentials from Basic auth header clientId={} hasSecret={}",
-                        credentials.clientId(), !credentials.clientSecret().isEmpty());
-                return credentials;
+                return new ClientCredentials(decoded.substring(0, separatorIndex), decoded.substring(separatorIndex + 1));
             }
         }
 
-        ClientCredentials credentials = new ClientCredentials(
+        return new ClientCredentials(
                 nullToEmpty(context.request().getFormAttribute("client_id")),
                 nullToEmpty(context.request().getFormAttribute("client_secret"))
         );
-        log.info("[OAUTH] client credentials from form params clientId={} hasSecret={}",
-                credentials.clientId(), !credentials.clientSecret().isEmpty());
-        return credentials;
     }
 
     private void sendTokenResponse(RoutingContext context, int statusCode, Map<String, Object> body) {
