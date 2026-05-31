@@ -33,6 +33,14 @@ import com.aresstack.pyloros.upstream.mcp.GenericMcpToolProvider;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamClient;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamClients;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamConfig;
+// ACP Registry imports
+import com.aresstack.pyloros.acp.registry.AcpRegistryCache;
+import com.aresstack.pyloros.acp.registry.AcpRegistryClient;
+import com.aresstack.pyloros.acp.registry.AgentLifecycleService;
+import com.aresstack.pyloros.acp.registry.DefaultAgentInstaller;
+import com.aresstack.pyloros.acp.registry.DistributionResolver;
+import com.aresstack.pyloros.acp.registry.InstalledAgentStore;
+import com.aresstack.pyloros.acp.registry.AcpRegistryManagementToolProvider;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
@@ -41,6 +49,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -86,6 +98,12 @@ public final class PylorosApplication extends AbstractVerticle {
         providers.add(new com.aresstack.pyloros.tool.UserSkillDeleteToolProvider());
         loadPlugins(providers);
         registerExternalProviders(providers, config);
+
+        // Register ACP Registry Management Tools
+        registerAcpRegistryManagementTools(providers, config);
+
+        // Register ACP Registry Management Tools
+        registerAcpRegistryManagementTools(providers, config);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
@@ -144,22 +162,7 @@ public final class PylorosApplication extends AbstractVerticle {
         return PluginRegistry.load(new PluginActivationResolver(pluginsConfig));
     }
 
-    private PluginsConfig loadPluginsConfig() {
-        Optional<LoadedMcpJsonConfig> loaded = new McpJsonConfigLoader().load(launchArgs);
-        if (loaded.isEmpty()) {
-            return PluginsConfig.empty();
-        }
-
-        LoadedMcpJsonConfig mcpJson = loaded.get();
-        PluginsConfigLoader loader = new PluginsConfigLoader();
-        try (java.io.InputStream inputStream = java.nio.file.Files.newInputStream(mcpJson.path())) {
-            return loader.loadFromStream(inputStream);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to load plugin configuration from " + mcpJson.path(), exception);
-        }
-    }
-
-    private void registerExternalProviders(List<ToolProvider> providers, PylorosConfig config) {
+    [{' + mcpJson.path(), exception);\n        }\n    }\n\n    /**\n     * Registers ACP Registry Management Tools for headless management of ACP registry agents.\n     */\n    private void registerAcpRegistryManagementTools(List<ToolProvider> providers, PylorosConfig config) {\n        try {\n            // Determine data directory - use working directory if not specified\n            Path dataDir = Paths.get("data': 'if (!Files.exists(dataDir)) {\n                Files.createDirectories(dataDir);'}, {'successfully': ''}, {'Tools': 'e);'}, {}]
         McpJsonConfigLoader loader = new McpJsonConfigLoader();
         Optional<LoadedMcpJsonConfig> loaded = loader.load(launchArgs);
         if (loaded.isEmpty()) {
@@ -200,12 +203,42 @@ public final class PylorosApplication extends AbstractVerticle {
             return new GitHubToolProvider(vertx, upstream);
         }
 
-        if ("intellij-index".equals(upstream.providerId())) {
-            return new IntellijIndexToolProvider(vertx, upstream);
-        }
-
         McpUpstreamClient client = McpUpstreamClients.create(vertx, upstream);
         client.start();
         return new GenericMcpToolProvider(upstream, client);
     }
+    
+    /**
+     * Registers ACP Registry Management Tools for headless management of ACP registry agents.
+     */
+    private void registerAcpRegistryManagementTools(List<ToolProvider> providers, PylorosConfig config) {
+        try {
+            // Determine data directory - use working directory if not specified
+            Path dataDir = Paths.get("data");
+            Files.createDirectories(dataDir);
+            
+            // Create ACP Registry components
+            Path registryCacheFile = dataDir.resolve("acp-registry-cache.json");
+            AcpRegistryCache registryCache = new AcpRegistryCache(registryCacheFile);
+            
+            URI registryUrl = AcpRegistryClient.defaultRegistryUrl();
+            AcpRegistryClient registryClient = new AcpRegistryClient(registryUrl, registryCache);
+            
+            Path installedAgentsFile = dataDir.resolve("installed-agents.json");
+            InstalledAgentStore store = new InstalledAgentStore(dataDir);
+            
+            DistributionResolver resolver = new DistributionResolver();
+            Path agentInstallDir = dataDir.resolve("agents");
+            Files.createDirectories(agentInstallDir);
+            DefaultAgentInstaller installer = new DefaultAgentInstaller(agentInstallDir);
+            
+            AgentLifecycleService lifecycleService = new AgentLifecycleService(store, resolver, installer);
+            
+            AcpRegistryManagementToolProvider provider = new AcpRegistryManagementToolProvider(
+                registryClient, lifecycleService, store);
+            
+            providers.add(provider);
+";
+
+}
 }
