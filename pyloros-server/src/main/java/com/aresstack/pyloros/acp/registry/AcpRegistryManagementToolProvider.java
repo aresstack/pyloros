@@ -1,0 +1,551 @@
+package com.aresstack.pyloros.acp.registry;
+
+import com.aresstack.pyloros.tool.ToolProvider;
+import com.aresstack.pyloros.tool.ToolView;
+import io.vertx.core.Future;
+import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Native {@link ToolProvider} exposing headless management operations for
+ * the ACP registry agent lifecycle.
+ *
+ * <p>Tool names (exact):
+ * <ul>
+ *   <li>{@code acp_registry/list_agents} — list agents from the registry</li>
+ *   <li>{@code acp_registry/refresh_registry} — reload registry from upstream</li>
+ *   <li>{@code acp_registry/install_agent} — install an agent by ID</li>
+ *   <li>{@code acp_registry/update_agent} — update an installed agent</li>
+ *   <li>{@code acp_registry/uninstall_agent} — uninstall an agent</li>
+ *   <li>{@code acp_registry/configure_agent} — change prefix, view, or enabled</li>
+ *   <li>{@code acp_registry/list_installed_agents} — list installed agents</li>
+ *   <li>{@code acp_registry/get_agent_status} — detailed status of one agent</li>
+ * </ul>
+ */
+public final class AcpRegistryManagementToolProvider implements ToolProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(AcpRegistryManagementToolProvider.class);
+
+    private static final String PROVIDER_ID = "acp-registry-mgmt";
+
+    // Tool name constants
+    private static final String TOOL_LIST_AGENTS = "acp_registry/list_agents";
+    private static final String TOOL_REFRESH_REGISTRY = "acp_registry/refresh_registry";
+    private static final String TOOL_INSTALL_AGENT = "acp_registry/install_agent";
+    private static final String TOOL_UPDATE_AGENT = "acp_registry/update_agent";
+    private static final String TOOL_UNINSTALL_AGENT = "acp_registry/uninstall_agent";
+    private static final String TOOL_CONFIGURE_AGENT = "acp_registry/configure_agent";
+    private static final String TOOL_LIST_INSTALLED = "acp_registry/list_installed_agents";
+    private static final String TOOL_GET_AGENT_STATUS = "acp_registry/get_agent_status";
+
+    private final AcpRegistryClient registryClient;
+    private final AgentLifecycleService lifecycleService;
+    private final AgentStoreOperations store;
+
+    /** Cached result of the last successful registry load, refreshed by {@link #TOOL_REFRESH_REGISTRY}. */
+    private volatile AcpRegistry cachedRegistry;
+    private volatile String cachedRegistryError;
+
+    public AcpRegistryManagementToolProvider(
+            AcpRegistryClient registryClient,
+            AgentLifecycleService lifecycleService,
+            AgentStoreOperations store) {
+        this.registryClient = Objects.requireNonNull(registryClient, "registryClient must not be null");
+        this.lifecycleService = Objects.requireNonNull(lifecycleService, "lifecycleService must not be null");
+        this.store = Objects.requireNonNull(store, "store must not be null");
+    }
+
+    // -------------------------------------------------------------------
+    // ToolProvider contract
+    // -------------------------------------------------------------------
+
+    @Override
+    public String providerId() {
+        return PROVIDER_ID;
+    }
+
+    @Override
+    public boolean preservesUpstreamToolName() {
+        return true;
+    }
+
+    @Override
+    public List<ToolView> exposedViews() {
+        return List.of(ToolView.PUBLIC);
+    }
+
+    @Override
+    public Future<List<Map<String, Object>>> listTools() {
+        List<Map<String, Object>> tools = List.of(
+                toolDef(TOOL_LIST_AGENTS, "List available ACP registry agents",
+                        inputProp("filter", "string", "Optional text filter for agent name/id", false),
+                        inputProp("includeDisabled", "boolean", "Include disabled agents in results (default false)", false)),
+                toolDef(TOOL_REFRESH_REGISTRY, "Refresh the ACP registry cache from the upstream URL"),
+                toolDef(TOOL_INSTALL_AGENT, "Install an ACP agent from the registry",
+                        inputProp("agent_id", "string", "ID of the agent to install", true)),
+                toolDef(TOOL_UPDATE_AGENT, "Update an installed ACP agent to the latest registry version",
+                        inputProp("agent_id", "string", "ID of the agent to update", true)),
+                toolDef(TOOL_UNINSTALL_AGENT, "Uninstall an ACP agent",
+                        inputProp("agent_id", "string", "ID of the agent to uninstall", true)),
+                toolDef(TOOL_CONFIGURE_AGENT, "Configure an installed agent (prefix, view, enabled)",
+                        inputProp("agent_id", "string", "ID of the agent to configure", true),
+                        inputProp("prefix", "string", "New prefix (must end with '/')", false),
+                        inputProp("agent_tool_view", "string", "New agent tool view name", false),
+                        inputProp("enabled", "boolean", "Enable or disable the agent", false),
+                        inputProp("auth_status", "string",
+                                "Set auth status (NOT_REQUIRED, CONFIGURED — cannot set REQUIRED)", false)),
+                toolDef(TOOL_LIST_INSTALLED, "List all installed ACP registry agents"),
+                toolDef(TOOL_GET_AGENT_STATUS, "Get detailed status of an installed agent",
+                        inputProp("agent_id", "string", "ID of the agent (omit for all)", false))
+        );
+        return Future.succeededFuture(tools);
+    }
+
+    @Override
+    public Future<Map<String, Object>> callTool(String upstreamToolName, com.fasterxml.jackson.databind.JsonNode arguments) {
+        try {
+            Map<String, Object> result = switch (upstreamToolName) {
+                case TOOL_LIST_AGENTS -> handleListAgents(arguments);
+                case TOOL_REFRESH_REGISTRY -> handleRefreshRegistry();
+                case TOOL_INSTALL_AGENT -> handleInstallAgent(arguments);
+                case TOOL_UPDATE_AGENT -> handleUpdateAgent(arguments);
+                case TOOL_UNINSTALL_AGENT -> handleUninstallAgent(arguments);
+                case TOOL_CONFIGURE_AGENT -> handleConfigureAgent(arguments);
+                case TOOL_LIST_INSTALLED -> handleListInstalled();
+                case TOOL_GET_AGENT_STATUS -> handleGetAgentStatus(arguments);
+                default -> error("Unknown tool: " + upstreamToolName);
+            };
+            return Future.succeededFuture(result);
+        } catch (Exception e) {
+            log.error("[ACP-MGMT] tool error tool={} reason={}", sanitize(upstreamToolName), e.getMessage());
+            return Future.succeededFuture(error(e.getMessage()));
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Tool handlers
+    // -------------------------------------------------------------------
+
+    private Map<String, Object> handleListAgents(com.fasterxml.jackson.databind.JsonNode args) {
+        ensureRegistryLoaded();
+        if (cachedRegistry == null) {
+            return error("Registry not available: " + safeStr(cachedRegistryError));
+        }
+
+        String filter = stringArg(args, "filter", "").toLowerCase();
+        boolean includeDisabled = booleanArg(args, "includeDisabled", false);
+
+        List<RegistryAgent> agents = cachedRegistry.agents().stream()
+                .filter(a -> !filter.isEmpty()
+                        ? (safeStr(a.id()).toLowerCase().contains(filter)
+                                || safeStr(a.name()).toLowerCase().contains(filter))
+                        : true)
+                .toList();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (RegistryAgent agent : agents) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("id", safeStr(agent.id()));
+            entry.put("name", safeStr(agent.name()));
+            entry.put("version", safeStr(agent.version()));
+            entry.put("description", safeStr(agent.description()));
+            entry.put("license", safeStr(agent.license()));
+            entry.put("repository", safeStr(agent.repository()));
+            entry.put("website", safeStr(agent.website()));
+            if (agent.authors() != null && !agent.authors().isEmpty()) {
+                entry.put("authors", agent.authors());
+            }
+            // Distribution type
+            RegistryDistribution dist = agent.distribution();
+            if (dist != null) {
+                List<String> types = new ArrayList<>();
+                if (dist.binary() != null && !dist.binary().isEmpty()) types.add("binary");
+                if (dist.npx() != null) types.add("npx");
+                if (dist.uvx() != null) types.add("uvx");
+                entry.put("distributionTypes", types);
+            }
+            // Auth
+            AuthRequirements auth = agent.auth();
+            if (auth != null) {
+                entry.put("authMethod", auth.method().name());
+                entry.put("authDescription", auth.description());
+                if (auth.method() == AgentAuthMethod.TERMINAL_AUTH) {
+                    entry.put("authSetupCommand", auth.setupCommand());
+                }
+            }
+            // Installed status
+            Optional<InstalledAgent> installed = store.findById(safeStr(agent.id()));
+            entry.put("installed", installed.isPresent());
+            if (installed.isPresent()) {
+                entry.put("installedVersion", installed.get().installedVersion());
+                entry.put("updateAvailable",
+                        !installed.get().installedVersion().equals(safeStr(agent.version())));
+            }
+            result.add(entry);
+        }
+
+        return success(Map.of(
+                "agents", result,
+                "totalCount", result.size(),
+                "registryVersion", safeStr(cachedRegistry.version())));
+    }
+
+    private Map<String, Object> handleRefreshRegistry() {
+        AcpRegistryLoadResult result = registryClient.load();
+        if (result instanceof AcpRegistryLoadResult.Success success) {
+            cachedRegistry = success.registry();
+            cachedRegistryError = null;
+            log.info("[ACP-MGMT] registry refreshed version={} source={} agents={}",
+                    sanitize(success.registry().version()), success.source(),
+                    success.registry().agents().size());
+            return success(Map.of(
+                    "version", safeStr(success.registry().version()),
+                    "agentCount", success.registry().agents().size(),
+                    "source", success.source().name()));
+        } else if (result instanceof AcpRegistryLoadResult.Failure failure) {
+            cachedRegistryError = String.join("; ", failure.errors());
+            return error("Registry refresh failed: " + cachedRegistryError);
+        }
+        return error("Unknown registry load result");
+    }
+
+    private Map<String, Object> handleInstallAgent(com.fasterxml.jackson.databind.JsonNode args) {
+        String agentId = requiredStringArg(args, "agent_id");
+        ensureRegistryLoaded();
+        if (cachedRegistry == null) {
+            return error("Registry not available — cannot resolve agent");
+        }
+
+        RegistryAgent agent = cachedRegistry.agents().stream()
+                .filter(a -> agentId.equals(a.id()))
+                .findFirst()
+                .orElse(null);
+        if (agent == null) {
+            return error("Agent '" + agentId + "' not found in registry");
+        }
+
+        AgentLifecycleResult result = lifecycleService.install(agent);
+        return lifecycleResultToResponse(result);
+    }
+
+    private Map<String, Object> handleUpdateAgent(com.fasterxml.jackson.databind.JsonNode args) {
+        String agentId = requiredStringArg(args, "agent_id");
+        ensureRegistryLoaded();
+        if (cachedRegistry == null) {
+            return error("Registry not available — cannot resolve agent for update");
+        }
+
+        RegistryAgent agent = cachedRegistry.agents().stream()
+                .filter(a -> agentId.equals(a.id()))
+                .findFirst()
+                .orElse(null);
+        if (agent == null) {
+            return error("Agent '" + agentId + "' not found in registry — cannot update");
+        }
+
+        AgentLifecycleResult result = lifecycleService.update(agent);
+        return lifecycleResultToResponse(result);
+    }
+
+    private Map<String, Object> handleUninstallAgent(com.fasterxml.jackson.databind.JsonNode args) {
+        String agentId = requiredStringArg(args, "agent_id");
+        AgentLifecycleResult result = lifecycleService.uninstall(agentId);
+        return lifecycleResultToResponse(result);
+    }
+
+    private Map<String, Object> handleConfigureAgent(com.fasterxml.jackson.databind.JsonNode args) {
+        String agentId = requiredStringArg(args, "agent_id");
+        Optional<InstalledAgent> existing = store.findById(agentId);
+        if (existing.isEmpty()) {
+            return error("Agent '" + agentId + "' is not installed");
+        }
+
+        InstalledAgent agent = existing.get();
+        boolean changed = false;
+
+        // Configure prefix
+        String newPrefix = stringArg(args, "prefix", null);
+        if (newPrefix != null) {
+            if (!newPrefix.endsWith("/") && !"/".equals(newPrefix)) {
+                return error("Prefix must end with '/' or be exactly '/', got: '" + newPrefix + "'");
+            }
+            // We need to update the prefix field. InstalledAgent is immutable,
+            // so we construct a new one with the updated prefix.
+            agent = new InstalledAgent(
+                    agent.agentId(), agent.installedVersion(), agent.distributionType(),
+                    agent.resolvedCommand(), agent.resolvedArgs(), agent.installPath(),
+                    agent.sourceRegistryVersion(), agent.license(),
+                    newPrefix, agent.agentToolView(), agent.enabled(),
+                    agent.authMethod(), agent.authStatus(), agent.authSetupCommand(), agent.authDescription(),
+                    agent.installedAt(), java.time.Instant.now());
+            changed = true;
+        }
+
+        // Configure agent tool view
+        String newToolView = stringArg(args, "agent_tool_view", null);
+        if (newToolView != null) {
+            if ("public".equals(newToolView)) {
+                return error("agentToolView must not be 'public'");
+            }
+            agent = new InstalledAgent(
+                    agent.agentId(), agent.installedVersion(), agent.distributionType(),
+                    agent.resolvedCommand(), agent.resolvedArgs(), agent.installPath(),
+                    agent.sourceRegistryVersion(), agent.license(),
+                    agent.configuredPrefix(), newToolView, agent.enabled(),
+                    agent.authMethod(), agent.authStatus(), agent.authSetupCommand(), agent.authDescription(),
+                    agent.installedAt(), java.time.Instant.now());
+            changed = true;
+        }
+
+        // Configure enabled
+        if (args.has("enabled") && !args.get("enabled").isNull()) {
+            boolean newEnabled = args.get("enabled").asBoolean();
+            agent = agent.withEnabled(newEnabled);
+            changed = true;
+        }
+
+        // Configure auth status
+        String newAuthStatus = stringArg(args, "auth_status", null);
+        if (newAuthStatus != null) {
+            try {
+                AgentAuthStatus status = AgentAuthStatus.valueOf(newAuthStatus.toUpperCase());
+                if (status == AgentAuthStatus.REQUIRED) {
+                    return error("Cannot set auth_status to REQUIRED via configure — " +
+                            "this status is set automatically during install");
+                }
+                agent = agent.withAuthStatus(status);
+                changed = true;
+            } catch (IllegalArgumentException e) {
+                return error("Invalid auth_status '" + newAuthStatus +
+                        "'. Valid values: NOT_REQUIRED, CONFIGURED");
+            }
+        }
+
+        if (changed) {
+            store.save(agent);
+            log.info("[ACP-MGMT] configured agent={} prefix={} view={} enabled={} authStatus={}",
+                    sanitize(agentId), agent.configuredPrefix(), agent.agentToolView(),
+                    agent.enabled(), agent.authStatus());
+        }
+
+        return success(Map.of(
+                "agent_id", agent.agentId(),
+                "configured_prefix", agent.configuredPrefix(),
+                "agent_tool_view", agent.agentToolView(),
+                "enabled", agent.enabled(),
+                "auth_status", agent.authStatus().name(),
+                "changed", changed));
+    }
+
+    private Map<String, Object> handleListInstalled() {
+        List<InstalledAgent> agents = store.listAll();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (InstalledAgent agent : agents) {
+            result.add(agentToMap(agent));
+        }
+        return success(Map.of("installed_agents", result, "totalCount", result.size()));
+    }
+
+    private Map<String, Object> handleGetAgentStatus(com.fasterxml.jackson.databind.JsonNode args) {
+        String agentId = stringArg(args, "agent_id", null);
+        if (agentId == null || agentId.isBlank()) {
+            // All agents summary
+            List<InstalledAgent> all = store.listAll();
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (InstalledAgent agent : all) {
+                result.add(agentToMap(agent));
+            }
+            return success(Map.of("agents", result, "totalCount", result.size()));
+        }
+
+        Optional<InstalledAgent> agent = store.findById(agentId);
+        if (agent.isEmpty()) {
+            return error("Agent '" + agentId + "' is not installed");
+        }
+        return success(agentToMap(agent.get()));
+    }
+
+    // -------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------
+
+    private void ensureRegistryLoaded() {
+        if (cachedRegistry != null) return;
+        AcpRegistryLoadResult result = registryClient.load();
+        if (result instanceof AcpRegistryLoadResult.Success success) {
+            cachedRegistry = success.registry();
+            cachedRegistryError = null;
+            log.info("[ACP-MGMT] initial registry load version={} source={}",
+                    sanitize(success.registry().version()), success.source());
+        } else if (result instanceof AcpRegistryLoadResult.Failure failure) {
+            cachedRegistryError = String.join("; ", failure.errors());
+            log.warn("[ACP-MGMT] initial registry load failed: {}", cachedRegistryError);
+        }
+    }
+
+    private Map<String, Object> lifecycleResultToResponse(AgentLifecycleResult result) {
+        if (result instanceof AgentLifecycleResult.Success success) {
+            return success(Map.of(
+                    "action", success.action().name(),
+                    "agent_id", success.agent().agentId(),
+                    "version", success.agent().installedVersion(),
+                    "message", success.message(),
+                    "auth_status", success.agent().authStatus().name(),
+                    "auth_method", success.agent().authMethod().name()));
+        } else if (result instanceof AgentLifecycleResult.Rejected rejected) {
+            return error("Rejected: " + rejected.reason(),
+                    Map.of("kind", rejected.kind().name(), "agent_id", rejected.agentId()));
+        } else if (result instanceof AgentLifecycleResult.Failed failed) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("agent_id", failed.agentId());
+            details.put("rolled_back", failed.rolledBack());
+            if (!failed.rollbackDetail().isEmpty()) details.put("recovery_hint", failed.rollbackDetail());
+            return error("Failed: " + failed.reason(), details);
+        }
+        return error("Unknown lifecycle result type");
+    }
+
+    private Map<String, Object> agentToMap(InstalledAgent agent) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("agent_id", agent.agentId());
+        entry.put("version", agent.installedVersion());
+        entry.put("distribution_type", agent.distributionType());
+        entry.put("resolved_command", agent.resolvedCommand());
+        entry.put("install_path", agent.installPath());
+        entry.put("configured_prefix", agent.configuredPrefix());
+        entry.put("agent_tool_view", agent.agentToolView());
+        entry.put("enabled", agent.enabled());
+        entry.put("auth_method", agent.authMethod().name());
+        entry.put("auth_status", agent.authStatus().name());
+        if (agent.authMethod() == AgentAuthMethod.TERMINAL_AUTH) {
+            entry.put("auth_setup_command", agent.authSetupCommand());
+        }
+        if (!agent.authDescription().isBlank()) {
+            entry.put("auth_description", agent.authDescription());
+        }
+        entry.put("license", agent.license());
+        entry.put("installed_at", agent.installedAt().toString());
+        entry.put("updated_at", agent.updatedAt().toString());
+        return entry;
+    }
+
+    // -- MCP result helpers --
+
+    private static Map<String, Object> success(Map<String, Object> data) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", List.of(Map.of("type", "text", "text", Json.encodePrettily(data))));
+        response.put("isError", false);
+        return response;
+    }
+
+    private static Map<String, Object> error(String message) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", List.of(Map.of("type", "text", "text", message)));
+        response.put("isError", true);
+        return response;
+    }
+
+    private static Map<String, Object> error(String message, Map<String, Object> details) {
+        Map<String, Object> payload = new LinkedHashMap<>(details);
+        payload.put("error", message);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("content", List.of(Map.of("type", "text", "text", Json.encodePrettily(payload))));
+        response.put("isError", true);
+        return response;
+    }
+
+    // -- Tool definition helpers --
+
+    private static Map<String, Object> toolDef(String name, String description,
+                                               Map<String, Object>... properties) {
+        Map<String, Object> inputSchema = new LinkedHashMap<>();
+        inputSchema.put("type", "object");
+        if (properties.length > 0) {
+            Map<String, Object> props = new LinkedHashMap<>();
+            List<String> required = new ArrayList<>();
+            for (Map<String, Object> prop : properties) {
+                String propName = (String) prop.get("name");
+                Map<String, Object> propDef = new LinkedHashMap<>();
+                propDef.put("type", prop.get("type"));
+                propDef.put("description", prop.get("description"));
+                props.put(propName, propDef);
+                if (Boolean.TRUE.equals(prop.get("required"))) {
+                    required.add(propName);
+                }
+            }
+            inputSchema.put("properties", props);
+            if (!required.isEmpty()) {
+                inputSchema.put("required", required);
+            }
+        } else {
+            inputSchema.put("properties", Map.of());
+        }
+
+        Map<String, Object> def = new LinkedHashMap<>();
+        def.put("name", name);
+        def.put("description", description);
+        def.put("inputSchema", inputSchema);
+        def.put("_meta", Map.of("providerType", "native"));
+        return def;
+    }
+
+    private static Map<String, Object> inputProp(String name, String type, String description, boolean required) {
+        return Map.of("name", name, "type", type, "description", description, "required", required);
+    }
+
+    // -- Argument helpers --
+
+    private static String requiredStringArg(com.fasterxml.jackson.databind.JsonNode args, String name) {
+        if (args == null || !args.has(name) || args.get(name).isNull()) {
+            throw new IllegalArgumentException("Required argument '" + name + "' is missing");
+        }
+        String value = args.get(name).asText();
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("Required argument '" + name + "' is blank");
+        }
+        return value;
+    }
+
+    private static String stringArg(com.fasterxml.jackson.databind.JsonNode args, String name, String defaultValue) {
+        if (args == null || !args.has(name) || args.get(name).isNull()) return defaultValue;
+        return args.get(name).asText();
+    }
+
+    private static boolean booleanArg(com.fasterxml.jackson.databind.JsonNode args, String name, boolean defaultValue) {
+        if (args == null || !args.has(name) || args.get(name).isNull()) return defaultValue;
+        return args.get(name).asBoolean();
+    }
+
+    // -- Sanitization --
+
+    private static String sanitize(String value) {
+        if (value == null) return "<null>";
+        return value.replaceAll("[^a-zA-Z0-9._\\-/]", "_");
+    }
+
+    private static String safeStr(String value) {
+        return value == null ? "" : value;
+    }
+
+    //  -- toolDef overload for no properties (Java doesn't allow zero varargs nicely) --
+    private static Map<String, Object> toolDef(String name, String description) {
+        Map<String, Object> inputSchema = new LinkedHashMap<>();
+        inputSchema.put("type", "object");
+        inputSchema.put("properties", Map.of());
+        Map<String, Object> def = new LinkedHashMap<>();
+        def.put("name", name);
+        def.put("description", description);
+        def.put("inputSchema", inputSchema);
+        def.put("_meta", Map.of("providerType", "native"));
+        return def;
+    }
+}
