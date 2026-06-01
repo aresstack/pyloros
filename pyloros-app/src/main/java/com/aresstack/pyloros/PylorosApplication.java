@@ -298,6 +298,48 @@ public final class PylorosApplication extends AbstractVerticle {
         return idsByView;
     }
 
+    private List<AcpProviderJsonConfig> loadConfiguredAcpProviders() {
+        Optional<LoadedMcpJsonConfig> loaded = new McpJsonConfigLoader().load(launchArgs);
+        if (loaded.isEmpty() || loaded.get().config().acpProviders() == null) {
+            return List.of();
+        }
+        return loaded.get().config().acpProviders();
+    }
+
+    private static Set<String> collectAcpProviderIds(List<AcpProviderJsonConfig> configs) {
+        Set<String> ids = new HashSet<>();
+        for (AcpProviderJsonConfig config : configs == null ? List.<AcpProviderJsonConfig>of() : configs) {
+            if (config != null
+                    && config.id() != null
+                    && !config.id().isBlank()
+                    && config.type() != null
+                    && config.type().equalsIgnoreCase("acp")
+                    && config.process() != null
+                    && config.process().command() != null
+                    && !config.process().command().isBlank()) {
+                ids.add(config.id().trim());
+            }
+        }
+        return ids;
+    }
+
+    private static Map<String, Set<String>> collectAcpProviderIdsByExposedView(List<AcpProviderJsonConfig> configs) {
+        Map<String, Set<String>> idsByView = new HashMap<>();
+        for (AcpProviderJsonConfig config : configs == null ? List.<AcpProviderJsonConfig>of() : configs) {
+            if (config == null || config.id() == null || config.id().isBlank()) {
+                continue;
+            }
+            String providerId = config.id().trim();
+            List<String> views = config.exposeInViews() != null ? config.exposeInViews() : List.of("public");
+            for (String view : views) {
+                if (view != null && !view.isBlank()) {
+                    idsByView.computeIfAbsent(view.trim(), ignored -> new HashSet<>()).add(providerId);
+                }
+            }
+        }
+        return idsByView;
+    }
+
     private ToolProvider createProvider(McpUpstreamConfig upstream) {
         log.info("[MCP-UPSTREAM] provider={} transport={} url={}",
                 upstream.providerId(), upstream.transport(), upstream.url());

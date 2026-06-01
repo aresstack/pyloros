@@ -2,6 +2,7 @@ package com.aresstack.pyloros.acp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
@@ -27,12 +28,12 @@ public final class AcpAgentClient implements AutoCloseable {
     }
 
     public CompletableFuture<String> createSession(String cwd) {
-        return createSession(cwd, Map.of());
+        return createSession(cwd, List.of());
     }
 
-    public CompletableFuture<String> createSession(String cwd, Map<String, Object> mcpServers) {
+    public CompletableFuture<String> createSession(String cwd, List<Map<String, Object>> mcpServers) {
         String normalizedCwd = requireText(cwd, "cwd");
-        Map<String, Object> normalizedMcpServers = mcpServers == null ? Map.of() : Map.copyOf(mcpServers);
+        List<Map<String, Object>> normalizedMcpServers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
         return sendRequest("session/new", Map.of(
                         "cwd", normalizedCwd,
                         "mcpServers", normalizedMcpServers

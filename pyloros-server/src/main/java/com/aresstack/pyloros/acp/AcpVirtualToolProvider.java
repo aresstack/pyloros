@@ -599,34 +599,34 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return instant == null ? null : instant.toString();
     }
 
-    private Map<String, Object> injectedMcpServers() {
+    private List<Map<String, Object>> injectedMcpServers() {
         Map<String, String> environment = config.process().environment();
         if (environment == null || environment.isEmpty()) {
-            return Map.of();
+            return List.of();
         }
 
         String mcpUrl = normalizeNullableText(environment.get(INJECTED_MCP_URL_ENV));
         if (mcpUrl == null) {
-            return Map.of();
+            return List.of();
         }
 
         String injectedUrl = appendViewQuery(mcpUrl, config.agentToolView());
         Map<String, Object> pylorosServer = new LinkedHashMap<>();
+        pylorosServer.put("type", "http");
+        pylorosServer.put("name", "pyloros");
         pylorosServer.put("url", injectedUrl);
 
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE);
+        List<Map<String, String>> headers = new ArrayList<>();
+        headers.add(Map.of("name", TRUSTED_VIEW_SOURCE_HEADER, "value", TRUSTED_VIEW_SOURCE_VALUE));
         if (!injectedViewToken.isEmpty()) {
-            headers.put(TRUSTED_VIEW_TOKEN_HEADER, injectedViewToken);
+            headers.add(Map.of("name", TRUSTED_VIEW_TOKEN_HEADER, "value", injectedViewToken));
         }
         String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
         if (bearerToken != null) {
-            headers.put("Authorization", "Bearer " + bearerToken);
+            headers.add(Map.of("name", "Authorization", "value", "Bearer " + bearerToken));
         }
-        if (!headers.isEmpty()) {
-            pylorosServer.put("headers", Map.copyOf(headers));
-        }
-        return Map.of("pyloros", Map.copyOf(pylorosServer));
+        pylorosServer.put("headers", List.copyOf(headers));
+        return List.of(Map.copyOf(pylorosServer));
     }
 
     private static String appendViewQuery(String mcpUrl, String viewName) {

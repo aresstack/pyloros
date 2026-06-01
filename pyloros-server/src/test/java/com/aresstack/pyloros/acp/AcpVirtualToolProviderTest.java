@@ -241,12 +241,12 @@ class AcpVirtualToolProviderTest {
 
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
-            assertEquals("http://127.0.0.1:8081/pyloros?view=agent",
-                    params.path("mcpServers").path("pyloros").path("url").asText());
-            assertEquals("Bearer test-token",
-                    params.path("mcpServers").path("pyloros").path("headers").path("Authorization").asText());
-            assertEquals("acp",
-                    params.path("mcpServers").path("pyloros").path("headers").path("X-Pyloros-Injected-View").asText());
+            JsonNode pylorosServer = params.path("mcpServers").get(0);
+                assertEquals("http", pylorosServer.path("type").asText());
+                assertEquals("pyloros", pylorosServer.path("name").asText());
+                assertEquals("http://127.0.0.1:8081/pyloros?view=agent", pylorosServer.path("url").asText());
+                assertHeader(pylorosServer, "Authorization", "Bearer test-token");
+                assertHeader(pylorosServer, "X-Pyloros-Injected-View", "acp");
         }
     }
 
@@ -259,8 +259,9 @@ class AcpVirtualToolProviderTest {
 
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
-            assertEquals("http://127.0.0.1:8081/pyloros?foo=bar&view=agent",
-                    params.path("mcpServers").path("pyloros").path("url").asText());
+            JsonNode pylorosServer = params.path("mcpServers").get(0);
+                assertEquals("http://127.0.0.1:8081/pyloros?foo=bar&view=agent",
+                        pylorosServer.path("url").asText());
         }
     }
 
@@ -273,8 +274,8 @@ class AcpVirtualToolProviderTest {
 
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
-            assertEquals("super-secret-token",
-                    params.path("mcpServers").path("pyloros").path("headers").path("X-Pyloros-Injected-View-Token").asText());
+            JsonNode pylorosServer = params.path("mcpServers").get(0);
+                assertHeader(pylorosServer, "X-Pyloros-Injected-View-Token", "super-secret-token");
         }
     }
 
@@ -287,13 +288,32 @@ class AcpVirtualToolProviderTest {
 
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
-            JsonNode headers = params.path("mcpServers").path("pyloros").path("headers");
-            assertFalse(headers.has("X-Pyloros-Injected-View-Token"),
-                    "token header must not be injected when no token is configured");
+            JsonNode pylorosServer = params.path("mcpServers").get(0);
+                assertFalse(hasHeader(pylorosServer, "X-Pyloros-Injected-View-Token"),
+                        "token header must not be injected when no token is configured");
         }
     }
 
-    private static ProviderContext newProvider(String behavior) throws IOException {
+    private static void assertHeader(JsonNode server, String name, String expectedValue) {
+            for (JsonNode header : server.path("headers")) {
+                if (name.equals(header.path("name").asText())) {
+                    assertEquals(expectedValue, header.path("value").asText());
+                    return;
+                }
+            }
+            throw new AssertionError("Missing header: " + name);
+        }
+    
+        private static boolean hasHeader(JsonNode server, String name) {
+            for (JsonNode header : server.path("headers")) {
+                if (name.equals(header.path("name").asText())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    
+        private static ProviderContext newProvider(String behavior) throws IOException {
         return newProvider(behavior, 5);
     }
 
