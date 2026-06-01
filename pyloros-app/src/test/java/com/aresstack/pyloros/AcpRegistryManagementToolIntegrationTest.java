@@ -52,15 +52,15 @@ class AcpRegistryManagementToolIntegrationTest {
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of(
-                "acp_registry/list_agents",
-                "acp_registry/refresh_registry",
-                "acp_registry/install_agent",
-                "acp_registry/update_agent",
-                "acp_registry/uninstall_agent",
-                "acp_registry/configure_agent",
-                "acp_registry/list_installed_agents",
-                "acp_registry/get_agent_status"
+                "acp_registry__list_agents",
+                "acp_registry__refresh_registry",
+                "acp_registry__install_agent",
+                "acp_registry__update_agent",
+                "acp_registry__uninstall_agent",
+                "acp_registry__configure_agent",
+                "acp_registry__list_installed_agents",
+                "acp_registry__get_agent_status"
         ), toolNames);
-        assertTrue(toolCatalog.findByExternalName("acp_registry/list_agents", ToolView.PUBLIC).isPresent());
+        assertTrue(toolCatalog.findByExternalName("acp_registry__list_agents", ToolView.PUBLIC).isPresent());
     }
 }

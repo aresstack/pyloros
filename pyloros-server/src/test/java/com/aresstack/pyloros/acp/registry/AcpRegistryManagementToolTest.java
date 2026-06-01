@@ -101,14 +101,14 @@ class AcpRegistryManagementToolTest {
         assertEquals(8, tools.size());
 
         List<String> names = tools.stream().map(t -> (String) t.get("name")).toList();
-        assertTrue(names.contains("acp_registry/list_agents"));
-        assertTrue(names.contains("acp_registry/refresh_registry"));
-        assertTrue(names.contains("acp_registry/install_agent"));
-        assertTrue(names.contains("acp_registry/update_agent"));
-        assertTrue(names.contains("acp_registry/uninstall_agent"));
-        assertTrue(names.contains("acp_registry/configure_agent"));
-        assertTrue(names.contains("acp_registry/list_installed_agents"));
-        assertTrue(names.contains("acp_registry/get_agent_status"));
+        assertTrue(names.contains("list_agents"));
+        assertTrue(names.contains("refresh_registry"));
+        assertTrue(names.contains("install_agent"));
+        assertTrue(names.contains("update_agent"));
+        assertTrue(names.contains("uninstall_agent"));
+        assertTrue(names.contains("configure_agent"));
+        assertTrue(names.contains("list_installed_agents"));
+        assertTrue(names.contains("get_agent_status"));
     }
 
     // -------------------------------------------------------------------
@@ -117,7 +117,7 @@ class AcpRegistryManagementToolTest {
 
     @Test
     void listRegistryAgentsReturnsAllAgents() {
-        Map<String, Object> result = callTool("acp_registry/list_agents", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("list_agents", MAPPER.createObjectNode());
 
         assertFalse((boolean) result.get("isError"), "Should not be error");
         String text = extractText(result);
@@ -132,7 +132,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("filter", "cli");
 
-        Map<String, Object> result = callTool("acp_registry/list_agents", args);
+        Map<String, Object> result = callTool("list_agents", args);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -145,10 +145,10 @@ class AcpRegistryManagementToolTest {
         // Install an agent first
         ObjectNode installArgs = MAPPER.createObjectNode();
         installArgs.put("agent_id", "echo-agent");
-        callTool("acp_registry/install_agent", installArgs);
+        callTool("install_agent", installArgs);
 
         // Now list
-        Map<String, Object> result = callTool("acp_registry/list_agents", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("list_agents", MAPPER.createObjectNode());
 
         String text = extractText(result);
         assertTrue(text.contains("installed"), "Should show installed key: " + text);
@@ -161,7 +161,7 @@ class AcpRegistryManagementToolTest {
 
     @Test
     void refreshRegistrySucceeds() {
-        Map<String, Object> result = callTool("acp_registry/refresh_registry", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("refresh_registry", MAPPER.createObjectNode());
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -178,7 +178,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "echo-agent");
 
-        Map<String, Object> result = callTool("acp_registry/install_agent", args);
+        Map<String, Object> result = callTool("install_agent", args);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -195,7 +195,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "cli-auth-agent");
 
-        Map<String, Object> result = callTool("acp_registry/install_agent", args);
+        Map<String, Object> result = callTool("install_agent", args);
 
         String text = extractText(result);
         assertTrue(text.contains("REQUIRED"));
@@ -206,9 +206,9 @@ class AcpRegistryManagementToolTest {
     void installAgentAlreadyInstalledReturnsError() {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "echo-agent");
-        callTool("acp_registry/install_agent", args); // first install
+        callTool("install_agent", args); // first install
 
-        Map<String, Object> result = callTool("acp_registry/install_agent", args); // second attempt
+        Map<String, Object> result = callTool("install_agent", args); // second attempt
 
         assertTrue((boolean) result.get("isError"));
         String text = extractText(result);
@@ -220,7 +220,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "nonexistent-agent");
 
-        Map<String, Object> result = callTool("acp_registry/install_agent", args);
+        Map<String, Object> result = callTool("install_agent", args);
 
         assertTrue((boolean) result.get("isError"));
         String text = extractText(result);
@@ -236,7 +236,7 @@ class AcpRegistryManagementToolTest {
         // Install first
         ObjectNode installArgs = MAPPER.createObjectNode();
         installArgs.put("agent_id", "echo-agent");
-        callTool("acp_registry/install_agent", installArgs);
+        callTool("install_agent", installArgs);
 
         // Configure
         ObjectNode configArgs = MAPPER.createObjectNode();
@@ -245,7 +245,7 @@ class AcpRegistryManagementToolTest {
         configArgs.put("agent_tool_view", "custom-view");
         configArgs.put("enabled", false);
 
-        Map<String, Object> result = callTool("acp_registry/configure_agent", configArgs);
+        Map<String, Object> result = callTool("configure_agent", configArgs);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -266,14 +266,14 @@ class AcpRegistryManagementToolTest {
         // Install auth agent
         ObjectNode installArgs = MAPPER.createObjectNode();
         installArgs.put("agent_id", "cli-auth-agent");
-        callTool("acp_registry/install_agent", installArgs);
+        callTool("install_agent", installArgs);
 
         // Configure auth to configured
         ObjectNode configArgs = MAPPER.createObjectNode();
         configArgs.put("agent_id", "cli-auth-agent");
         configArgs.put("auth_status", "CONFIGURED");
 
-        Map<String, Object> result = callTool("acp_registry/configure_agent", configArgs);
+        Map<String, Object> result = callTool("configure_agent", configArgs);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -287,13 +287,13 @@ class AcpRegistryManagementToolTest {
     void configureAgentCannotSetAuthStatusToRequired() {
         ObjectNode installArgs = MAPPER.createObjectNode();
         installArgs.put("agent_id", "echo-agent");
-        callTool("acp_registry/install_agent", installArgs);
+        callTool("install_agent", installArgs);
 
         ObjectNode configArgs = MAPPER.createObjectNode();
         configArgs.put("agent_id", "echo-agent");
         configArgs.put("auth_status", "REQUIRED");
 
-        Map<String, Object> result = callTool("acp_registry/configure_agent", configArgs);
+        Map<String, Object> result = callTool("configure_agent", configArgs);
 
         assertTrue((boolean) result.get("isError"));
         String text = extractText(result);
@@ -310,7 +310,7 @@ class AcpRegistryManagementToolTest {
         installAgent("echo-agent");
         installAgent("cli-auth-agent");
 
-        Map<String, Object> result = callTool("acp_registry/list_installed_agents", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("list_installed_agents", MAPPER.createObjectNode());
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -331,7 +331,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "cli-auth-agent");
 
-        Map<String, Object> result = callTool("acp_registry/get_agent_status", args);
+        Map<String, Object> result = callTool("get_agent_status", args);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -346,7 +346,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "nonexistent");
 
-        Map<String, Object> result = callTool("acp_registry/get_agent_status", args);
+        Map<String, Object> result = callTool("get_agent_status", args);
 
         assertTrue((boolean) result.get("isError"));
     }
@@ -356,7 +356,7 @@ class AcpRegistryManagementToolTest {
         installAgent("echo-agent");
         installAgent("cli-auth-agent");
 
-        Map<String, Object> result = callTool("acp_registry/get_agent_status", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("get_agent_status", MAPPER.createObjectNode());
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -375,7 +375,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "echo-agent");
 
-        Map<String, Object> result = callTool("acp_registry/uninstall_agent", args);
+        Map<String, Object> result = callTool("uninstall_agent", args);
 
         assertFalse((boolean) result.get("isError"));
         String text = extractText(result);
@@ -389,7 +389,7 @@ class AcpRegistryManagementToolTest {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", "nonexistent");
 
-        Map<String, Object> result = callTool("acp_registry/uninstall_agent", args);
+        Map<String, Object> result = callTool("uninstall_agent", args);
 
         assertTrue((boolean) result.get("isError"));
         String text = extractText(result);
@@ -406,10 +406,10 @@ class AcpRegistryManagementToolTest {
 
         // Check all management tools
         String[] tools = {
-                "acp_registry/list_agents",
-                "acp_registry/refresh_registry",
-                "acp_registry/list_installed_agents",
-                "acp_registry/get_agent_status"
+                "list_agents",
+                "refresh_registry",
+                "list_installed_agents",
+                "get_agent_status"
         };
         for (String tool : tools) {
             Map<String, Object> result = callTool(tool, MAPPER.createObjectNode());
@@ -439,7 +439,7 @@ class AcpRegistryManagementToolTest {
     private void installAgent(String agentId) {
         ObjectNode args = MAPPER.createObjectNode();
         args.put("agent_id", agentId);
-        callTool("acp_registry/install_agent", args);
+        callTool("install_agent", args);
     }
 
     @SuppressWarnings("unchecked")
