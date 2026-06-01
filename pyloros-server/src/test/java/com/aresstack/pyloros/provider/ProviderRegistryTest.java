@@ -54,6 +54,68 @@ class ProviderRegistryTest {
         assertTrue(descriptor.preservesUpstreamToolName());
     }
 
+    @Test
+    void registerAddsProviderDynamically() {
+        ProviderRegistry registry = new ProviderRegistry(List.of(new PylorosPingToolProvider()));
+
+        MetadataProvider dynamic = new MetadataProvider("dynamic", ProviderType.ACP, List.of(ToolView.PUBLIC));
+        registry.register(dynamic);
+
+        assertTrue(registry.findById("dynamic").isPresent());
+        assertEquals(ProviderStatus.AVAILABLE, registry.status("dynamic"));
+        assertEquals(2, registry.providers().size());
+        assertEquals(2, registry.descriptors().size());
+    }
+
+    @Test
+    void registerReplacesExistingProvider() {
+        ProviderRegistry registry = new ProviderRegistry(List.of(new PylorosPingToolProvider()));
+
+        MetadataProvider first = new MetadataProvider("agent", ProviderType.ACP, List.of(ToolView.PUBLIC));
+        registry.register(first);
+        assertEquals(2, registry.providers().size());
+
+        MetadataProvider replacement = new MetadataProvider("agent", ProviderType.ACP, List.of(ToolView.AGENT));
+        registry.register(replacement);
+
+        assertEquals(2, registry.providers().size());
+        ProviderDescriptor descriptor = registry.findDescriptorById("agent").orElseThrow();
+        assertTrue(descriptor.isExposedIn(ToolView.AGENT));
+    }
+
+    @Test
+    void unregisterRemovesProvider() {
+        ProviderRegistry registry = new ProviderRegistry(List.of(new PylorosPingToolProvider()));
+
+        MetadataProvider dynamic = new MetadataProvider("removeme", ProviderType.ACP, List.of(ToolView.PUBLIC));
+        registry.register(dynamic);
+        assertTrue(registry.findById("removeme").isPresent());
+
+        boolean removed = registry.unregister("removeme");
+
+        assertTrue(removed);
+        assertFalse(registry.findById("removeme").isPresent());
+        assertEquals(1, registry.providers().size());
+    }
+
+    @Test
+    void unregisterReturnsFalseForUnknownProvider() {
+        ProviderRegistry registry = new ProviderRegistry(List.of(new PylorosPingToolProvider()));
+
+        assertFalse(registry.unregister("nonexistent"));
+        assertFalse(registry.unregister(null));
+        assertFalse(registry.unregister(""));
+    }
+
+    @Test
+    void registerRejectsBlankProviderId() {
+        ProviderRegistry registry = new ProviderRegistry(List.of(new PylorosPingToolProvider()));
+
+        MetadataProvider blankId = new MetadataProvider("", ProviderType.ACP, List.of(ToolView.PUBLIC));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> registry.register(blankId));
+    }
+
     private static final class MetadataProvider implements ToolProvider {
 
         private final String providerId;
