@@ -53,4 +53,8 @@ public record InstalledAgent(
     public InstalledAgent withAgentToolView(String agentToolView) {
         return new InstalledAgent(id, enabled, command, args, prefix, exposeInViews, agentToolView, environment);
     }
+
+    public InstalledAgent withEnvironment(Map<String, String> environment) {
+        return new InstalledAgent(id, enabled, command, args, prefix, exposeInViews, agentToolView, environment);
+    }
 }

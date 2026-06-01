@@ -172,7 +172,7 @@ class AgentLifecycleIntegrationTest {
 
         Map<String, Object> result = await(mgmtProvider.callTool("install_agent", args));
         assertNotNull(result);
-        assertEquals(false, result.get("isError"));
+        assertFalse((Boolean) result.get("isError"));
 
         // Verify agent tools are available
         assertTrue(providerRegistry.findById("tooltest").isPresent(),
