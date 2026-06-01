@@ -24,6 +24,12 @@ public final class AcpEventMapper {
             throw new IllegalStateException("ACP session/update event is missing params");
         }
 
+        JsonNode update = params.get("update");
+        if (update != null && !update.isNull()) {
+            applyNestedUpdate(task, update, maxEventTextChars);
+            return;
+        }
+
         // Handle stopReason-only events (e.g., permission_required, end_turn)
         String stopReason = text(params, "stopReason");
         if (stopReason != null) {
@@ -33,7 +39,8 @@ public final class AcpEventMapper {
 
         String type = text(params, "type");
         if (type == null) {
-            throw new IllegalStateException("ACP session/update event is missing type");
+            task.addEvent(truncate(params.toString(), maxEventTextChars));
+            return;
         }
 
         switch (type) {
@@ -60,6 +67,34 @@ public final class AcpEventMapper {
             }
             default -> {
             }
+        }
+    }
+
+    private static void applyNestedUpdate(AgentTask task, JsonNode update, int maxEventTextChars) {
+        String sessionUpdate = text(update, "sessionUpdate");
+        if (sessionUpdate == null) {
+            task.addEvent(truncate(update.toString(), maxEventTextChars));
+            return;
+        }
+
+        switch (sessionUpdate) {
+            case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk" -> {
+                markRunning(task);
+                task.addEvent(truncate(textValue(update.path("content"), "text", "content", "value"), maxEventTextChars));
+            }
+            case "tool_call" -> {
+                markRunning(task);
+                task.addEvent(truncate(textValue(update, "title", "name", "kind"), maxEventTextChars));
+            }
+            case "tool_call_update" -> {
+                markRunning(task);
+                task.addEvent(truncate(update.toString(), maxEventTextChars));
+            }
+            case "plan" -> {
+                markRunning(task);
+                task.addEvent(truncate(update.toString(), maxEventTextChars));
+            }
+            default -> task.addEvent(truncate(update.toString(), maxEventTextChars));
         }
     }
 
