@@ -8,14 +8,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public final class ProviderRegistry {
 
-    private final Map<String, ToolProvider> providersById;
-    private final Map<String, ProviderDescriptor> descriptorsById;
-    private final Map<String, ProviderStatus> statusesById;
-    private final List<ToolProvider> providers;
-    private final List<ProviderDescriptor> descriptors;
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    private volatile Map<String, ToolProvider> providersById;
+    private volatile Map<String, ProviderDescriptor> descriptorsById;
+    private volatile Map<String, ProviderStatus> statusesById;
+    private volatile List<ToolProvider> providers;
+    private volatile List<ProviderDescriptor> descriptors;
 
     public ProviderRegistry(List<ToolProvider> providers) {
         LinkedHashMap<String, ToolProvider> registeredProviders = new LinkedHashMap<>();
@@ -71,6 +74,69 @@ public final class ProviderRegistry {
             return ProviderStatus.UNKNOWN;
         }
         return statusesById.getOrDefault(providerId, ProviderStatus.UNKNOWN);
+    }
+
+    /**
+     * Dynamically registers a new provider. If a provider with the same id already exists,
+     * it is replaced.
+     */
+    public void register(ToolProvider provider) {
+        String providerId = provider.providerId();
+        if (providerId == null || providerId.isBlank()) {
+            throw new IllegalArgumentException("Provider id must not be blank for provider " + provider.getClass().getName());
+        }
+
+        lock.writeLock().lock();
+        try {
+            LinkedHashMap<String, ToolProvider> newProvidersById = new LinkedHashMap<>(providersById);
+            LinkedHashMap<String, ProviderDescriptor> newDescriptorsById = new LinkedHashMap<>(descriptorsById);
+            LinkedHashMap<String, ProviderStatus> newStatusesById = new LinkedHashMap<>(statusesById);
+
+            newProvidersById.put(providerId, provider);
+            newDescriptorsById.put(providerId, ProviderDescriptor.from(provider));
+            newStatusesById.put(providerId, ProviderStatus.AVAILABLE);
+
+            this.providersById = Collections.unmodifiableMap(newProvidersById);
+            this.descriptorsById = Collections.unmodifiableMap(newDescriptorsById);
+            this.statusesById = Collections.unmodifiableMap(newStatusesById);
+            this.providers = List.copyOf(new ArrayList<>(newProvidersById.values()));
+            this.descriptors = List.copyOf(new ArrayList<>(newDescriptorsById.values()));
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Dynamically unregisters a provider by id. Returns true if the provider was present and removed.
+     */
+    public boolean unregister(String providerId) {
+        if (providerId == null || providerId.isBlank()) {
+            return false;
+        }
+
+        lock.writeLock().lock();
+        try {
+            if (!providersById.containsKey(providerId)) {
+                return false;
+            }
+
+            LinkedHashMap<String, ToolProvider> newProvidersById = new LinkedHashMap<>(providersById);
+            LinkedHashMap<String, ProviderDescriptor> newDescriptorsById = new LinkedHashMap<>(descriptorsById);
+            LinkedHashMap<String, ProviderStatus> newStatusesById = new LinkedHashMap<>(statusesById);
+
+            newProvidersById.remove(providerId);
+            newDescriptorsById.remove(providerId);
+            newStatusesById.remove(providerId);
+
+            this.providersById = Collections.unmodifiableMap(newProvidersById);
+            this.descriptorsById = Collections.unmodifiableMap(newDescriptorsById);
+            this.statusesById = Collections.unmodifiableMap(newStatusesById);
+            this.providers = List.copyOf(new ArrayList<>(newProvidersById.values()));
+            this.descriptors = List.copyOf(new ArrayList<>(newDescriptorsById.values()));
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     private static void registerProvider(

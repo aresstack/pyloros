@@ -5,6 +5,10 @@ import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
 import com.aresstack.pyloros.config.ToolNameSeparatorResolver;
+import com.aresstack.pyloros.acp.registry.AgentLifecycleService;
+import com.aresstack.pyloros.acp.registry.AcpRegistryManagementToolProvider;
+import com.aresstack.pyloros.acp.registry.InstalledAgentAcpProviderFactory;
+import com.aresstack.pyloros.acp.registry.InstalledAgentStore;
 import com.aresstack.pyloros.extension.LoadedTargetPlatformModules;
 import com.aresstack.pyloros.extension.TargetPlatformModuleLoader;
 import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
@@ -41,6 +45,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -88,6 +93,18 @@ public final class PylorosApplication extends AbstractVerticle {
         registerExternalProviders(providers, config);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
+
+        // ACP Registry lifecycle: load installed agents and register their providers dynamically
+        Path storePath = Path.of("data", "installed-agents.json");
+        InstalledAgentStore agentStore = new InstalledAgentStore(storePath);
+        InstalledAgentAcpProviderFactory registryProviderFactory = new InstalledAgentAcpProviderFactory(vertx, config.mcpInjectedViewToken());
+        AgentLifecycleService lifecycleService = new AgentLifecycleService(agentStore, registryProviderFactory, providerRegistry);
+        lifecycleService.registerAllEnabled();
+
+        // Register the management tool provider for ACP registry operations
+        AcpRegistryManagementToolProvider registryManagementProvider = new AcpRegistryManagementToolProvider(lifecycleService);
+        providerRegistry.register(registryManagementProvider);
+
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
