@@ -41,14 +41,13 @@ public final class AcpAgentClient implements AutoCloseable {
                 .thenApply(this::extractSessionId);
     }
 
-    public CompletableFuture<Void> sendPrompt(String sessionId, String prompt) {
+    public CompletableFuture<JsonNode> sendPrompt(String sessionId, String prompt) {
         String normalizedSessionId = requireText(sessionId, "sessionId");
         Objects.requireNonNull(prompt, "prompt must not be null");
         return sendRequest("session/prompt", Map.of(
-                        "sessionId", normalizedSessionId,
-                        "prompt", List.of(Map.of("type", "text", "text", prompt))
-                ))
-                .thenApply(ignored -> null);
+                "sessionId", normalizedSessionId,
+                "prompt", List.of(Map.of("type", "text", "text", prompt))
+        ));
     }
 
     public CompletableFuture<JsonNode> receiveEvent() {

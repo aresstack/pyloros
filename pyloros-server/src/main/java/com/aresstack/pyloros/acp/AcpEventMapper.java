@@ -3,6 +3,7 @@ package com.aresstack.pyloros.acp;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -70,6 +71,26 @@ public final class AcpEventMapper {
         }
     }
 
+    public void applyPromptResponse(AgentTask task, JsonNode response, int maxEventTextChars) {
+        Objects.requireNonNull(task, "task must not be null");
+        Objects.requireNonNull(response, "response must not be null");
+        if (maxEventTextChars <= 0) {
+            throw new IllegalArgumentException("maxEventTextChars must be greater than 0");
+        }
+
+        JsonNode result = response.get("result");
+        if (result == null || result.isNull()) {
+            return;
+        }
+
+        String stopReason = text(result, "stopReason");
+        if (stopReason == null) {
+            return;
+        }
+
+        handleStopReason(task, stopReason, result, maxEventTextChars);
+    }
+
     private static void applyNestedUpdate(AgentTask task, JsonNode update, int maxEventTextChars) {
         String sessionUpdate = text(update, "sessionUpdate");
         if (sessionUpdate == null) {
@@ -123,6 +144,9 @@ public final class AcpEventMapper {
                     result = text(params, "text");
                 }
                 if (result == null) {
+                    result = lastEvent(task);
+                }
+                if (result == null) {
                     result = "Task completed";
                 }
                 task.complete(truncate(result, maxEventTextChars));
@@ -131,6 +155,11 @@ public final class AcpEventMapper {
                 // Other stopReasons are informational only
             }
         }
+    }
+
+    private static String lastEvent(AgentTask task) {
+        List<String> events = task.events();
+        return events.isEmpty() ? null : events.getLast();
     }
 
     private static void markRunning(AgentTask task) {

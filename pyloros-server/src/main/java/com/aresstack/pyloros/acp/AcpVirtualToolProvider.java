@@ -200,9 +200,10 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
-                client.sendPrompt(sessionId, request.prompt())
+                JsonNode promptResponse = client.sendPrompt(sessionId, request.prompt())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
+                eventMapper.applyPromptResponse(task, promptResponse, config.execution().maxEventTextChars());
                 agentTaskRepository.save(task);
 
                 waitForTerminalState(task, client, processHandle);
