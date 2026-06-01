@@ -203,6 +203,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 JsonNode promptResponse = client.sendPrompt(sessionId, request.prompt())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
+                drainAvailableEvents(task, client);
                 eventMapper.applyPromptResponse(task, promptResponse, config.execution().maxEventTextChars());
                 agentTaskRepository.save(task);
 
@@ -236,6 +237,23 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         agentTaskRepository.save(task);
         auditLogger.logTaskStarted(task);
         return task;
+    }
+
+    private void drainAvailableEvents(AgentTask task, AcpAgentClient client) {
+        while (!isTerminal(task.state())) {
+            try {
+                JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
+                eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());
+                agentTaskRepository.save(task);
+            } catch (TimeoutException ignored) {
+                return;
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("ACP task execution interrupted", exception);
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to map ACP event", exception);
+            }
+        }
     }
 
     private void waitForTerminalState(AgentTask task, AcpAgentClient client, AcpProcessHandle processHandle) {
