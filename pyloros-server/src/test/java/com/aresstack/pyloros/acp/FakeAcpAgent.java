@@ -89,7 +89,7 @@ public final class FakeAcpAgent implements AutoCloseable {
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("accepted", true));
-                    sendBehaviorEvents(writer, request.path("params").path("prompt").asText());
+                    sendBehaviorEvents(writer, promptText(request.path("params").path("prompt")));
                 }
             }
         } catch (IOException ignored) {
@@ -97,6 +97,13 @@ public final class FakeAcpAgent implements AutoCloseable {
                 throw new IllegalStateException("Fake ACP agent failed", ignored);
             }
         }
+    }
+
+    private String promptText(JsonNode promptNode) {
+        if (promptNode.isArray() && !promptNode.isEmpty()) {
+            return promptNode.get(0).path("text").asText();
+        }
+        return promptNode.asText();
     }
 
     private void sendBehaviorEvents(BufferedWriter writer, String prompt) throws IOException {
