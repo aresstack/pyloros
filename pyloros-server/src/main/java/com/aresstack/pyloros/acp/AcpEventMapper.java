@@ -109,7 +109,7 @@ public final class AcpEventMapper {
             }
             case "tool_call_update" -> {
                 markRunning(task);
-                task.addEvent(truncate(update.toString(), maxEventTextChars));
+                task.addEvent(truncate(toolCallUpdateText(update), maxEventTextChars));
             }
             case "plan" -> {
                 markRunning(task);
@@ -155,6 +155,31 @@ public final class AcpEventMapper {
                 // Other stopReasons are informational only
             }
         }
+    }
+
+    private static String toolCallUpdateText(JsonNode update) {
+        String status = text(update, "status");
+        String toolCallId = text(update, "toolCallId");
+        StringBuilder event = new StringBuilder("Tool call");
+        if (toolCallId != null) {
+            event.append(' ').append(toolCallId);
+        }
+        if (status != null) {
+            event.append(' ').append(status);
+        }
+        String output = text(update, "output");
+        if (output != null) {
+            event.append(": ").append(output);
+            return event.toString();
+        }
+        JsonNode content = update.get("content");
+        if (content != null && content.isArray() && !content.isEmpty()) {
+            String text = text(content.get(0).path("content"), "text");
+            if (text != null) {
+                event.append(": ").append(text);
+            }
+        }
+        return event.toString();
     }
 
     private static String lastEvent(AgentTask task) {

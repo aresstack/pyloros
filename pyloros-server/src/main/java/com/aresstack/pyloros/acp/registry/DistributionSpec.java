@@ -16,14 +16,23 @@ public record DistributionSpec(
         DistributionType type,
         String packageRef,
         List<String> args,
-        Map<String, BinaryTarget> binaryTargets
+        Map<String, BinaryTarget> binaryTargets,
+        List<String> extraPackages,
+        String executable
 ) {
+
+    public DistributionSpec(DistributionType type, String packageRef, List<String> args,
+                            Map<String, BinaryTarget> binaryTargets) {
+        this(type, packageRef, args, binaryTargets, List.of(), null);
+    }
 
     public DistributionSpec {
         Objects.requireNonNull(type, "type must not be null");
         packageRef = requireText(packageRef, "packageRef");
         args = args == null ? List.of() : List.copyOf(args);
         binaryTargets = binaryTargets == null ? Map.of() : Map.copyOf(binaryTargets);
+        extraPackages = extraPackages == null ? List.of() : List.copyOf(extraPackages);
+        executable = normalizeNullableText(executable);
     }
 
     /**
@@ -52,5 +61,13 @@ public record DistributionSpec(
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return value;
+    }
+
+    private static String normalizeNullableText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

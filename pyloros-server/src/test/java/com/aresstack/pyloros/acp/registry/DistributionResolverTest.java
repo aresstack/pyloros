@@ -38,14 +38,31 @@ class DistributionResolverTest {
         var spec = new DistributionSpec(
                 DistributionType.NPX,
                 "deepagents-acp@0.1.7",
-                List.of(),
+                List.of("--debug"),
                 Map.of());
         var resolver = new DistributionResolver(LINUX_X86_64);
 
         InstallPlan plan = resolver.resolve(spec);
 
         assertEquals("npx", plan.command());
-        assertEquals(List.of("-y", "deepagents-acp@0.1.7"), plan.args());
+        assertEquals(List.of("-y", "deepagents-acp@0.1.7", "--debug"), plan.args());
+    }
+
+    @Test
+    void npxPlanMaterializesExtraPackagesWithExplicitBinary() {
+        var spec = new DistributionSpec(
+                DistributionType.NPX,
+                "deepagents-acp@0.1.7",
+                List.of(),
+                Map.of(),
+                List.of("@langchain/anthropic"),
+                "deepagents-acp");
+        var resolver = new DistributionResolver(LINUX_X86_64);
+
+        InstallPlan plan = resolver.resolve(spec);
+
+        assertEquals("npx", plan.command());
+        assertEquals(List.of("-y", "-p", "deepagents-acp@0.1.7", "-p", "@langchain/anthropic", "deepagents-acp"), plan.args());
     }
 
     @Test

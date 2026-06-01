@@ -68,6 +68,18 @@ class AcpVirtualToolProviderTest {
         }
     }
 
+@Test
+void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exception {
+    try (ProviderContext context = newProvider("acp17")) {
+        JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+        AgentTask task = findTask(context.repository(), response.get("taskId").asText());
+
+        assertEquals("COMPLETED", response.get("state").asText());
+        assertEquals("completed: Test prompt", response.get("result").asText());
+        assertEquals(AgentTaskState.COMPLETED, task.state());
+        assertEquals("completed: Test prompt", task.result());
+    }
+}
     @Test
     void testRunTaskReturnsErrorPayloadOnFailure() throws Exception {
         try (ProviderContext context = newProvider("error")) {

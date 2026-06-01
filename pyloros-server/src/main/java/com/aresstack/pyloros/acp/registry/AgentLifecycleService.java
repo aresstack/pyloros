@@ -422,7 +422,9 @@ public final class AgentLifecycleService {
                     DistributionType.NPX,
                     dist.npx().packageName(),
                     dist.npx().args() != null ? dist.npx().args() : List.of(),
-                    Map.of()
+                    Map.of(),
+                    dist.npx().extraPackages() != null ? dist.npx().extraPackages() : List.of(),
+                    dist.npx().binary()
             );
         }
 
@@ -431,7 +433,9 @@ public final class AgentLifecycleService {
                     DistributionType.UVX,
                     dist.uvx().packageName(),
                     dist.uvx().args() != null ? dist.uvx().args() : List.of(),
-                    Map.of()
+                    Map.of(),
+                    dist.uvx().extraPackages() != null ? dist.uvx().extraPackages() : List.of(),
+                    dist.uvx().binary()
             );
         }
 

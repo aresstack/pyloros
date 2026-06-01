@@ -50,7 +50,17 @@ public final class DistributionResolver {
     private InstallPlan resolveNpx(DistributionSpec spec) {
         List<String> args = new ArrayList<>();
         args.add("-y");
-        args.add(spec.packageRef());
+        if (spec.extraPackages().isEmpty()) {
+            args.add(spec.packageRef());
+        } else {
+            args.add("-p");
+            args.add(spec.packageRef());
+            for (String extraPackage : spec.extraPackages()) {
+                args.add("-p");
+                args.add(extraPackage);
+            }
+            args.add(resolveExecutable(spec));
+        }
         args.addAll(spec.args());
         return new InstallPlan(
                 launchCommand("npx"),
@@ -113,6 +123,19 @@ public final class DistributionResolver {
             }
         }
         return java.util.Optional.empty();
+    }
+
+    private static String resolveExecutable(DistributionSpec spec) {
+        if (spec.executable() != null) {
+            return spec.executable();
+        }
+        String packageRef = spec.packageRef();
+        if (packageRef.startsWith("@")) {
+            int versionSeparator = packageRef.indexOf('@', 1);
+            return versionSeparator > 0 ? packageRef.substring(0, versionSeparator) : packageRef;
+        }
+        int versionSeparator = packageRef.indexOf('@');
+        return versionSeparator > 0 ? packageRef.substring(0, versionSeparator) : packageRef;
     }
 
     private static String npxInstallPath(DistributionSpec spec) {

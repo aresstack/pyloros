@@ -34,6 +34,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final int STDERR_PREVIEW_CHARS = 512;
     private static final String INJECTED_MCP_URL_ENV = "PYLOROS_MCP_URL";
     private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
+    private static final String WORKSPACE_ROOT_ENV = "WORKSPACE_ROOT";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
     private static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
@@ -472,12 +473,14 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     }
 
     private AcpProcessConfiguration processConfigurationFor(String requestedCwd) {
-        String workingDirectory = requestedCwd == null ? config.process().workingDirectory() : requestedCwd;
+        String workingDirectory = resolveSessionCwd(requestedCwd);
+        Map<String, String> environment = new LinkedHashMap<>(config.process().environment());
+        environment.put(WORKSPACE_ROOT_ENV, workingDirectory);
         return new AcpProcessConfiguration(
                 config.process().command(),
                 config.process().args(),
                 workingDirectory,
-                config.process().environment());
+                environment);
     }
 
     private String resolveSessionCwd(String requestedCwd) {
