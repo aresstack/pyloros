@@ -1,5 +1,9 @@
 package com.aresstack.pyloros.acp.registry;
 
+import com.aresstack.pyloros.acp.AcpToolDefinitions;
+import com.aresstack.pyloros.acp.FakeAcpVirtualToolProviderFactory;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +30,7 @@ class R7EndToEndSmokeTest {
 
     private static final String PYLOROS_MCP_URL = "http://127.0.0.1:8081/pyloros";
     private static final String PYLOROS_MCP_TOKEN = "smoke-test-view-token";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String FAKE_REGISTRY_JSON = """
             {
@@ -161,6 +166,53 @@ class R7EndToEndSmokeTest {
                 "PYLOROS_MCP_URL must be injected for session/new");
         assertEquals(PYLOROS_MCP_TOKEN, env.get("PYLOROS_MCP_BEARER_TOKEN"),
                 "PYLOROS_MCP_BEARER_TOKEN must be injected for session/new");
+    }
+
+
+    // -------------------------------------------------------------------
+    // E2E: Registry-installed provider -> Fake ACP Agent session/new
+    // -------------------------------------------------------------------
+
+    @Test
+    void registryInstalledAgentStartsFakeAcpProviderWithInjectedPylorosMcpServer() throws Exception {
+        loadRegistryAndInstall("smoke-agent");
+
+        var configResult = InstalledAgentAcpProviderFactory.createConfigurations(
+                store.listAll(), java.util.Set.of(), java.util.Map.of(),
+                PYLOROS_MCP_URL, PYLOROS_MCP_TOKEN);
+        assertEquals(1, configResult.configurations().size());
+        assertTrue(configResult.failures().isEmpty());
+
+        com.aresstack.pyloros.acp.AcpProviderConfiguration config = configResult.configurations().get(0);
+        assertEquals("smoke-agent-agent-view", config.agentToolView());
+        assertNotEquals("public", config.agentToolView(), "agentToolView must be non-public");
+
+        try (FakeAcpVirtualToolProviderFactory.RunningProvider runningProvider =
+                     FakeAcpVirtualToolProviderFactory.create(config, "success", PYLOROS_MCP_TOKEN)) {
+            com.fasterxml.jackson.databind.node.ObjectNode args = MAPPER.createObjectNode();
+            args.put("prompt", "R7 smoke prompt");
+            args.put("timeoutSeconds", 5);
+
+            Map<String, Object> result = await(runningProvider.provider().callTool(AcpToolDefinitions.RUN_TASK, args));
+            JsonNode payload = responsePayload(result);
+
+            assertEquals("COMPLETED", payload.path("state").asText());
+            assertEquals("completed: R7 smoke prompt", payload.path("result").asText());
+
+            JsonNode sessionNewParams = runningProvider.agent().lastSessionNewParams();
+            assertNotNull(sessionNewParams, "Fake ACP agent must receive session/new");
+            JsonNode mcpServers = sessionNewParams.path("mcpServers");
+            assertTrue(mcpServers.isArray(), "ACP 0.17 requires mcpServers to be an array");
+            assertEquals(1, mcpServers.size());
+
+            JsonNode pylorosServer = mcpServers.get(0);
+            assertEquals("http", pylorosServer.path("type").asText());
+            assertEquals("pyloros", pylorosServer.path("name").asText());
+            assertEquals(PYLOROS_MCP_URL + "?view=smoke-agent-agent-view", pylorosServer.path("url").asText());
+            assertHeader(pylorosServer, "X-Pyloros-Injected-View", "acp");
+            assertHeader(pylorosServer, "X-Pyloros-Injected-View-Token", PYLOROS_MCP_TOKEN);
+            assertHeader(pylorosServer, "Authorization", "Bearer " + PYLOROS_MCP_TOKEN);
+        }
     }
 
     // -------------------------------------------------------------------
@@ -299,6 +351,33 @@ class R7EndToEndSmokeTest {
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
+
+
+    private static JsonNode responsePayload(Map<String, Object> result) throws java.io.IOException {
+        Object content = result.get("content");
+        assertInstanceOf(List.class, content);
+        List<?> contentItems = (List<?>) content;
+        assertFalse(contentItems.isEmpty());
+        Object first = contentItems.get(0);
+        assertInstanceOf(Map.class, first);
+        Object text = ((Map<?, ?>) first).get("text");
+        assertNotNull(text);
+        return MAPPER.readTree(text.toString());
+    }
+
+    private static void assertHeader(JsonNode server, String name, String expectedValue) {
+        for (JsonNode header : server.path("headers")) {
+            if (name.equals(header.path("name").asText())) {
+                assertEquals(expectedValue, header.path("value").asText());
+                return;
+            }
+        }
+        fail("Missing header: " + name);
+    }
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
 
     private static void assertLaunchCommand(String expectedBaseCommand, String actualCommand) {
         assertNotNull(actualCommand);

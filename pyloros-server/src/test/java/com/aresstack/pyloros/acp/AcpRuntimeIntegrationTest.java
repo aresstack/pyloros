@@ -3,7 +3,6 @@ package com.aresstack.pyloros.acp;
 import com.aresstack.pyloros.domain.tool.McpToolCall;
 import com.aresstack.pyloros.provider.ProviderRegistry;
 import com.aresstack.pyloros.tool.ToolCatalog;
-import com.aresstack.pyloros.tool.ToolNameFormatter;
 import com.aresstack.pyloros.tool.ToolRouter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -74,22 +73,22 @@ class AcpRuntimeIntegrationTest {
 
         // Register in ProviderRegistry alongside the ACP provider
         ProviderRegistry providerRegistry = new ProviderRegistry(List.of(acpProvider));
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, new ToolNameFormatter("/"));
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
         // Verify tools/list shows all ACP tools via the catalog
         List<Map<String, Object>> tools = await(toolCatalog.listTools());
         Set<String> toolNames = extractToolNames(tools);
 
-        assertTrue(toolNames.contains("copilot/run_task"), "Expected copilot/run_task in tools/list");
-        assertTrue(toolNames.contains("copilot/start_task"), "Expected copilot/start_task in tools/list");
-        assertTrue(toolNames.contains("copilot/get_task_status"), "Expected copilot/get_task_status in tools/list");
-        assertTrue(toolNames.contains("copilot/get_task_result"), "Expected copilot/get_task_result in tools/list");
-        assertTrue(toolNames.contains("copilot/cancel_task"), "Expected copilot/cancel_task in tools/list");
+        assertTrue(toolNames.contains("copilot__run_task"), "Expected copilot__run_task in tools/list");
+        assertTrue(toolNames.contains("copilot__start_task"), "Expected copilot__start_task in tools/list");
+        assertTrue(toolNames.contains("copilot__get_task_status"), "Expected copilot__get_task_status in tools/list");
+        assertTrue(toolNames.contains("copilot__get_task_result"), "Expected copilot__get_task_result in tools/list");
+        assertTrue(toolNames.contains("copilot__cancel_task"), "Expected copilot__cancel_task in tools/list");
 
         // Verify ToolRouter dispatches run_task correctly to ACP provider
         ObjectNode runArgs = JSON.createObjectNode().put("prompt", "Hello from runtime test");
-        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("copilot/run_task", runArgs)));
+        Map<String, Object> result = await(toolRouter.callTool(new McpToolCall("copilot__run_task", runArgs)));
 
         assertNotNull(result);
         assertFalse((Boolean) result.getOrDefault("isError", false), "run_task should succeed");
@@ -124,13 +123,13 @@ class AcpRuntimeIntegrationTest {
                 vertx, config, repository, launcher, new AcpAuditLogger(), new AcpEventMapper());
 
         ProviderRegistry providerRegistry = new ProviderRegistry(List.of(acpProvider));
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, new ToolNameFormatter("/"));
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
         await(toolCatalog.listTools());
 
         // Unknown tool returns error
         Map<String, Object> result = await(toolRouter.callTool(
-                new McpToolCall("copilot/nonexistent", JSON.createObjectNode())));
+                new McpToolCall("copilot__nonexistent", JSON.createObjectNode())));
 
         assertEquals(Boolean.TRUE, result.get("isError"));
 
@@ -164,13 +163,13 @@ class AcpRuntimeIntegrationTest {
                 vertx, config, repository, launcher, new AcpAuditLogger(), new AcpEventMapper());
 
         ProviderRegistry providerRegistry = new ProviderRegistry(List.of(acpProvider));
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, new ToolNameFormatter("/"));
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
         await(toolCatalog.listTools());
 
         // start_task via router
         ObjectNode startArgs = JSON.createObjectNode().put("prompt", "Async task");
-        Map<String, Object> startResult = await(toolRouter.callTool(new McpToolCall("copilot/start_task", startArgs)));
+        Map<String, Object> startResult = await(toolRouter.callTool(new McpToolCall("copilot__start_task", startArgs)));
         assertFalse((Boolean) startResult.getOrDefault("isError", false));
 
         // Extract taskId from result
@@ -182,7 +181,7 @@ class AcpRuntimeIntegrationTest {
 
         // get_task_status via router
         ObjectNode statusArgs = JSON.createObjectNode().put("taskId", taskId);
-        Map<String, Object> statusResult = await(toolRouter.callTool(new McpToolCall("copilot/get_task_status", statusArgs)));
+        Map<String, Object> statusResult = await(toolRouter.callTool(new McpToolCall("copilot__get_task_status", statusArgs)));
         assertNotNull(statusResult);
         assertFalse((Boolean) statusResult.getOrDefault("isError", false));
 

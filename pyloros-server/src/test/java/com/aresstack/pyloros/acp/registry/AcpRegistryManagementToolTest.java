@@ -427,7 +427,7 @@ class AcpRegistryManagementToolTest {
 
     @Test
     void unknownToolReturnsError() {
-        Map<String, Object> result = callTool("acp_registry/nonexistent_tool", MAPPER.createObjectNode());
+        Map<String, Object> result = callTool("nonexistent_tool", MAPPER.createObjectNode());
         assertTrue((boolean) result.get("isError"));
         assertTrue(extractText(result).contains("Unknown tool"));
     }

@@ -18,12 +18,13 @@
 - Structured JSON output, deterministic error handling
 - Auth status visible, configure blocks setting REQUIRED
 - 20 tests in `AcpRegistryManagementToolTest`
+- External management tool names use the default ToolCatalog separator, e.g. `acp_registry__list_agents`; slash names are not used for connector calls
 
 ### R7-08: Security hardening, smoke test, release audit
 - `docs/r7-security-checklist.md`: 20 verified security rules
 - `release-notes/R7.md`: feature summary for all R7 sub-issues
 - `docs/agent-auth.md`: auth flow documentation and security model
-- `R7EndToEndSmokeTest`: 7 E2E tests covering full pipeline
+- `R7EndToEndSmokeTest`: 8 E2E tests covering full pipeline, including registry-installed provider execution against `FakeAcpAgent`
 
 ## Which files were changed or newly created?
 

@@ -38,6 +38,11 @@ Add an ACP provider to the Pyloros `mcp.json` configuration under the `acpProvid
 }
 ```
 
+
+> The public MCP tool names use Pyloros' default tool separator `__`. Slash-based
+> external names are reserved for explicit compatibility/test runs with
+> `--tool-name-separator=/` and should not be used for ChatGPT connector smoke tests.
+
 ## Test Steps
 
 ### 1. Start Pyloros
@@ -59,7 +64,9 @@ curl -X POST http://localhost:8080/pyloros \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
 ```
 
-Expected: response contains tools `copilot/start_task`, `copilot/run_task`, `copilot/get_task_status`, `copilot/get_task_result`, `copilot/cancel_task`.
+Expected: response contains tools `copilot__start_task`, `copilot__run_task`, `copilot__get_task_status`, `copilot__get_task_result`, `copilot__cancel_task`.
+
+Pyloros uses the default `__` tool-name separator. Slash-based tool names are not used for ChatGPT connector calls because `/` is interpreted as a resource path segment by the connector.
 
 ### 3. Start an async task
 
@@ -70,7 +77,7 @@ curl -X POST http://localhost:8080/pyloros \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "copilot/start_task",
+      "name": "copilot__start_task",
       "arguments": {"prompt": "List files in the current directory"}
     },
     "id": 2
@@ -90,7 +97,7 @@ curl -X POST http://localhost:8080/pyloros \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "copilot/get_task_status",
+      "name": "copilot__get_task_status",
       "arguments": {"taskId": "<TASK_ID>", "includeEvents": true}
     },
     "id": 3
@@ -108,7 +115,7 @@ curl -X POST http://localhost:8080/pyloros \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "copilot/get_task_result",
+      "name": "copilot__get_task_result",
       "arguments": {"taskId": "<TASK_ID>"}
     },
     "id": 4
@@ -126,7 +133,7 @@ curl -X POST http://localhost:8080/pyloros \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "copilot/run_task",
+      "name": "copilot__run_task",
       "arguments": {"prompt": "What is 2+2?"}
     },
     "id": 5
@@ -146,7 +153,7 @@ curl -X POST http://localhost:8080/pyloros \
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
-      "name": "copilot/cancel_task",
+      "name": "copilot__cancel_task",
       "arguments": {"taskId": "<TASK_ID>"}
     },
     "id": 6
@@ -154,6 +161,21 @@ curl -X POST http://localhost:8080/pyloros \
 ```
 
 Expected: response contains `state: "CANCELLED"`.
+
+## ACP Registry Management Smoke Check
+
+R7 registry management tools are exposed through the same default `__` separator:
+
+- `acp_registry__list_agents`
+- `acp_registry__refresh_registry`
+- `acp_registry__install_agent`
+- `acp_registry__update_agent`
+- `acp_registry__uninstall_agent`
+- `acp_registry__configure_agent`
+- `acp_registry__list_installed_agents`
+- `acp_registry__get_agent_status`
+
+Registry refresh must not install or run agents automatically. Install, update, uninstall, and configure operations must be explicit tool calls. Installed registry agents are exposed with their configured prefix; root-level tools require explicit opt-in. R8 Universal Manager Agent behavior remains out of scope for this smoke test.
 
 ## Common Problems
 

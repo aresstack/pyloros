@@ -22,7 +22,7 @@
 | A1 | Each installed agent gets unique `agentToolView` | ✅ `agentId + "-agent-view"` |
 | A2 | Agents cannot see `"public"` view | ✅ `AgentToolViewValidator` rejects `"public"` |
 | A3 | Agents cannot see other agents' views by default | ✅ Per-agent unique views |
-| A4 | `session/new` injects `mcpServers.pyloros` with trusted headers | ✅ `AcpVirtualToolProvider.injectedMcpServers()` |
+| A4 | `session/new` injects Pyloros MCP server with trusted headers | ✅ `AcpVirtualToolProvider.injectedMcpServers()` and `R7EndToEndSmokeTest.registryInstalledAgentStartsFakeAcpProviderWithInjectedPylorosMcpServer()` |
 | A5 | Auth-required agents are blocked at provider registration | ✅ `InstalledAgentAcpProviderFactory` auth check |
 
 ## Data Integrity
