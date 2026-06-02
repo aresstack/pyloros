@@ -31,7 +31,7 @@ Override priority for separator:
 Example compatibility/test mode:
 - `--tool-name-separator=/` (or `-Dmcp.tool-name-separator=/`)
 - yields names like `intellij/get_project_modules`
-- `/` mode is intended for test/compatibility only
+- `/` mode is intended for legacy test compatibility only and is not recommended for connector-facing tool calls; use the default `__` separator for normal operation
 
 Important:
 - external names are still routed by exact string match only

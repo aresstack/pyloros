@@ -88,8 +88,13 @@ public final class FakeAcpAgent implements AutoCloseable {
                     lastSessionNewParams.set(request.get("params"));
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {
-                    sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("accepted", true));
-                    sendBehaviorEvents(writer, request.path("params").path("prompt").asText());
+                    if ("acp17".equals(behavior)) {
+                        sendBehaviorEvents(writer, promptText(request.path("params").path("prompt")));
+                        sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("stopReason", "end_turn"));
+                    } else {
+                        sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("accepted", true));
+                        sendBehaviorEvents(writer, promptText(request.path("params").path("prompt")));
+                    }
                 }
             }
         } catch (IOException ignored) {
@@ -97,6 +102,13 @@ public final class FakeAcpAgent implements AutoCloseable {
                 throw new IllegalStateException("Fake ACP agent failed", ignored);
             }
         }
+    }
+
+    private String promptText(JsonNode promptNode) {
+        if (promptNode.isArray() && !promptNode.isEmpty()) {
+            return promptNode.get(0).path("text").asText();
+        }
+        return promptNode.asText();
     }
 
     private void sendBehaviorEvents(BufferedWriter writer, String prompt) throws IOException {
@@ -129,6 +141,16 @@ public final class FakeAcpAgent implements AutoCloseable {
                         .put("type", "completion")
                         .put("result", "large-output-complete"));
             }
+            case "acp17" -> {
+                ObjectNode content = mapper.createObjectNode()
+                        .put("type", "text")
+                        .put("text", "completed: " + prompt);
+                ObjectNode update = mapper.createObjectNode()
+                        .put("sessionUpdate", "agent_message_chunk")
+                        .set("content", content);
+                sendNestedSessionUpdate(writer, update);
+
+            }
             default -> throw new IllegalStateException("Unknown fake ACP behavior: " + behavior);
         }
     }
@@ -141,6 +163,13 @@ public final class FakeAcpAgent implements AutoCloseable {
         writer.write(mapper.writeValueAsString(response));
         writer.newLine();
         writer.flush();
+    }
+
+    private void sendNestedSessionUpdate(BufferedWriter writer, ObjectNode update) throws IOException {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("sessionId", SESSION_ID);
+        params.set("update", update);
+        sendSessionEvent(writer, params);
     }
 
     private void sendSessionEvent(BufferedWriter writer, ObjectNode params) throws IOException {

@@ -34,6 +34,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private static final int STDERR_PREVIEW_CHARS = 512;
     private static final String INJECTED_MCP_URL_ENV = "PYLOROS_MCP_URL";
     private static final String INJECTED_MCP_BEARER_TOKEN_ENV = "PYLOROS_MCP_BEARER_TOKEN";
+    private static final String WORKSPACE_ROOT_ENV = "WORKSPACE_ROOT";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
     private static final String TRUSTED_VIEW_TOKEN_HEADER = "X-Pyloros-Injected-View-Token";
@@ -200,9 +201,11 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
-                client.sendPrompt(sessionId, request.prompt())
+                JsonNode promptResponse = client.sendPrompt(sessionId, request.prompt())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
+                drainAvailableEvents(task, client);
+                eventMapper.applyPromptResponse(task, promptResponse, config.execution().maxEventTextChars());
                 agentTaskRepository.save(task);
 
                 waitForTerminalState(task, client, processHandle);
@@ -235,6 +238,23 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         agentTaskRepository.save(task);
         auditLogger.logTaskStarted(task);
         return task;
+    }
+
+    private void drainAvailableEvents(AgentTask task, AcpAgentClient client) {
+        while (!isTerminal(task.state())) {
+            try {
+                JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
+                eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());
+                agentTaskRepository.save(task);
+            } catch (TimeoutException ignored) {
+                return;
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("ACP task execution interrupted", exception);
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to map ACP event", exception);
+            }
+        }
     }
 
     private void waitForTerminalState(AgentTask task, AcpAgentClient client, AcpProcessHandle processHandle) {
@@ -453,12 +473,14 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     }
 
     private AcpProcessConfiguration processConfigurationFor(String requestedCwd) {
-        String workingDirectory = requestedCwd == null ? config.process().workingDirectory() : requestedCwd;
+        String workingDirectory = resolveSessionCwd(requestedCwd);
+        Map<String, String> environment = new LinkedHashMap<>(config.process().environment());
+        environment.put(WORKSPACE_ROOT_ENV, workingDirectory);
         return new AcpProcessConfiguration(
                 config.process().command(),
                 config.process().args(),
                 workingDirectory,
-                config.process().environment());
+                environment);
     }
 
     private String resolveSessionCwd(String requestedCwd) {
@@ -599,34 +621,34 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return instant == null ? null : instant.toString();
     }
 
-    private Map<String, Object> injectedMcpServers() {
+    private List<Map<String, Object>> injectedMcpServers() {
         Map<String, String> environment = config.process().environment();
         if (environment == null || environment.isEmpty()) {
-            return Map.of();
+            return List.of();
         }
 
         String mcpUrl = normalizeNullableText(environment.get(INJECTED_MCP_URL_ENV));
         if (mcpUrl == null) {
-            return Map.of();
+            return List.of();
         }
 
         String injectedUrl = appendViewQuery(mcpUrl, config.agentToolView());
         Map<String, Object> pylorosServer = new LinkedHashMap<>();
+        pylorosServer.put("type", "http");
+        pylorosServer.put("name", "pyloros");
         pylorosServer.put("url", injectedUrl);
 
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE);
+        List<Map<String, String>> headers = new ArrayList<>();
+        headers.add(Map.of("name", TRUSTED_VIEW_SOURCE_HEADER, "value", TRUSTED_VIEW_SOURCE_VALUE));
         if (!injectedViewToken.isEmpty()) {
-            headers.put(TRUSTED_VIEW_TOKEN_HEADER, injectedViewToken);
+            headers.add(Map.of("name", TRUSTED_VIEW_TOKEN_HEADER, "value", injectedViewToken));
         }
         String bearerToken = normalizeNullableText(environment.get(INJECTED_MCP_BEARER_TOKEN_ENV));
         if (bearerToken != null) {
-            headers.put("Authorization", "Bearer " + bearerToken);
+            headers.add(Map.of("name", "Authorization", "value", "Bearer " + bearerToken));
         }
-        if (!headers.isEmpty()) {
-            pylorosServer.put("headers", Map.copyOf(headers));
-        }
-        return Map.of("pyloros", Map.copyOf(pylorosServer));
+        pylorosServer.put("headers", List.copyOf(headers));
+        return List.of(Map.copyOf(pylorosServer));
     }
 
     private static String appendViewQuery(String mcpUrl, String viewName) {
