@@ -152,7 +152,7 @@ class R7EndToEndSmokeTest {
                 "Agent tools should be exposed in public view");
 
         // Verify process configuration
-        assertEquals("npx", config.process().command());
+        assertLaunchCommand("npx", config.process().command());
         assertNotNull(config.process().args());
 
         // Verify mcpServers.pyloros injection via environment
@@ -299,6 +299,15 @@ class R7EndToEndSmokeTest {
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
+
+    private static void assertLaunchCommand(String expectedBaseCommand, String actualCommand) {
+        assertNotNull(actualCommand);
+        if (TargetPlatform.current().os().equals("windows")) {
+            assertTrue(actualCommand.endsWith(expectedBaseCommand + ".cmd"), actualCommand);
+        } else {
+            assertEquals(expectedBaseCommand, actualCommand);
+        }
+    }
 
     private void loadRegistryAndInstall(String agentId) {
         AcpRegistryLoadResult loadResult = registryClient.loadFrom(

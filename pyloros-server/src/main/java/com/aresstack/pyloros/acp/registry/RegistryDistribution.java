@@ -30,7 +30,12 @@ public record RegistryDistribution(
     public record PackageDistribution(
             @JsonProperty("package") String packageName,
             List<String> args,
-            Map<String, String> env
+            Map<String, String> env,
+            List<String> extraPackages,
+            String binary
     ) {
+        public PackageDistribution(String packageName, List<String> args, Map<String, String> env) {
+            this(packageName, args, env, List.of(), null);
+        }
     }
 }

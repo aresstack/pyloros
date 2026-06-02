@@ -1,6 +1,18 @@
 package com.aresstack.pyloros;
 
+import com.aresstack.pyloros.acp.AcpProviderConfiguration;
+import com.aresstack.pyloros.acp.AcpVirtualToolProvider;
+import com.aresstack.pyloros.acp.InMemoryAgentTaskRepository;
+import com.aresstack.pyloros.acp.registry.AcpRegistryCache;
+import com.aresstack.pyloros.acp.registry.AcpRegistryClient;
+import com.aresstack.pyloros.acp.registry.AcpRegistryManagementToolProvider;
+import com.aresstack.pyloros.acp.registry.AgentLifecycleService;
+import com.aresstack.pyloros.acp.registry.DefaultAgentInstaller;
+import com.aresstack.pyloros.acp.registry.DistributionResolver;
+import com.aresstack.pyloros.acp.registry.InstalledAgentAcpProviderFactory;
+import com.aresstack.pyloros.acp.registry.InstalledAgentStore;
 import com.aresstack.pyloros.config.AcpProviderFactory;
+import com.aresstack.pyloros.config.AcpProviderJsonConfig;
 import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
 import com.aresstack.pyloros.config.McpJsonConfigLoader;
 import com.aresstack.pyloros.config.PylorosConfig;
@@ -41,9 +53,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public final class PylorosApplication extends AbstractVerticle {
 
@@ -86,6 +105,7 @@ public final class PylorosApplication extends AbstractVerticle {
         providers.add(new com.aresstack.pyloros.tool.UserSkillDeleteToolProvider());
         loadPlugins(providers);
         registerExternalProviders(providers, config);
+        registerAcpRegistryProviders(providers, config);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
@@ -183,6 +203,99 @@ public final class PylorosApplication extends AbstractVerticle {
         List<ToolProvider> acpProviders = AcpProviderFactory.createProviders(
                 mcpJson.config().acpProviders(), vertx, config.mcpInjectedViewToken());
         providers.addAll(acpProviders);
+    }
+
+    private void registerAcpRegistryProviders(List<ToolProvider> providers, PylorosConfig config) {
+        try {
+            Path dataDir = Paths.get("data");
+            Files.createDirectories(dataDir);
+
+            AcpRegistryCache registryCache = new AcpRegistryCache(dataDir.resolve("acp-registry-cache.json"));
+            AcpRegistryClient registryClient = new AcpRegistryClient(AcpRegistryClient.defaultRegistryUrl(), registryCache);
+            InstalledAgentStore store = new InstalledAgentStore(dataDir);
+            DistributionResolver resolver = new DistributionResolver();
+            Path agentInstallDir = dataDir.resolve("agents");
+            Files.createDirectories(agentInstallDir);
+            DefaultAgentInstaller installer = new DefaultAgentInstaller(agentInstallDir);
+            AgentLifecycleService lifecycleService = new AgentLifecycleService(store, resolver, installer);
+
+            providers.add(new AcpRegistryManagementToolProvider(registryClient, lifecycleService, store));
+            log.info("[ACP-MGMT] registered ACP registry management tools");
+
+            registerInstalledAcpAgents(providers, config, store);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to initialize ACP registry providers", exception);
+        }
+    }
+
+    private void registerInstalledAcpAgents(List<ToolProvider> providers, PylorosConfig config, InstalledAgentStore store) {
+        List<AcpProviderJsonConfig> externalAcpProviders = loadConfiguredAcpProviders();
+        InstalledAgentAcpProviderFactory.Result result = InstalledAgentAcpProviderFactory.createConfigurations(
+                store.listAll(),
+                collectAcpProviderIds(externalAcpProviders),
+                collectAcpProviderIdsByExposedView(externalAcpProviders),
+                config.publicOrigin() + config.mcpPublicPath(),
+                config.mcpInjectedViewToken()
+        );
+
+        for (AcpProviderConfiguration providerConfiguration : result.configurations()) {
+            providers.add(new AcpVirtualToolProvider(
+                    vertx,
+                    providerConfiguration,
+                    new InMemoryAgentTaskRepository(),
+                    config.mcpInjectedViewToken()
+            ));
+        }
+        for (InstalledAgentAcpProviderFactory.AgentFailure failure : result.failures()) {
+            log.warn("[ACP-REGISTRY-PROVIDER] skipped installed agent={} reason={}",
+                    failure.agentId(), failure.reason());
+        }
+        if (!result.configurations().isEmpty()) {
+            log.info("[ACP-REGISTRY-PROVIDER] registered {} installed ACP registry provider(s)",
+                    result.configurations().size());
+        }
+    }
+
+    private List<AcpProviderJsonConfig> loadConfiguredAcpProviders() {
+        Optional<LoadedMcpJsonConfig> loaded = new McpJsonConfigLoader().load(launchArgs);
+        if (loaded.isEmpty() || loaded.get().config().acpProviders() == null) {
+            return List.of();
+        }
+        return loaded.get().config().acpProviders();
+    }
+
+    private static Set<String> collectAcpProviderIds(List<AcpProviderJsonConfig> configs) {
+        Set<String> ids = new HashSet<>();
+        for (AcpProviderJsonConfig config : configs == null ? List.<AcpProviderJsonConfig>of() : configs) {
+            if (config != null
+                    && config.id() != null
+                    && !config.id().isBlank()
+                    && config.type() != null
+                    && config.type().equalsIgnoreCase("acp")
+                    && config.process() != null
+                    && config.process().command() != null
+                    && !config.process().command().isBlank()) {
+                ids.add(config.id().trim());
+            }
+        }
+        return ids;
+    }
+
+    private static Map<String, Set<String>> collectAcpProviderIdsByExposedView(List<AcpProviderJsonConfig> configs) {
+        Map<String, Set<String>> idsByView = new HashMap<>();
+        for (AcpProviderJsonConfig config : configs == null ? List.<AcpProviderJsonConfig>of() : configs) {
+            if (config == null || config.id() == null || config.id().isBlank()) {
+                continue;
+            }
+            String providerId = config.id().trim();
+            List<String> views = config.exposeInViews() != null ? config.exposeInViews() : List.of("public");
+            for (String view : views) {
+                if (view != null && !view.isBlank()) {
+                    idsByView.computeIfAbsent(view.trim(), ignored -> new HashSet<>()).add(providerId);
+                }
+            }
+        }
+        return idsByView;
     }
 
     private ToolProvider createProvider(McpUpstreamConfig upstream) {

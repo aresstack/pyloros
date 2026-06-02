@@ -35,17 +35,18 @@ public final class AcpRegistryManagementToolProvider implements ToolProvider {
 
     private static final Logger log = LoggerFactory.getLogger(AcpRegistryManagementToolProvider.class);
 
-    private static final String PROVIDER_ID = "acp-registry-mgmt";
+    private static final String PROVIDER_ID = "acp_registry";
 
-    // Tool name constants
-    private static final String TOOL_LIST_AGENTS = "acp_registry/list_agents";
-    private static final String TOOL_REFRESH_REGISTRY = "acp_registry/refresh_registry";
-    private static final String TOOL_INSTALL_AGENT = "acp_registry/install_agent";
-    private static final String TOOL_UPDATE_AGENT = "acp_registry/update_agent";
-    private static final String TOOL_UNINSTALL_AGENT = "acp_registry/uninstall_agent";
-    private static final String TOOL_CONFIGURE_AGENT = "acp_registry/configure_agent";
-    private static final String TOOL_LIST_INSTALLED = "acp_registry/list_installed_agents";
-    private static final String TOOL_GET_AGENT_STATUS = "acp_registry/get_agent_status";
+    // Upstream tool name constants. ToolCatalog exposes them externally as
+    // providerId + separator + upstreamToolName, e.g. acp_registry__list_agents.
+    private static final String TOOL_LIST_AGENTS = "list_agents";
+    private static final String TOOL_REFRESH_REGISTRY = "refresh_registry";
+    private static final String TOOL_INSTALL_AGENT = "install_agent";
+    private static final String TOOL_UPDATE_AGENT = "update_agent";
+    private static final String TOOL_UNINSTALL_AGENT = "uninstall_agent";
+    private static final String TOOL_CONFIGURE_AGENT = "configure_agent";
+    private static final String TOOL_LIST_INSTALLED = "list_installed_agents";
+    private static final String TOOL_GET_AGENT_STATUS = "get_agent_status";
 
     private final AcpRegistryClient registryClient;
     private final AgentLifecycleService lifecycleService;
@@ -71,11 +72,6 @@ public final class AcpRegistryManagementToolProvider implements ToolProvider {
     @Override
     public String providerId() {
         return PROVIDER_ID;
-    }
-
-    @Override
-    public boolean preservesUpstreamToolName() {
-        return true;
     }
 
     @Override

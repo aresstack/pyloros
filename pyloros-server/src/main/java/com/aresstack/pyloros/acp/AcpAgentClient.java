@@ -2,6 +2,7 @@ package com.aresstack.pyloros.acp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
@@ -27,24 +28,26 @@ public final class AcpAgentClient implements AutoCloseable {
     }
 
     public CompletableFuture<String> createSession(String cwd) {
-        return createSession(cwd, Map.of());
+        return createSession(cwd, List.of());
     }
 
-    public CompletableFuture<String> createSession(String cwd, Map<String, Object> mcpServers) {
+    public CompletableFuture<String> createSession(String cwd, List<Map<String, Object>> mcpServers) {
         String normalizedCwd = requireText(cwd, "cwd");
-        Map<String, Object> normalizedMcpServers = mcpServers == null ? Map.of() : Map.copyOf(mcpServers);
+        List<Map<String, Object>> normalizedMcpServers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
         return sendRequest("session/new", Map.of(
-                        "cwd", normalizedCwd,
-                        "mcpServers", normalizedMcpServers
-                ))
+                "cwd", normalizedCwd,
+                "mcpServers", normalizedMcpServers
+        ))
                 .thenApply(this::extractSessionId);
     }
 
-    public CompletableFuture<Void> sendPrompt(String sessionId, String prompt) {
+    public CompletableFuture<JsonNode> sendPrompt(String sessionId, String prompt) {
         String normalizedSessionId = requireText(sessionId, "sessionId");
         Objects.requireNonNull(prompt, "prompt must not be null");
-        return sendRequest("session/prompt", Map.of("sessionId", normalizedSessionId, "prompt", prompt))
-                .thenApply(ignored -> null);
+        return sendRequest("session/prompt", Map.of(
+                "sessionId", normalizedSessionId,
+                "prompt", List.of(Map.of("type", "text", "text", prompt))
+        ));
     }
 
     public CompletableFuture<JsonNode> receiveEvent() {
@@ -57,6 +60,7 @@ public final class AcpAgentClient implements AutoCloseable {
         }
 
         CompletableFuture<JsonNode> waiter = new CompletableFuture<>();
+        waiter.whenComplete((event, throwable) -> eventWaiters.remove(waiter));
         eventWaiters.add(waiter);
         JsonNode eventAfterEnqueue = queuedEvents.poll();
         if (eventAfterEnqueue != null && eventWaiters.remove(waiter)) {
@@ -143,10 +147,11 @@ public final class AcpAgentClient implements AutoCloseable {
     }
 
     private void publishEvent(JsonNode message) {
-        CompletableFuture<JsonNode> waiter = eventWaiters.poll();
-        if (waiter != null) {
-            waiter.complete(message);
-            return;
+        CompletableFuture<JsonNode> waiter;
+        while ((waiter = eventWaiters.poll()) != null) {
+            if (!waiter.isDone() && waiter.complete(message)) {
+                return;
+            }
         }
         queuedEvents.add(message);
     }

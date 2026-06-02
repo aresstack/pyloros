@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DistributionResolverTest {
 
     private static final TargetPlatform LINUX_X86_64 = new TargetPlatform("linux", "x86_64");
+    private static final TargetPlatform WINDOWS_X86_64 = new TargetPlatform("windows", "x86_64");
 
     @Test
     void npxPlanProducesDeterministicCommandAndArgs() {
@@ -37,14 +38,61 @@ class DistributionResolverTest {
         var spec = new DistributionSpec(
                 DistributionType.NPX,
                 "deepagents-acp@0.1.7",
-                List.of(),
+                List.of("--debug"),
                 Map.of());
         var resolver = new DistributionResolver(LINUX_X86_64);
 
         InstallPlan plan = resolver.resolve(spec);
 
         assertEquals("npx", plan.command());
-        assertEquals(List.of("-y", "deepagents-acp@0.1.7"), plan.args());
+        assertEquals(List.of("-y", "deepagents-acp@0.1.7", "--debug"), plan.args());
+    }
+
+    @Test
+    void npxPlanMaterializesExtraPackagesWithExplicitBinary() {
+        var spec = new DistributionSpec(
+                DistributionType.NPX,
+                "deepagents-acp@0.1.7",
+                List.of(),
+                Map.of(),
+                List.of("@langchain/anthropic"),
+                "deepagents-acp");
+        var resolver = new DistributionResolver(LINUX_X86_64);
+
+        InstallPlan plan = resolver.resolve(spec);
+
+        assertEquals("npx", plan.command());
+        assertEquals(List.of("-y", "-p", "deepagents-acp@0.1.7", "-p", "@langchain/anthropic", "deepagents-acp"), plan.args());
+    }
+
+    @Test
+    void npxPlanUsesWindowsCommandScriptOnWindows() {
+        var spec = new DistributionSpec(
+                DistributionType.NPX,
+                "dirac-cli@0.3.44",
+                List.of("--acp"),
+                Map.of());
+        var resolver = new DistributionResolver(WINDOWS_X86_64);
+
+        InstallPlan plan = resolver.resolve(spec);
+
+        assertTrue(plan.command().endsWith("npx.cmd"), plan.command());
+        assertEquals(List.of("-y", "dirac-cli@0.3.44", "--acp"), plan.args());
+    }
+
+    @Test
+    void uvxPlanUsesWindowsCommandScriptOnWindows() {
+        var spec = new DistributionSpec(
+                DistributionType.UVX,
+                "fast-agent-acp==0.7.12",
+                List.of("-x"),
+                Map.of());
+        var resolver = new DistributionResolver(WINDOWS_X86_64);
+
+        InstallPlan plan = resolver.resolve(spec);
+
+        assertTrue(plan.command().endsWith("uvx.cmd"), plan.command());
+        assertEquals(List.of("fast-agent-acp==0.7.12", "-x"), plan.args());
     }
 
     @Test

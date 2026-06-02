@@ -3,6 +3,7 @@ package com.aresstack.pyloros.acp;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -24,6 +25,12 @@ public final class AcpEventMapper {
             throw new IllegalStateException("ACP session/update event is missing params");
         }
 
+        JsonNode update = params.get("update");
+        if (update != null && !update.isNull()) {
+            applyNestedUpdate(task, update, maxEventTextChars);
+            return;
+        }
+
         // Handle stopReason-only events (e.g., permission_required, end_turn)
         String stopReason = text(params, "stopReason");
         if (stopReason != null) {
@@ -33,7 +40,8 @@ public final class AcpEventMapper {
 
         String type = text(params, "type");
         if (type == null) {
-            throw new IllegalStateException("ACP session/update event is missing type");
+            task.addEvent(truncate(params.toString(), maxEventTextChars));
+            return;
         }
 
         switch (type) {
@@ -63,6 +71,54 @@ public final class AcpEventMapper {
         }
     }
 
+    public void applyPromptResponse(AgentTask task, JsonNode response, int maxEventTextChars) {
+        Objects.requireNonNull(task, "task must not be null");
+        Objects.requireNonNull(response, "response must not be null");
+        if (maxEventTextChars <= 0) {
+            throw new IllegalArgumentException("maxEventTextChars must be greater than 0");
+        }
+
+        JsonNode result = response.get("result");
+        if (result == null || result.isNull()) {
+            return;
+        }
+
+        String stopReason = text(result, "stopReason");
+        if (stopReason == null) {
+            return;
+        }
+
+        handleStopReason(task, stopReason, result, maxEventTextChars);
+    }
+
+    private static void applyNestedUpdate(AgentTask task, JsonNode update, int maxEventTextChars) {
+        String sessionUpdate = text(update, "sessionUpdate");
+        if (sessionUpdate == null) {
+            task.addEvent(truncate(update.toString(), maxEventTextChars));
+            return;
+        }
+
+        switch (sessionUpdate) {
+            case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk" -> {
+                markRunning(task);
+                task.addEvent(truncate(textValue(update.path("content"), "text", "content", "value"), maxEventTextChars));
+            }
+            case "tool_call" -> {
+                markRunning(task);
+                task.addEvent(truncate(textValue(update, "title", "name", "kind"), maxEventTextChars));
+            }
+            case "tool_call_update" -> {
+                markRunning(task);
+                task.addEvent(truncate(toolCallUpdateText(update), maxEventTextChars));
+            }
+            case "plan" -> {
+                markRunning(task);
+                task.addEvent(truncate(update.toString(), maxEventTextChars));
+            }
+            default -> task.addEvent(truncate(update.toString(), maxEventTextChars));
+        }
+    }
+
     private static void handleStopReason(AgentTask task, String stopReason, JsonNode params, int maxEventTextChars) {
         switch (stopReason) {
             case "permission_required" -> {
@@ -88,6 +144,9 @@ public final class AcpEventMapper {
                     result = text(params, "text");
                 }
                 if (result == null) {
+                    result = lastEvent(task);
+                }
+                if (result == null) {
                     result = "Task completed";
                 }
                 task.complete(truncate(result, maxEventTextChars));
@@ -96,6 +155,36 @@ public final class AcpEventMapper {
                 // Other stopReasons are informational only
             }
         }
+    }
+
+    private static String toolCallUpdateText(JsonNode update) {
+        String status = text(update, "status");
+        String toolCallId = text(update, "toolCallId");
+        StringBuilder event = new StringBuilder("Tool call");
+        if (toolCallId != null) {
+            event.append(' ').append(toolCallId);
+        }
+        if (status != null) {
+            event.append(' ').append(status);
+        }
+        String output = text(update, "output");
+        if (output != null) {
+            event.append(": ").append(output);
+            return event.toString();
+        }
+        JsonNode content = update.get("content");
+        if (content != null && content.isArray() && !content.isEmpty()) {
+            String text = text(content.get(0).path("content"), "text");
+            if (text != null) {
+                event.append(": ").append(text);
+            }
+        }
+        return event.toString();
+    }
+
+    private static String lastEvent(AgentTask task) {
+        List<String> events = task.events();
+        return events.isEmpty() ? null : events.getLast();
     }
 
     private static void markRunning(AgentTask task) {
