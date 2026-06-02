@@ -35,9 +35,9 @@ public final class AcpAgentClient implements AutoCloseable {
         String normalizedCwd = requireText(cwd, "cwd");
         List<Map<String, Object>> normalizedMcpServers = mcpServers == null ? List.of() : List.copyOf(mcpServers);
         return sendRequest("session/new", Map.of(
-                        "cwd", normalizedCwd,
-                        "mcpServers", normalizedMcpServers
-                ))
+                "cwd", normalizedCwd,
+                "mcpServers", normalizedMcpServers
+        ))
                 .thenApply(this::extractSessionId);
     }
 
@@ -60,6 +60,7 @@ public final class AcpAgentClient implements AutoCloseable {
         }
 
         CompletableFuture<JsonNode> waiter = new CompletableFuture<>();
+        waiter.whenComplete((event, throwable) -> eventWaiters.remove(waiter));
         eventWaiters.add(waiter);
         JsonNode eventAfterEnqueue = queuedEvents.poll();
         if (eventAfterEnqueue != null && eventWaiters.remove(waiter)) {
@@ -146,10 +147,11 @@ public final class AcpAgentClient implements AutoCloseable {
     }
 
     private void publishEvent(JsonNode message) {
-        CompletableFuture<JsonNode> waiter = eventWaiters.poll();
-        if (waiter != null) {
-            waiter.complete(message);
-            return;
+        CompletableFuture<JsonNode> waiter;
+        while ((waiter = eventWaiters.poll()) != null) {
+            if (!waiter.isDone() && waiter.complete(message)) {
+                return;
+            }
         }
         queuedEvents.add(message);
     }

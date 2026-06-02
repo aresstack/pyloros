@@ -68,18 +68,19 @@ class AcpVirtualToolProviderTest {
         }
     }
 
-@Test
-void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exception {
-    try (ProviderContext context = newProvider("acp17")) {
-        JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
-        AgentTask task = findTask(context.repository(), response.get("taskId").asText());
+    @Test
+    void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exception {
+        try (ProviderContext context = newProvider("acp17")) {
+            JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
+            AgentTask task = findTask(context.repository(), response.get("taskId").asText());
 
-        assertEquals("COMPLETED", response.get("state").asText());
-        assertEquals("completed: Test prompt", response.get("result").asText());
-        assertEquals(AgentTaskState.COMPLETED, task.state());
-        assertEquals("completed: Test prompt", task.result());
+            assertEquals("COMPLETED", response.get("state").asText());
+            assertEquals("completed: Test prompt", response.get("result").asText());
+            assertEquals(AgentTaskState.COMPLETED, task.state());
+            assertEquals("completed: Test prompt", task.result());
+        }
     }
-}
+
     @Test
     void testRunTaskReturnsErrorPayloadOnFailure() throws Exception {
         try (ProviderContext context = newProvider("error")) {
@@ -208,19 +209,19 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
             // Start task in background
             JsonNode started = responsePayload(call(context.provider(), "start_task", objectNode().put("prompt", "Test prompt")));
             String taskId = started.get("taskId").asText();
-            
+
             // Immediately cancel - should prevent hanging on createSession
             Thread.sleep(50); // Small delay to ensure task execution has started
             Map<String, Object> cancelResult = call(context.provider(), "cancel_task", objectNode().put("taskId", taskId));
             JsonNode cancelResponse = responsePayload(cancelResult);
-            
+
             assertEquals(Boolean.FALSE, cancelResult.get("isError"));
             assertEquals("CANCELLED", cancelResponse.get("state").asText());
             assertTrue(cancelResponse.get("cancellationRequested").asBoolean());
-            
+
             // Wait a bit to ensure task doesn't hang
             Thread.sleep(500);
-            
+
             // Verify task is still cancelled and process was destroyed
             Map<String, Object> statusResult = call(context.provider(), "get_task_status", objectNode().put("taskId", taskId));
             JsonNode statusResponse = responsePayload(statusResult);
@@ -254,11 +255,11 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
             JsonNode pylorosServer = params.path("mcpServers").get(0);
-                assertEquals("http", pylorosServer.path("type").asText());
-                assertEquals("pyloros", pylorosServer.path("name").asText());
-                assertEquals("http://127.0.0.1:8081/pyloros?view=agent", pylorosServer.path("url").asText());
-                assertHeader(pylorosServer, "Authorization", "Bearer test-token");
-                assertHeader(pylorosServer, "X-Pyloros-Injected-View", "acp");
+            assertEquals("http", pylorosServer.path("type").asText());
+            assertEquals("pyloros", pylorosServer.path("name").asText());
+            assertEquals("http://127.0.0.1:8081/pyloros?view=agent", pylorosServer.path("url").asText());
+            assertHeader(pylorosServer, "Authorization", "Bearer test-token");
+            assertHeader(pylorosServer, "X-Pyloros-Injected-View", "acp");
         }
     }
 
@@ -272,8 +273,8 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
             JsonNode pylorosServer = params.path("mcpServers").get(0);
-                assertEquals("http://127.0.0.1:8081/pyloros?foo=bar&view=agent",
-                        pylorosServer.path("url").asText());
+            assertEquals("http://127.0.0.1:8081/pyloros?foo=bar&view=agent",
+                    pylorosServer.path("url").asText());
         }
     }
 
@@ -287,7 +288,7 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
             JsonNode pylorosServer = params.path("mcpServers").get(0);
-                assertHeader(pylorosServer, "X-Pyloros-Injected-View-Token", "super-secret-token");
+            assertHeader(pylorosServer, "X-Pyloros-Injected-View-Token", "super-secret-token");
         }
     }
 
@@ -301,31 +302,31 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
             JsonNode params = context.agent().lastSessionNewParams();
             assertNotNull(params);
             JsonNode pylorosServer = params.path("mcpServers").get(0);
-                assertFalse(hasHeader(pylorosServer, "X-Pyloros-Injected-View-Token"),
-                        "token header must not be injected when no token is configured");
+            assertFalse(hasHeader(pylorosServer, "X-Pyloros-Injected-View-Token"),
+                    "token header must not be injected when no token is configured");
         }
     }
 
     private static void assertHeader(JsonNode server, String name, String expectedValue) {
-            for (JsonNode header : server.path("headers")) {
-                if (name.equals(header.path("name").asText())) {
-                    assertEquals(expectedValue, header.path("value").asText());
-                    return;
-                }
+        for (JsonNode header : server.path("headers")) {
+            if (name.equals(header.path("name").asText())) {
+                assertEquals(expectedValue, header.path("value").asText());
+                return;
             }
-            throw new AssertionError("Missing header: " + name);
         }
-    
-        private static boolean hasHeader(JsonNode server, String name) {
-            for (JsonNode header : server.path("headers")) {
-                if (name.equals(header.path("name").asText())) {
-                    return true;
-                }
+        throw new AssertionError("Missing header: " + name);
+    }
+
+    private static boolean hasHeader(JsonNode server, String name) {
+        for (JsonNode header : server.path("headers")) {
+            if (name.equals(header.path("name").asText())) {
+                return true;
             }
-            return false;
         }
-    
-        private static ProviderContext newProvider(String behavior) throws IOException {
+        return false;
+    }
+
+    private static ProviderContext newProvider(String behavior) throws IOException {
         return newProvider(behavior, 5);
     }
 
@@ -404,7 +405,8 @@ void testRunTaskCompletesFromAcp17PromptResponseAfterDrainingEvents() throws Exc
         return future.toCompletionStage().toCompletableFuture().join();
     }
 
-    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository, Vertx vertx, FakeAcpAgent agent)
+    private record ProviderContext(AcpVirtualToolProvider provider, AgentTaskRepository repository, Vertx vertx,
+                                   FakeAcpAgent agent)
             implements AutoCloseable {
         @Override
         public void close() {
