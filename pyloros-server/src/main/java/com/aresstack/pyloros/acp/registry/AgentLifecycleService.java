@@ -449,7 +449,7 @@ public final class AgentLifecycleService {
                         bt.args() != null ? bt.args() : List.of()
                 ));
             }
-            String packageRef = registryAgent.id();
+            String packageRef = registryAgent.id() + "/" + registryAgent.version();
             return new DistributionSpec(
                     DistributionType.BINARY,
                     packageRef,

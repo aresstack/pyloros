@@ -295,7 +295,7 @@ class InstalledAgentAcpProviderFactoryTest {
                 List.of("--yes", "@acme/" + agentId),
                 "/install/" + agentId, "v1", "MIT",
                 prefix, agentToolView, enabled,
-                AgentAuthMethod.NONE, AgentAuthStatus.NOT_REQUIRED, "", "",
+                authMethod, authStatus, "", "",
                 now, now
         );
     }

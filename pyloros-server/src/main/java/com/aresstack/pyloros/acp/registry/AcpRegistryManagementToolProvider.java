@@ -4,7 +4,6 @@ import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolView;
 import io.vertx.core.Future;
 import io.vertx.core.json.Json;
-import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -153,6 +152,10 @@ public final class AcpRegistryManagementToolProvider implements ToolProvider {
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (RegistryAgent agent : agents) {
+            Optional<InstalledAgent> installed = store.findById(safeStr(agent.id()));
+            if (!includeDisabled && installed.isPresent() && !installed.get().enabled()) {
+                continue;
+            }
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", safeStr(agent.id()));
             entry.put("name", safeStr(agent.name()));
@@ -183,7 +186,6 @@ public final class AcpRegistryManagementToolProvider implements ToolProvider {
                 }
             }
             // Installed status
-            Optional<InstalledAgent> installed = store.findById(safeStr(agent.id()));
             entry.put("installed", installed.isPresent());
             if (installed.isPresent()) {
                 entry.put("installedVersion", installed.get().installedVersion());

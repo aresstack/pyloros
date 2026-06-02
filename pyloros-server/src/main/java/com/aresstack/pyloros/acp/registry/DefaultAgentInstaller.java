@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +41,9 @@ import java.util.stream.Stream;
 public class DefaultAgentInstaller implements AgentInstaller {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentInstaller.class);
+
+    private static final int DOWNLOAD_CONNECT_TIMEOUT_MILLIS = 15_000;
+    private static final int DOWNLOAD_READ_TIMEOUT_MILLIS = 60_000;
 
     private final Path baseInstallDirectory;
 
@@ -147,7 +151,10 @@ public class DefaultAgentInstaller implements AgentInstaller {
      */
     void download(String url, Path target) throws IOException {
         URI uri = URI.create(url);
-        try (InputStream in = uri.toURL().openStream()) {
+        URLConnection connection = uri.toURL().openConnection();
+        connection.setConnectTimeout(DOWNLOAD_CONNECT_TIMEOUT_MILLIS);
+        connection.setReadTimeout(DOWNLOAD_READ_TIMEOUT_MILLIS);
+        try (InputStream in = connection.getInputStream()) {
             Files.copy(in, target);
         }
     }
@@ -340,8 +347,9 @@ public class DefaultAgentInstaller implements AgentInstaller {
     }
 
     /**
-     * Validates archive URL scheme to prevent SSRF attacks.
-     * Only https and http schemes are allowed.
+     * Validates archive URL scheme.
+     * Only https and http schemes are allowed; this blocks local file/jar/classpath style URL attacks.
+     * Host allowlisting or private-network blocking is intentionally not performed here yet.
      */
     private static void validateArchiveUrl(String url) {
         if (url == null || url.isBlank()) {

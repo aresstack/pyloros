@@ -11,6 +11,7 @@ import com.aresstack.pyloros.acp.registry.DefaultAgentInstaller;
 import com.aresstack.pyloros.acp.registry.DistributionResolver;
 import com.aresstack.pyloros.acp.registry.InstalledAgentAcpProviderFactory;
 import com.aresstack.pyloros.acp.registry.InstalledAgentStore;
+import com.aresstack.pyloros.acp.registry.InstalledAgentStoreException;
 import com.aresstack.pyloros.config.AcpProviderFactory;
 import com.aresstack.pyloros.config.AcpProviderJsonConfig;
 import com.aresstack.pyloros.config.LoadedMcpJsonConfig;
@@ -230,13 +231,20 @@ public final class PylorosApplication extends AbstractVerticle {
 
     private void registerInstalledAcpAgents(List<ToolProvider> providers, PylorosConfig config, InstalledAgentStore store) {
         List<AcpProviderJsonConfig> externalAcpProviders = loadConfiguredAcpProviders();
-        InstalledAgentAcpProviderFactory.Result result = InstalledAgentAcpProviderFactory.createConfigurations(
-                store.listAll(),
-                collectAcpProviderIds(externalAcpProviders),
-                collectAcpProviderIdsByExposedView(externalAcpProviders),
-                config.publicOrigin() + config.mcpPublicPath(),
-                config.mcpInjectedViewToken()
-        );
+        InstalledAgentAcpProviderFactory.Result result;
+        try {
+            result = InstalledAgentAcpProviderFactory.createConfigurations(
+                    store.listAll(),
+                    collectAcpProviderIds(externalAcpProviders),
+                    collectAcpProviderIdsByExposedView(externalAcpProviders),
+                    config.publicOrigin() + config.mcpPublicPath(),
+                    config.mcpInjectedViewToken()
+            );
+        } catch (InstalledAgentStoreException exception) {
+            log.warn("[ACP-REGISTRY-PROVIDER] skipped installed registry agents because the installed-agent store could not be read: {}",
+                    exception.getMessage());
+            return;
+        }
 
         for (AcpProviderConfiguration providerConfiguration : result.configurations()) {
             providers.add(new AcpVirtualToolProvider(
