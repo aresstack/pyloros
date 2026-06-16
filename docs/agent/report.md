@@ -1,78 +1,64 @@
-# R7-06, R7-07, R7-08 — Report
+# Release Jar Action — Report
 
 ## What was verified, changed or implemented?
 
-### R7-06: ACP registry agent auth flow support
-- New types: `AgentAuthMethod` (NONE, AGENT_AUTH, TERMINAL_AUTH), `AgentAuthStatus` (NOT_REQUIRED, REQUIRED, CONFIGURED), `AuthRequirements` record
-- `RegistryAgent`: optional `auth` field (backward-compat)
-- `InstalledAgent`: `authMethod`, `authStatus`, `authSetupCommand`, `authDescription` fields + `withAuthStatus()` convenience method
-- `InstalledAgentStoreDocument.InstalledAgentEntry`: mirrored auth fields
-- `InstalledAgentStore`: serialize/deserialize auth fields with defaults for unknown values
-- `AgentLifecycleService`: extract auth during install/update
-- `InstalledAgentAcpProviderFactory`: skip agents with `authStatus == REQUIRED`, emit structured failure
-- `AcpRegistryClient.validate()`: validate TERMINAL_AUTH requires setupCommand
-- 13 tests in `AgentAuthFlowTest`
-
-### R7-07: Headless management API
-- `AcpRegistryManagementToolProvider`: 8 native tools (list_agents, refresh_registry, install_agent, update_agent, uninstall_agent, configure_agent, list_installed_agents, get_agent_status)
-- Structured JSON output, deterministic error handling
-- Auth status visible, configure blocks setting REQUIRED
-- 20 tests in `AcpRegistryManagementToolTest`
-- External management tool names use the default ToolCatalog separator, e.g. `acp_registry__list_agents`; slash names are not used for connector calls
-
-### R7-08: Security hardening, smoke test, release audit
-- `docs/r7-security-checklist.md`: 20 verified security rules
-- `release-notes/R7.md`: feature summary for all R7 sub-issues
-- `docs/agent-auth.md`: auth flow documentation and security model
-- `R7EndToEndSmokeTest`: 8 E2E tests covering full pipeline, including registry-installed provider execution against `FakeAcpAgent`
+- Reworked `.github/workflows/release.yml` into a GitHub Release workflow that builds the executable Pyloros application jar from CI instead of assuming a prebuilt jar exists.
+- The workflow runs `:pyloros-app:shadowJar`, so the release asset is the Shadow fat jar with runtime dependencies included.
+- The workflow verifies the jar before publishing:
+  - `com/aresstack/pyloros/PylorosApplication.class` exists.
+  - `META-INF/MANIFEST.MF` contains `Main-Class: com.aresstack.pyloros.PylorosApplication`.
+  - Dependency classes from Vert.x and Jackson exist inside the jar.
+- The release asset is copied to `build/release/pyloros-<version>.jar`.
+- The workflow uploads the jar as a workflow artifact and attaches it to the GitHub Release via `softprops/action-gh-release`.
 
 ## Which files were changed or newly created?
 
-### New files (10):
-- `pyloros-server/.../acp/registry/AgentAuthMethod.java`
-- `pyloros-server/.../acp/registry/AgentAuthStatus.java`
-- `pyloros-server/.../acp/registry/AuthRequirements.java`
-- `pyloros-server/.../acp/registry/AcpRegistryManagementToolProvider.java`
-- `pyloros-server/.../test/.../acp/registry/AgentAuthFlowTest.java`
-- `pyloros-server/.../test/.../acp/registry/AcpRegistryManagementToolTest.java`
-- `pyloros-server/.../test/.../acp/registry/R7EndToEndSmokeTest.java`
-- `docs/agent-auth.md`
-- `docs/r7-security-checklist.md`
-- `release-notes/R7.md`
-
-### Changed files (11):
-- `RegistryAgent.java` — added `AuthRequirements auth` field
-- `InstalledAgent.java` — added 4 auth fields + `withAuthStatus()`
-- `InstalledAgentStoreDocument.java` — mirrored auth fields in `InstalledAgentEntry`
-- `InstalledAgentStore.java` — auth serialization/deserialization
-- `AgentLifecycleService.java` — auth extraction in install/update
-- `InstalledAgentAcpProviderFactory.java` — auth check before registration
-- `AcpRegistryClient.java` — auth validation
-- `InstalledAgentStoreTest.java` — updated `createAgent()` for new fields
-- `InstalledAgentAcpProviderFactoryTest.java` — updated `createAgent()` + inline constructors
-- `AgentLifecycleServiceTest.java` — added `null` auth param in helpers
-- `AcpRegistryClientTest.java` — added `null` auth param in inline constructor
+- Changed: `.github/workflows/release.yml`
+- Changed: `docs/agent/report.md`
 
 ## Which architecture decision was touched?
 
-- Auth is metadata-only in Pyloros (no credential storage) — consistent with "secrets stay with the agent" principle
-- Management tools follow existing native ToolProvider pattern
-- Auth block at provider generation follows existing failure pattern in `InstalledAgentAcpProviderFactory`
-- All new types are in `acp/registry/` package, consistent with existing R7 code
+- Release packaging now explicitly uses the `pyloros-app` Shadow jar as the runnable distribution artifact.
+- The application entry point remains `com.aresstack.pyloros.PylorosApplication`; no runtime architecture was moved.
+- Dependencies are bundled by the existing Shadow plugin configuration rather than by manually assembling jars.
 
 ## Which tests, builds and runtime checks were executed?
 
-- `./gradlew :pyloros-server:test --tests com.aresstack.pyloros.acp.registry.*`: 50+ tests passed
-- Full IDE build (`Build → Rebuild Project`): passed
-- No regressions in existing tests
+- `.\gradlew.bat "-Pversion=0.1.0" --no-daemon :pyloros-app:shadowJar`
+  - Result: successful.
+- Jar content check:
+  - Verified `com/aresstack/pyloros/PylorosApplication.class`.
+  - Verified `io/vertx/core/Vertx.class`.
+  - Verified `com/fasterxml/jackson/databind/ObjectMapper.class`.
+- Manifest check:
+  - Verified `Main-Class: com.aresstack.pyloros.PylorosApplication`.
+- Attempted exact CI-style command:
+  - `.\gradlew.bat "-Pversion=0.1.0" --no-daemon clean :pyloros-app:shadowJar`
+  - Result: failed locally because Windows has `pyloros-app\build\libs\pyloros.jar` locked by another process.
+  - This is local workspace state; the GitHub Action runs on a fresh Ubuntu runner.
 
 ## Result: successful
 
-## Exact commit hash
+The workflow implementation is complete. The runnable jar build and jar contents were verified. The only failed local check was `clean`, blocked by a Windows file lock on an existing jar.
 
-PR #94: `https://github.com/aresstack/pyloros/pull/94`
-Branch: `copilot/r7-06-acp-auth-flow-support` → `copilot/release-7-public-acp-registry-installer`
-Commits:
-- `8cc1300` feat(R7-06): Add ACP registry agent auth flow support
-- `6bf737c` feat(R7-07): Add headless management API tools for ACP registry agents
-- `1c501f5` docs(R7-08): Add security checklist, release notes and E2E smoke test
+## If failed: exact error and recommended next step
+
+Local clean error:
+
+```text
+Execution failed for task ':pyloros-app:clean'.
+java.io.IOException: Unable to delete directory 'C:\Projects\pyloros\pyloros-app\build'
+Failed to delete some children.
+- C:\Projects\pyloros\pyloros-app\build\libs\pyloros.jar
+- C:\Projects\pyloros\pyloros-app\build\libs
+```
+
+Recommended next step if local `clean` must be rerun: close the process that holds `pyloros-app\build\libs\pyloros.jar`, then rerun:
+
+```powershell
+.\gradlew.bat "-Pversion=0.1.0" --no-daemon clean :pyloros-app:shadowJar
+```
+
+## Exact commit hash, or No commit created
+
+No commit created

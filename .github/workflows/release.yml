@@ -1,4 +1,4 @@
-name: Release to Maven Central
+name: Release
 
 on:
   push:
@@ -12,42 +12,62 @@ on:
         type: string
 
 jobs:
-  publish:
+  build-release-jar:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Check out sources
         uses: actions/checkout@v4
 
-      - name: Set up Java 21 (Temurin)
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Derive release version
-        id: ver
+        id: version
         shell: bash
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build, verify POMs, sign and publish to Sonatype Central Portal
-        env:
-          ORG_GRADLE_PROJECT_centralUsername: ${{ secrets.CENTRAL_USERNAME }}
-          ORG_GRADLE_PROJECT_centralPassword: ${{ secrets.CENTRAL_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Build executable Pyloros jar
         run: |
           ./gradlew \
-            -Pversion=${{ steps.ver.outputs.version }} \
-            -PreleaseBuild=true \
+            -Pversion=${{ steps.version.outputs.value }} \
             --no-daemon \
-            -x test \
-            verifyReleasePoms \
-            publishAggregationToCentralPortal
+            clean \
+            :pyloros-app:shadowJar
+
+      - name: Verify executable jar manifest and dependencies
+        run: |
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/aresstack/pyloros/PylorosApplication.class$'
+          unzip -p pyloros-app/build/libs/pyloros.jar META-INF/MANIFEST.MF | grep '^Main-Class: com.aresstack.pyloros.PylorosApplication'
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^io/vertx/core/Vertx.class$'
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/fasterxml/jackson/databind/ObjectMapper.class$'
+
+      - name: Prepare release asset
+        run: |
+          mkdir -p build/release
+          cp pyloros-app/build/libs/pyloros.jar "build/release/pyloros-${{ steps.version.outputs.value }}.jar"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyloros-${{ steps.version.outputs.value }}-jar
+          path: build/release/pyloros-${{ steps.version.outputs.value }}.jar
+          if-no-files-found: error
+
+      - name: Publish GitHub release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: build/release/pyloros-${{ steps.version.outputs.value }}.jar
