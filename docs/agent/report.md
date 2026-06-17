@@ -1,26 +1,28 @@
-# Release Jar Action — Report
+# Main-Push Runnable Jar Workflow — Report
 
 ## What was verified, changed or implemented?
 
-- Reworked `.github/workflows/release.yml` into a GitHub Release workflow that builds the executable Pyloros application jar from CI instead of assuming a prebuilt jar exists.
-- The workflow runs `:pyloros-app:shadowJar`, so the release asset is the Shadow fat jar with runtime dependencies included.
-- The workflow verifies the jar before publishing:
+- Restored `.github/workflows/release.yml` as the Maven Central release workflow for `v*` tag pushes and manual dispatch.
+- Added `.github/workflows/build-jar.yml` as a separate workflow for `main` branch pushes.
+- The new main-push workflow builds the runnable Pyloros Shadow jar with `:pyloros-app:shadowJar`.
+- The new workflow verifies before uploading:
   - `com/aresstack/pyloros/PylorosApplication.class` exists.
   - `META-INF/MANIFEST.MF` contains `Main-Class: com.aresstack.pyloros.PylorosApplication`.
   - Dependency classes from Vert.x and Jackson exist inside the jar.
-- The release asset is copied to `build/release/pyloros-<version>.jar`.
-- The workflow uploads the jar as a workflow artifact and attaches it to the GitHub Release via `softprops/action-gh-release`.
+- The runnable jar is uploaded as a GitHub Actions artifact named `pyloros-runnable-jar`.
 
 ## Which files were changed or newly created?
 
-- Changed: `.github/workflows/release.yml`
+- Restored/changed: `.github/workflows/release.yml`
+- New: `.github/workflows/build-jar.yml`
 - Changed: `docs/agent/report.md`
 
 ## Which architecture decision was touched?
 
-- Release packaging now explicitly uses the `pyloros-app` Shadow jar as the runnable distribution artifact.
-- The application entry point remains `com.aresstack.pyloros.PylorosApplication`; no runtime architecture was moved.
-- Dependencies are bundled by the existing Shadow plugin configuration rather than by manually assembling jars.
+- Maven Central publishing remains tag-based in `release.yml`.
+- Runnable application packaging is separated into a main-push CI artifact workflow.
+- The application entry point remains `com.aresstack.pyloros.PylorosApplication`.
+- Runtime dependencies are bundled through the existing Shadow plugin configuration in `pyloros-app`.
 
 ## Which tests, builds and runtime checks were executed?
 
@@ -32,14 +34,14 @@
   - Verified `com/fasterxml/jackson/databind/ObjectMapper.class`.
 - Manifest check:
   - Verified `Main-Class: com.aresstack.pyloros.PylorosApplication`.
-- Attempted exact CI-style command:
+- Attempted exact clean build:
   - `.\gradlew.bat "-Pversion=0.1.0" --no-daemon clean :pyloros-app:shadowJar`
   - Result: failed locally because Windows has `pyloros-app\build\libs\pyloros.jar` locked by another process.
-  - This is local workspace state; the GitHub Action runs on a fresh Ubuntu runner.
+  - The GitHub Action runs on a fresh Ubuntu runner, so this local Windows file lock should not apply there.
 
 ## Result: successful
 
-The workflow implementation is complete. The runnable jar build and jar contents were verified. The only failed local check was `clean`, blocked by a Windows file lock on an existing jar.
+The requested separation is implemented: tag pushes keep Maven Central release behavior, and main pushes now build and upload the runnable jar artifact.
 
 ## If failed: exact error and recommended next step
 

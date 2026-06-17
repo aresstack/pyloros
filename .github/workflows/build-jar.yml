@@ -1,0 +1,43 @@
+name: Build Runnable Jar
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-jar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build executable Pyloros jar
+        run: |
+          ./gradlew \
+            --no-daemon \
+            clean \
+            :pyloros-app:shadowJar
+
+      - name: Verify executable jar manifest and dependencies
+        run: |
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/aresstack/pyloros/PylorosApplication.class$'
+          unzip -p pyloros-app/build/libs/pyloros.jar META-INF/MANIFEST.MF | grep '^Main-Class: com.aresstack.pyloros.PylorosApplication'
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^io/vertx/core/Vertx.class$'
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/fasterxml/jackson/databind/ObjectMapper.class$'
+
+      - name: Upload runnable jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyloros-runnable-jar
+          path: pyloros-app/build/libs/pyloros.jar
+          if-no-files-found: error
