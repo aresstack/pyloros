@@ -9,7 +9,7 @@ jobs:
   build-jar:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Check out sources
@@ -35,9 +35,27 @@ jobs:
           jar tf pyloros-app/build/libs/pyloros.jar | grep '^io/vertx/core/Vertx.class$'
           jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/fasterxml/jackson/databind/ObjectMapper.class$'
 
+      - name: Prepare jar artifact
+        run: |
+          mkdir -p build/release
+          cp pyloros-app/build/libs/pyloros.jar build/release/pyloros.jar
+          ls -lh build/release/pyloros.jar
+
       - name: Upload runnable jar
         uses: actions/upload-artifact@v4
         with:
-          name: pyloros-runnable-jar
-          path: pyloros-app/build/libs/pyloros.jar
+          name: pyloros.jar
+          path: build/release/pyloros.jar
           if-no-files-found: error
+
+      - name: Publish latest main jar to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view main-latest >/dev/null 2>&1 || \
+            gh release create main-latest \
+              --title "Latest main build" \
+              --notes "Automated runnable jar built from the latest main branch push." \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          gh release upload main-latest build/release/pyloros.jar --clobber

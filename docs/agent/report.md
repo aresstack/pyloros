@@ -9,18 +9,19 @@
   - `com/aresstack/pyloros/PylorosApplication.class` exists.
   - `META-INF/MANIFEST.MF` contains `Main-Class: com.aresstack.pyloros.PylorosApplication`.
   - Dependency classes from Vert.x and Jackson exist inside the jar.
-- The runnable jar is uploaded as a GitHub Actions artifact named `pyloros-runnable-jar`.
+- The runnable jar is uploaded as a GitHub Actions artifact named `pyloros.jar`.
+- The runnable jar is also uploaded to a moving GitHub pre-release named `Latest main build` on tag `main-latest`.
 
 ## Which files were changed or newly created?
 
 - Restored/changed: `.github/workflows/release.yml`
-- New: `.github/workflows/build-jar.yml`
+- New/changed: `.github/workflows/build-jar.yml`
 - Changed: `docs/agent/report.md`
 
 ## Which architecture decision was touched?
 
 - Maven Central publishing remains tag-based in `release.yml`.
-- Runnable application packaging is separated into a main-push CI artifact workflow.
+- Runnable application packaging is separated into a main-push workflow that publishes `pyloros.jar` to the `main-latest` GitHub pre-release.
 - The application entry point remains `com.aresstack.pyloros.PylorosApplication`.
 - Runtime dependencies are bundled through the existing Shadow plugin configuration in `pyloros-app`.
 
@@ -41,7 +42,7 @@
 
 ## Result: successful
 
-The requested separation is implemented: tag pushes keep Maven Central release behavior, and main pushes now build and upload the runnable jar artifact.
+The requested separation is implemented: `v*` tag pushes keep Maven Central release behavior, and main pushes now build `pyloros.jar` and upload it to GitHub Releases under `main-latest`.
 
 ## If failed: exact error and recommended next step
 
