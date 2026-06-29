@@ -52,7 +52,16 @@ public final class ToolCatalog {
         return snapshot;
     }
 
+    public ToolCatalogSnapshot cachedSnapshotForView(ToolView toolView) {
+        Objects.requireNonNull(toolView, "toolView must not be null");
+        return snapshotsByView.getOrDefault(toolView, ToolCatalogSnapshot.empty());
+    }
+
     public Future<ToolCatalogSnapshot> snapshotForView(ToolView toolView) {
+        return Future.succeededFuture(cachedSnapshotForView(toolView));
+    }
+
+    public Future<ToolCatalogSnapshot> refreshForView(ToolView toolView) {
         return refresh(Objects.requireNonNull(toolView, "toolView must not be null"));
     }
 

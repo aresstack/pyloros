@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class IdeaMcpClient {
 
     private static final Logger log = LoggerFactory.getLogger(IdeaMcpClient.class);
-    private static final long TOOLS_REFRESH_DEBOUNCE_MS = 250L;
+    private static final long TOOLS_REFRESH_DEBOUNCE_MS = 1500L;
 
     private final Vertx vertx;
     private final IdeaMcpConfig config;
@@ -48,9 +48,10 @@ public final class IdeaMcpClient {
         // register for notifications from SSE session (e.g. notifications/tools/list_changed)
         this.sseSession.setNotificationHandler(msg -> {
             try {
-                log.info("IdeaMcpClient: received notification {}", msg.encode());
-                // Clear cache and refresh tools proactively
-                cachedTools.set(null);
+                log.debug("IdeaMcpClient: received notification {}", msg.encode());
+                // Keep the last known catalog available while a debounced refresh is pending.
+                // Clearing it here would make concurrent tools/call paths trigger immediate
+                // tools/list requests and defeat the debounce under connector churn.
                 scheduleToolsRefreshDebounced();
             } catch (Exception ex) {
                 log.debug("Failed to handle IDEA notification: {}", ex.getMessage());

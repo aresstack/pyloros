@@ -32,11 +32,14 @@ public final class ToolRouter {
         }
 
         String requestedExternalName = toolCall.name();
+        ToolView requestedView = toolView == null ? ToolView.PUBLIC : toolView;
+        ToolCatalogSnapshot cachedSnapshot = toolCatalog.cachedSnapshotForView(requestedView);
+        ToolCatalogEntry cachedEntry = cachedSnapshot.findByExternalName(requestedExternalName).orElse(null);
+        if (cachedEntry != null) {
+            return dispatchWithEntry(requestedExternalName, toolCall, cachedEntry);
+        }
 
-        // Always refresh the catalog before dispatch so that tools/call works correctly
-        // even when tools/list was not called in this session (e.g. connector uses a cached
-        // tool list from a previous session or from OpenAI's side).
-        return toolCatalog.snapshotForView(toolView)
+        return toolCatalog.refreshForView(requestedView)
                 .compose(snapshot -> dispatch(requestedExternalName, toolCall, snapshot));
     }
 
