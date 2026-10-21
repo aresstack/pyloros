@@ -9,7 +9,6 @@ import java.util.Properties;
 public record PylorosConfig(
         int serverPort,
         String publicOrigin,
-        String mcpPublicPath,
         String mcpProtocolVersion,
         String securityMode,
         String targetPlatformModules,
@@ -29,7 +28,6 @@ public record PylorosConfig(
         return new PylorosConfig(
                 intValue("server.port", "SERVER_PORT", properties, 8081),
                 normalizeOrigin(value("public.origin", "PUBLIC_ORIGIN", properties, "https://current-car.com")),
-                value("mcp.public.path", "MCP_PUBLIC_PATH", properties, "/pyloros"),
                 value("mcp.protocol.version", "MCP_VERSION_CHATGPT", properties, "2025-03-26"),
                 value("security.mode", "SECURITY_MODE", properties, "oauth"),
                 value("target.platform.modules", "TARGET_PLATFORM_MODULES", properties, "intellij"),

@@ -2,9 +2,7 @@ package com.aresstack.pyloros.config;
     
     public interface ServerConfig {
     
-        String mcpPublicPath();
-    
-        String mcpProtocolVersion();
+            String mcpProtocolVersion();
 
         /**
          * Shared secret used by Pyloros to authorize injected non-public tool-view requests

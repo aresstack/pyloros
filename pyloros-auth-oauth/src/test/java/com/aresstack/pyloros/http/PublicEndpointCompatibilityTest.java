@@ -42,8 +42,7 @@ class PublicEndpointCompatibilityTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ACCESS_TOKEN = "test-token";
-    private static final String CANONICAL_PATH = "/pyloros";
-    private static final String LEGACY_PATH = "/sse";
+    private static final String MCP_PATH = "/";
     private static final String TOOL_NAME = "test__echo";
     private static final String AGENT_ONLY_TOOL_NAME = "test__agent_secret";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
@@ -69,7 +68,6 @@ class PublicEndpointCompatibilityTest {
 
         TestServerConfig config = new TestServerConfig(
                 "https://current-car.com",
-                CANONICAL_PATH,
                 "2025-03-26",
                 "angel",
                 "change-me",
@@ -87,6 +85,7 @@ class PublicEndpointCompatibilityTest {
 
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
+        new HealthRoutes().mount(router);
         new MetadataRoutes(config).mount(router);
         new McpRoutes(config, new OAuthRequestAuthenticator(oauthService), toolCatalog, toolRouter).mount(router);
 
@@ -110,42 +109,40 @@ class PublicEndpointCompatibilityTest {
     }
 
     @Test
-    void supportsCanonicalAndLegacyRpcOperations() throws Exception {
-        assertInitialize(CANONICAL_PATH);
-        assertInitialize(LEGACY_PATH);
-        assertToolsList(CANONICAL_PATH);
-        assertToolsList(LEGACY_PATH);
-        assertResourcesList(CANONICAL_PATH);
-        assertResourcesList(LEGACY_PATH);
-        assertToolCall(CANONICAL_PATH);
-        assertToolCall(LEGACY_PATH);
-        assertDirectPathToolCall(CANONICAL_PATH);
-        assertDirectPathToolCall(LEGACY_PATH);
+    void supportsMcpRpcOnlyAtRoot() throws Exception {
+        assertInitialize(MCP_PATH);
+        assertToolsList(MCP_PATH);
+        assertResourcesList(MCP_PATH);
+        assertToolCall(MCP_PATH);
     }
 
     @Test
-    void logsDeprecatedFlagByEndpoint() throws Exception {
-        postRpc(CANONICAL_PATH, "initialize", "{}");
-        postRpc(LEGACY_PATH, "initialize", "{}");
+    void rejectsRemovedMcpRoutes() throws Exception {
+        assertEquals(404, post("/pyloros", "{}").statusCode());
+        assertEquals(404, post("/sse", "{}").statusCode());
+        assertEquals(404, get("/pyloros").statusCode());
+        assertEquals(404, get("/sse").statusCode());
+        assertEquals(404, post("/" + TOOL_NAME, "{}").statusCode());
+    }
+
+    @Test
+    void logsRootMcpOperations() throws Exception {
+        postRpc(MCP_PATH, "initialize", "{}");
 
         List<String> messages = mcpLogs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
-        assertTrue(messages.stream().anyMatch(message -> message.contains("path=/pyloros")
-                && message.contains("method=initialize")
-                && message.contains("deprecated=false")));
-        assertTrue(messages.stream().anyMatch(message -> message.contains("path=/sse")
-                && message.contains("method=initialize")
-                && message.contains("deprecated=true")));
+        assertTrue(messages.stream().anyMatch(message -> message.contains("path=/")
+                && message.contains("method=initialize")));
     }
 
     @Test
     void queryViewParameterRequiresTrustedInjectedHeader() throws Exception {
         // No marker, no token -> PUBLIC view.
-        JsonNode untrusted = postRpc(CANONICAL_PATH + "?view=agent", "tools/list", "{}");
+        JsonNode untrusted = postRpc(MCP_PATH + "?view=agent", "tools/list", "{}");
         assertFalse(untrusted.path("result").path("tools").toString().contains(AGENT_ONLY_TOOL_NAME));
 
         // Marker only, no token -> PUBLIC view.
         JsonNode markerOnly = postRpc(
-                CANONICAL_PATH + "?view=agent",
+                MCP_PATH + "?view=agent",
                 "tools/list",
                 "{}",
                 Map.of(TRUSTED_VIEW_SOURCE_HEADER, TRUSTED_VIEW_SOURCE_VALUE)
@@ -154,7 +151,7 @@ class PublicEndpointCompatibilityTest {
 
         // Marker plus wrong token -> PUBLIC view.
         JsonNode wrongToken = postRpc(
-                CANONICAL_PATH + "?view=agent",
+                MCP_PATH + "?view=agent",
                 "tools/list",
                 "{}",
                 Map.of(
@@ -166,7 +163,7 @@ class PublicEndpointCompatibilityTest {
 
         // Correct marker + correct token + loopback -> agent view.
         JsonNode trusted = postRpc(
-                CANONICAL_PATH + "?view=agent",
+                MCP_PATH + "?view=agent",
                 "tools/list",
                 "{}",
                 Map.of(
@@ -178,18 +175,24 @@ class PublicEndpointCompatibilityTest {
     }
 
     @Test
-    void advertisesCanonicalMetadataAndKeepsLegacyAliases() throws Exception {
-        JsonNode root = getJson("/");
-        assertEquals("https://current-car.com/pyloros", root.path("mcp").asText());
+    void advertisesRootResourceAndActuatorHealth() throws Exception {
+        JsonNode resource = getJson("/.well-known/oauth-protected-resource");
+        assertEquals("https://current-car.com/", resource.path("resource").asText());
+        assertEquals("https://current-car.com", resource.path("authorization_servers").get(0).asText());
 
-        JsonNode canonicalProtected = getJson("/.well-known/oauth-protected-resource/pyloros");
-        assertEquals("https://current-car.com/pyloros", canonicalProtected.path("resource").asText());
+        JsonNode authorization = getJson("/.well-known/oauth-authorization-server");
+        assertEquals("https://current-car.com", authorization.path("issuer").asText());
+        assertEquals(200, get("/.well-known/openid-configuration").statusCode());
 
-        JsonNode legacyProtected = getJson("/.well-known/oauth-protected-resource/sse");
-        assertEquals("https://current-car.com/sse", legacyProtected.path("resource").asText());
+        JsonNode health = getJson("/actuator/health");
+        assertEquals("UP", health.path("status").asText());
 
-        assertEquals(200, get("/pyloros/.well-known/oauth-authorization-server").statusCode());
-        assertEquals(200, get("/sse/.well-known/oauth-authorization-server").statusCode());
+        assertEquals(401, get("/").statusCode());
+        assertEquals(404, get("/health").statusCode());
+        assertEquals(404, get("/.well-known/oauth-protected-resource/pyloros").statusCode());
+        assertEquals(404, get("/.well-known/oauth-protected-resource/sse").statusCode());
+        assertEquals(404, get("/pyloros/.well-known/oauth-authorization-server").statusCode());
+        assertEquals(404, get("/sse/.well-known/oauth-authorization-server").statusCode());
     }
 
     private void assertInitialize(String path) throws Exception {
@@ -213,14 +216,6 @@ class PublicEndpointCompatibilityTest {
         JsonNode response = postRpc(path, "tools/call", "{\"name\":\"test__echo\",\"arguments\":{\"value\":\"ok\"}}");
         assertEquals("ok", response.path("result").path("content").get(0).path("text").asText());
         assertFalse(response.path("result").path("isError").asBoolean(true));
-    }
-
-    private void assertDirectPathToolCall(String path) throws Exception {
-        HttpResponse<String> response = post(path + "/" + TOOL_NAME, "{\"arguments\":{\"value\":\"ok\"}}");
-        assertEquals(200, response.statusCode());
-        JsonNode result = JSON.readTree(response.body());
-        assertEquals("ok", result.path("content").get(0).path("text").asText());
-        assertFalse(result.path("isError").asBoolean(true));
     }
 
     private JsonNode postRpc(String path, String method, String params) throws Exception {
@@ -270,7 +265,6 @@ class PublicEndpointCompatibilityTest {
 
     private record TestServerConfig(
             String publicOrigin,
-            String mcpPublicPath,
             String mcpProtocolVersion,
             String oauthClientId,
             String oauthClientSecret,

@@ -27,7 +27,7 @@ python3 scripts/build_chatgpt_plugin.py --version 0.1.1
 2. Upload **pyloros-chatgpt-plugin.zip** itself. A GitHub Actions artifact
    download may wrap that ZIP inside another ZIP; use the release asset instead.
 3. Set up the bundled remote MCP server using the OAuth client configuration:
-   - Public MCP URL: `https://pyloros.aresstack.de/pyloros`
+   - Public MCP URL: `https://pyloros.aresstack.de/`
    - OAuth client ID: `angel`
    - Token endpoint authentication: `client_secret_basic`
    - Scope: `mcp`
@@ -38,7 +38,7 @@ python3 scripts/build_chatgpt_plugin.py --version 0.1.1
 
 Pyloros still runs locally with HTTP behind the HTTPS reverse proxy.
 The public origin should be `https://pyloros.aresstack.de`.
-The default MCP path is `/pyloros` and the default internal HTTP port is 8081.
+The MCP endpoint is the public origin root (`/`); the internal HTTP port is 8081.
 
 **Note:** Publishing a refreshed ZIP to GitHub does not automatically reinstall
 or update the ZIP in ChatGPT. Upload new plugin package versions when metadata

@@ -2,11 +2,11 @@
 
 Pyloros is a headless Java 21 / Vert.x agent capability gateway that exposes local and remote MCP servers behind one MCP endpoint.
 
-Canonical public endpoint:
-- `https://current-car.com/pyloros`
+Public MCP endpoint (root of the dedicated subdomain):
+- `https://pyloros.aresstack.de/`
 
-Legacy compatibility alias:
-- `https://current-car.com/sse` (deprecated)
+Health endpoint:
+- `https://pyloros.aresstack.de/actuator/health`
 
 ## What Pyloros does
 
@@ -184,13 +184,13 @@ die aber nicht mit dem ChatGPT-Connector uebereinstimmen muessen.
 ## Local health check
 
 ```powershell
-Invoke-WebRequest http://127.0.0.1:8081/health | Select-Object -ExpandProperty Content
+Invoke-WebRequest http://127.0.0.1:8081/actuator/health | Select-Object -ExpandProperty Content
 ```
 
 Expected:
 
 ```json
-{"status":"ok"}
+{"status":"UP"}
 ```
 
 ## Connector refresh after restart or config changes
@@ -220,11 +220,9 @@ Set-Location 'C:\Projects\pyloros'
 $env:JAVA_HOME='C:\Program Files\Zulu\zulu-21'
 $env:Path="$env:JAVA_HOME\bin;$env:Path"
 $env:PYLOROS_SMOKE_ACCESS_TOKEN='<pyloros access token>'
-$env:PYLOROS_SMOKE_MCP_URL='http://127.0.0.1:8081/pyloros'
+$env:PYLOROS_SMOKE_MCP_URL='http://127.0.0.1:8081/'
 .\gradlew.bat :pyloros-app:runMcpAggregationSmokeTest
 ```
-
-For legacy compatibility verification, override the smoke URL with `http://127.0.0.1:8081/sse`.
 
 ### Real ChatGPT / `api_tool` invocation test
 

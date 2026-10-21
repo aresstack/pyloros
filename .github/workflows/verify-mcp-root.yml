@@ -1,0 +1,38 @@
+name: Verify Root MCP
+
+on:
+  pull_request:
+    paths:
+      - "pyloros-server/**"
+      - "pyloros-auth-oauth/**"
+      - "pyloros-app/**"
+      - ".github/workflows/verify-mcp-root.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run server and OAuth integration tests
+        run: |
+          bash ./gradlew --no-daemon \
+            :pyloros-server:test \
+            :pyloros-auth-oauth:test \
+            :pyloros-app:shadowJar
+
+      - name: Verify executable JAR
+        run: |
+          test -s pyloros-app/build/libs/pyloros.jar
+          unzip -p pyloros-app/build/libs/pyloros.jar META-INF/MANIFEST.MF | grep '^Main-Class: com.aresstack.pyloros.PylorosApplication'

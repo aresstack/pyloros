@@ -3,7 +3,7 @@
   "mcpServers": {
     "pyloros": {
       "type": "streamable-http",
-      "url": "https://pyloros.aresstack.de/pyloros",
+      "url": "https://pyloros.aresstack.de/",
       "extensions": {
         "com.openai": {
           "auth": {
