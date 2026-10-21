@@ -4,9 +4,7 @@ package com.aresstack.pyloros.oauth;
     
         String publicOrigin();
     
-        String mcpPublicPath();
-    
-        String oauthClientId();
+            String oauthClientId();
     
         String oauthClientSecret();
     
