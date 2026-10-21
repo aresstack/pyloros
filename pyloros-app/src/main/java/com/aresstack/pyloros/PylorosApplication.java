@@ -118,10 +118,9 @@ public final class PylorosApplication extends AbstractVerticle {
                 .requestHandler(router)
                 .listen(config.serverPort())
                 .onSuccess(server -> log.info(
-                        "Pyloros listening on port {} with public URL {}{}",
+                        "Pyloros listening on port {} with public MCP URL {}/",
                         config.serverPort(),
-                        config.publicOrigin(),
-                        config.mcpPublicPath()
+                        config.publicOrigin()
                 ))
                 .onFailure(error -> log.error("Could not start HTTP server", error));
     }
@@ -237,7 +236,7 @@ public final class PylorosApplication extends AbstractVerticle {
                     store.listAll(),
                     collectAcpProviderIds(externalAcpProviders),
                     collectAcpProviderIdsByExposedView(externalAcpProviders),
-                    config.publicOrigin() + config.mcpPublicPath(),
+                    config.publicOrigin() + "/",
                     config.mcpInjectedViewToken()
             );
         } catch (InstalledAgentStoreException exception) {
