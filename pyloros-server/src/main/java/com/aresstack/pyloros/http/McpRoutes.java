@@ -25,7 +25,6 @@ import java.util.Map;
 public final class McpRoutes {
 
     private static final Logger log = LoggerFactory.getLogger(McpRoutes.class);
-    private static final String LEGACY_MCP_PUBLIC_PATH = "/sse";
     private static final String TOOL_VIEW_QUERY_PARAM = "view";
     private static final String TRUSTED_VIEW_SOURCE_HEADER = "X-Pyloros-Injected-View";
     private static final String TRUSTED_VIEW_SOURCE_VALUE = "acp";
@@ -44,25 +43,8 @@ public final class McpRoutes {
     }
 
     public void mount(Router router) {
-        mountPath(router, config.mcpPublicPath());
-        if (!LEGACY_MCP_PUBLIC_PATH.equals(config.mcpPublicPath())) {
-            mountPath(router, LEGACY_MCP_PUBLIC_PATH);
-        }
-    }
-
-    private void mountPath(Router router, String publicPath) {
-        router.get(publicPath).handler(context -> {
-            context.put("mcpBasePath", publicPath);
-            mcpSse(context);
-        });
-        router.post(publicPath).handler(context -> {
-            context.put("mcpBasePath", publicPath);
-            mcpPost(context);
-        });
-        router.post(publicPath + "/*").handler(context -> {
-            context.put("mcpBasePath", publicPath);
-            mcpPost(context);
-        });
+        router.get("/").handler(this::mcpSse);
+        router.post("/").handler(this::mcpPost);
     }
 
     private void mcpSse(RoutingContext context) {
@@ -75,9 +57,7 @@ public final class McpRoutes {
         context.response()
                 .putHeader(HttpHeaders.CONTENT_TYPE, "text/event-stream")
                 .putHeader(HttpHeaders.CACHE_CONTROL, "no-cache")
-                .putHeader(HttpHeaders.CONNECTION, "keep-alive");
-        context.response().write("event: endpoint\n");
-        context.response().write("data: " + mountedBasePath(context) + "\n\n");
+                .end("event: endpoint\ndata: /\n\n");
     }
 
     private void mcpPost(RoutingContext context) {
@@ -87,7 +67,6 @@ public final class McpRoutes {
             return;
         }
 
-        String pathToolName = ToolCallRequestResolver.resolvePathToolName(context.pathParam("*"));
         ToolView requestedToolView;
         try {
             requestedToolView = resolveRequestedToolView(context);
@@ -101,16 +80,6 @@ public final class McpRoutes {
             request = HttpJson.mapper().readTree(context.body().asString());
         } catch (JsonProcessingException exception) {
             HttpJson.send(context, 400, Map.of("error", "Invalid JSON"));
-            return;
-        }
-
-        if (ToolCallRequestResolver.isDirectPathInvocation(request, pathToolName)) {
-            McpToolCall toolCall = ToolCallRequestResolver.resolvePathInvocationToolCall(request, pathToolName);
-            logMcpPost(context, request, "path", toolCall.name());
-            logToolsCall("path", toolCall);
-            toolRouter.callTool(toolCall, requestedToolView)
-                    .onSuccess(result -> HttpJson.send(context, 200, result))
-                    .onFailure(error -> HttpJson.send(context, 500, Map.of("error", error.getMessage())));
             return;
         }
 
@@ -131,7 +100,7 @@ public final class McpRoutes {
             case "tools/list" -> listTools(context, id, requestedToolView);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> callTool(context, id, request, pathToolName, requestedToolView);
+            case "tools/call", "call_tool" -> callTool(context, id, request, requestedToolView);
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
@@ -150,8 +119,8 @@ public final class McpRoutes {
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
     }
 
-    private void callTool(RoutingContext context, JsonNode id, JsonNode request, String fallbackToolName, ToolView toolView) {
-        McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, fallbackToolName);
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request, ToolView toolView) {
+        McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, "");
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
         toolRouter.callTool(toolCall, toolView)
@@ -232,21 +201,11 @@ public final class McpRoutes {
     private void logMcpPost(RoutingContext context, JsonNode request, String source, String resolvedToolName) {
         String method = request != null && request.hasNonNull("method") ? request.get("method").asText() : "";
         String toolName = resolvedToolName == null ? "" : resolvedToolName;
-        log.info("[MCP] post path={} method={} source={} resolvedToolName={} deprecated={}",
+        log.info("[MCP] post path={} method={} source={} resolvedToolName={}",
                 context.request().path(),
                 method,
                 source,
-                toolName,
-                isDeprecated(context));
-    }
-
-    private String mountedBasePath(RoutingContext context) {
-        String mountedPath = context.get("mcpBasePath");
-        return mountedPath == null || mountedPath.isBlank() ? config.mcpPublicPath() : mountedPath;
-    }
-
-    private boolean isDeprecated(RoutingContext context) {
-        return LEGACY_MCP_PUBLIC_PATH.equals(mountedBasePath(context));
+                toolName);
     }
 
     private void logToolsCall(String source, McpToolCall toolCall) {
