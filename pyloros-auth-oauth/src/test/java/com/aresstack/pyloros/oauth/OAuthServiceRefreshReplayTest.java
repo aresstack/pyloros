@@ -135,7 +135,6 @@ class OAuthServiceRefreshReplayTest {
     private static OAuthConfig config(boolean rotationEnabled, Path storePath) {
         return new TestServerConfig(
                 "https://current-car.com",
-                "/pyloros",
                 "2025-03-26",
                 CREDENTIALS.clientId(),
                 CREDENTIALS.clientSecret(),
@@ -149,7 +148,6 @@ class OAuthServiceRefreshReplayTest {
 
     private record TestServerConfig(
             String publicOrigin,
-            String mcpPublicPath,
             String mcpProtocolVersion,
             String oauthClientId,
             String oauthClientSecret,
