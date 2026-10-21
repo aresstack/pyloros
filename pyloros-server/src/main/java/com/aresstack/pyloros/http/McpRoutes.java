@@ -120,7 +120,7 @@ public final class McpRoutes {
     }
 
     private void callTool(RoutingContext context, JsonNode id, JsonNode request, ToolView toolView) {
-        McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request, "");
+        McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request);
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
         toolRouter.callTool(toolCall, toolView)
