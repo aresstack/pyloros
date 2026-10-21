@@ -141,7 +141,7 @@ class ManagerAgentInjectedMcpSmokeTest {
 
         private FakeMcpEndpoint() throws IOException {
             this.server = HttpServer.create(new InetSocketAddress(0), 0);
-            this.server.createContext("/pyloros", this::handle);
+            this.server.createContext("/", this::handle);
         }
 
         private void start() {
@@ -149,7 +149,7 @@ class ManagerAgentInjectedMcpSmokeTest {
         }
 
         private String url() {
-            return "http://127.0.0.1:" + server.getAddress().getPort() + "/pyloros?view=agent";
+            return "http://127.0.0.1:" + server.getAddress().getPort() + "/?view=agent";
         }
 
         private List<JsonNode> requests() {
