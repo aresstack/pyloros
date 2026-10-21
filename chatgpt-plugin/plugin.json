@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pyloros",
+  "version": "0.1.0",
+  "description": "Connect ChatGPT to Pyloros, a remote MCP gateway for development tools.",
+  "repository": "https://github.com/aresstack/pyloros",
+  "homepage": "https://pyloros.aresstack.de",
+  "keywords": ["mcp", "development", "intellij"]
+}
