@@ -19,7 +19,7 @@ import java.util.Set;
  *
  * Environment:
  *   PYLOROS_SMOKE_ACCESS_TOKEN  (required) - Bearer token for Pyloros
- *   PYLOROS_SMOKE_MCP_URL       (optional) - default: http://127.0.0.1:8081/pyloros
+ *   PYLOROS_SMOKE_MCP_URL       (optional) - default: http://127.0.0.1:8081/
  */
 public class McpAggregationSmokeTest {
 
