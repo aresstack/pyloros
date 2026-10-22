@@ -68,13 +68,17 @@ The code-level defects listed above have been addressed in the feature branch. T
 - IdeaSseSession has no idle timeout for a silently half-open SSE connection.
 - The exact trigger for the user's intermittent Error in input stream still needs production log correlation.
 
-## Commits and PR
+## Exact implementation commit hashes
 
-Implementation commits on the feature branch:
-- 70b43e3 — Harden HTTP error handling against null values
-- 546578e — Make the MCP endpoint conform to Streamable HTTP
-- 7454b59 — Serialize IdeaSseSession reconnects and guard against late callbacks
-- 5856baf — Decode SSE streams across network buffer boundaries
-- 93dda7d10fe6954c3db78dccb4367b9ab87f6022 — Initial investigation report (the report and assignment were subsequently corrected as requested)
+- `70b43e32df6886bab51099c37a56396b10532fab` — Harden HTTP error handling against null values
+- `546578e3d659a43b4b709ca683a3c5a6c57ac721` — Make the MCP endpoint conform to Streamable HTTP
+- `7454b5929022c5178e6f2cbadd0c0e13a9f3d1b3` — Serialize IdeaSseSession reconnects and guard against late callbacks
+- `5856baf622bb93684bc6097ac52497d839f08945` — Decode SSE streams across network buffer boundaries
 
-The branch has been pushed and PR #108 is open as Draft. No merge, deployment, or release was performed.
+## Documentation and PR state
+
+- `93dda7d10fe6954c3db78dccb4367b9ab87f6022` — Initial investigation report commit, superseded by this documentation correction.
+- The current assignment and report were aligned after the review finding; this follow-up is recorded in Git history.
+- Draft PR: https://github.com/aresstack/pyloros/pull/108
+- Branch: `fix/mcp-stream-robustness-20261022`, pushed to `origin`.
+- No merge, deployment, or release was performed.
