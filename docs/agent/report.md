@@ -1,133 +1,80 @@
-# Report — sporadic "Error in input stream" on the public MCP endpoint
+# Report — sporadic MCP Error in input stream
+
+## Active assignment and approval
+
+The user approved this MCP stream-robustness task on 2026-10-22 and authorized replacing the previous active assignment, committing the corrections, and pushing the existing feature branch. The previous Maven Central publishing task remains in Git history; this assignment now describes the active task.
+
+- Repository: aresstack/pyloros
+- Base: 217fe5c96a4eb90ef64a84a2f9294e5ad847d5cb
+- Branch: fix/mcp-stream-robustness-20261022
+- Pull request: https://github.com/aresstack/pyloros/pull/108 (Draft; not merged)
+- The user confirms that the live server runs the current main version at the stated baseline, including the path alignment made to match Ask AI. A stale JAR found in the local build directory is not evidence of the deployed version.
 
 ## What was verified, changed or implemented?
 
-Investigated the sporadic `Error in input stream` reported by the ChatGPT MCP
-client and fixed the defects found in Pyloros. The webserver and its TLS
-configuration were deliberately left untouched.
+### Findings and fixes
 
-Branch: `fix/mcp-stream-robustness-20261022`, branched off `origin/main`
-(`217fe5c`). The local `main` was 3 commits behind `origin/main` at the start
-and was fast-forwarded first; the working tree was clean.
+1. **Null values in JSON-RPC envelopes.** HttpJson used Map.of(...), which rejects null values. A null ID, null result, or null exception message could trigger a NullPointerException while an asynchronous failure callback was building an error response. In that case the HTTP response could remain uncompleted. This is a strong code-level candidate for a stalled stream, but it has not been proven to be the production trigger.
+2. **MCP transport conformance.** The public Streamable HTTP endpoint now responds to GET with 405 Method Not Allowed and Allow: POST because no server-to-client SSE stream is implemented. Notification requests receive 202 Accepted without a response body.
+3. **IDEA SSE reconnect lifecycle.** Reconnect scheduling is guarded against duplicate attempts; attempt generations prevent callbacks from obsolete connections from overwriting current state; pending reconnect timers are cancelled on stop.
+4. **SSE text decoding.** A shared decoder handles UTF-8 characters split across network buffers and normalizes line endings without inventing event boundaries.
 
-### Root cause ranking
+The independent webserver and TLS configuration were not changed.
 
-1. **`HttpJson` built JSON-RPC envelopes with `Map.of(...)`**, which rejects
-   null values. A null request id, a null exception message or a null tool
-   result threw a `NullPointerException`. Thrown inside an asynchronous
-   `onFailure` callback — the normal case for `tools/list` and `tools/call` —
-   Vert.x Web can no longer convert it into a 500, so the response was never
-   ended and the client stalled until its proxy cut the connection. The
-   original upstream error was swallowed, which is why the logs showed
-   nothing. This is the strongest match for a failure that appears only after
-   a long, initially healthy run: it needs an upstream error with no message.
-2. **`IdeaSseSession` reconnect handling.** A single drop fires both
-   `exceptionHandler` and `endHandler`, and `scheduleReconnect()` had no
-   guard, so each drop cycle started two attempts, each re-registering both
-   handlers. `markStaleAndFailPending()` also cleared `currentEndpoint`
-   unconditionally, letting a late callback from an abandoned connection wipe
-   the endpoint a healthy connection had just discovered.
-3. **Transport non-conformance.** GET on the MCP endpoint answered with a
-   deprecated HTTP+SSE `event: endpoint` frame; notifications were answered
-   with a JSON body instead of a bodyless 202.
-4. **UTF-8 decoding per network buffer** in both SSE readers, corrupting
-   multi-byte characters split across buffers, and per-buffer `\r\n`
-   normalization fabricating event boundaries.
-
-### Deployed-jar check
-
-`build/gh-artifact-check/pyloros.jar` (17 Jun) predates this branch. Its
-`McpRoutes` still mounts `/sse` and `/pyloros` rather than `/`, and its GET
-handler calls `write()` twice **without ever calling `end()`**, leaving every
-GET SSE response dangling. If production runs a jar of this vintage, there is
-both an endpoint mismatch against the current `chatgpt-plugin/mcp.json` (which
-uses `/`) and a response/socket leak on every GET. Deployed version unknown —
-needs checking against the running instance.
-
-## Which files were changed or newly created?
+### Files changed or added
 
 Changed:
+- pyloros-server/src/main/java/com/aresstack/pyloros/http/HttpJson.java
+- pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java
+- pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/SseMcpUpstreamClient.java
+- pyloros-upstream-idea/src/main/java/com/aresstack/pyloros/upstream/idea/IdeaSseSession.java
 
-- `pyloros-server/src/main/java/com/aresstack/pyloros/http/HttpJson.java`
-- `pyloros-server/src/main/java/com/aresstack/pyloros/http/McpRoutes.java`
-- `pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/SseMcpUpstreamClient.java`
-- `pyloros-upstream-idea/src/main/java/com/aresstack/pyloros/upstream/idea/IdeaSseSession.java`
+Added:
+- pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/SseTextDecoder.java
+- pyloros-server/src/test/java/com/aresstack/pyloros/http/McpErrorResponseContractTest.java
+- pyloros-server/src/test/java/com/aresstack/pyloros/http/McpTransportConformanceTest.java
+- pyloros-server/src/test/java/com/aresstack/pyloros/upstream/mcp/SseTextDecoderTest.java
+- pyloros-upstream-idea/src/test/java/com/aresstack/pyloros/upstream/idea/IdeaSseSessionLifecycleTest.java
 
-New:
+Documentation corrected for this task:
+- docs/agent/assignment.md
+- docs/agent/report.md
 
-- `pyloros-server/src/main/java/com/aresstack/pyloros/upstream/mcp/SseTextDecoder.java`
-- `pyloros-server/src/test/java/com/aresstack/pyloros/http/McpErrorResponseContractTest.java`
-- `pyloros-server/src/test/java/com/aresstack/pyloros/http/McpTransportConformanceTest.java`
-- `pyloros-server/src/test/java/com/aresstack/pyloros/upstream/mcp/SseTextDecoderTest.java`
-- `pyloros-upstream-idea/src/test/java/com/aresstack/pyloros/upstream/idea/IdeaSseSessionLifecycleTest.java`
-  (first test source set in this module)
+## Architecture decisions
 
-## Which architecture decision was touched?
+- The public MCP endpoint supports Streamable HTTP without a server-initiated GET SSE stream.
+- SSE decoding is shared between the generic SSE upstream and IDEA SSE session.
+- IDEA connection state belongs to one generation-numbered attempt; callbacks from obsolete attempts cannot invalidate the current endpoint.
+- Module boundaries and optional-upstream startup behaviour remain unchanged.
 
-- The public MCP endpoint is Streamable HTTP only. GET no longer offers any
-  SSE stream and declines with `405` plus `Allow: POST`. Should Pyloros ever
-  need server-initiated JSON-RPC messages, a real GET SSE stream with
-  keepalive and connection cleanup must be implemented — not the old
-  `endpoint` frame.
-- SSE stream decoding is now a shared concern in
-  `com.aresstack.pyloros.upstream.mcp.SseTextDecoder`, used by both the
-  generic SSE upstream client and the IDEA session.
-- `IdeaSseSession` connection state is owned by exactly one generation-numbered
-  attempt. No change to module boundaries; optional upstreams still cannot
-  prevent startup.
+## Tests, build and runtime checks
 
-## Which tests, builds and runtime checks were executed?
-
-- `./gradlew build` — BUILD SUCCESSFUL, 352 tests, 0 failures, 0 skipped.
-- Targeted runs per commit: `McpErrorResponseContractTest` (6),
-  `McpTransportConformanceTest` (5), `IdeaSseSessionLifecycleTest` (5),
-  `SseTextDecoderTest` (9), plus the full `:pyloros-auth-oauth:test` suite,
-  which contains the existing root-endpoint compatibility tests.
-- Mutation check on the lifecycle fix: temporarily reverting the reconnect and
-  generation guards makes `duplicateDropEventsScheduleOnlyOneReconnect` and
-  `lateCallbackFromSupersededAttemptDoesNotClearFreshEndpoint` fail, so both
-  are genuine regression tests. The fixed version was restored afterwards.
-- No runtime check against the live instance or against ChatGPT was performed.
+Reported local verification:
+- ./gradlew build — BUILD SUCCESSFUL, 352 tests, 0 failures, 0 skipped.
+- Targeted tests: McpErrorResponseContractTest (6), McpTransportConformanceTest (5), IdeaSseSessionLifecycleTest (5), and SseTextDecoderTest (9).
+- The :pyloros-auth-oauth:test suite passed, including existing root-endpoint compatibility tests.
+- Mutation check: reverting reconnect/generation guards makes duplicateDropEventsScheduleOnlyOneReconnect and lateCallbackFromSupersededAttemptDoesNotClearFreshEndpoint fail.
+- repeatedServerSideDropsDoNotMultiplyConnections and stopCancelsPendingReconnect also pass with the old logic; they are sanity tests rather than regression tests.
+- No live-instance or ChatGPT runtime test was performed.
 
 ## Result
 
-Successful.
+The code-level defects listed above have been addressed in the feature branch. The full build is reported successful. The exact production cause remains unproven until a failure timestamp can be correlated with Pyloros and Caddy logs.
 
-## Open risks
+## Remaining risks
 
-- **The root cause is not proven.** All four defects are real and reachable in
-  code, but none has been correlated with an actual `Error in input stream`
-  occurrence. The decisive evidence is still a failure timestamp matched
-  against Pyloros logs and Caddy access logs: did the POST arrive, which
-  upstream was called, did it answer, and with what status did the request
-  end?
-- **Deployed version is unknown.** If production runs the June jar, the
-  endpoint mismatch (`/sse`, `/pyloros` vs `/`) and the dangling GET response
-  are present there regardless of this branch.
-- **`ToolView.named()` accepts any non-blank name**, so the `-32602` null-id
-  branch in `McpRoutes` is unreachable over HTTP. The null-id envelope
-  contract is therefore asserted through a test-only probe route. Worth
-  deciding separately whether unknown view names should be rejected.
-- **`StreamableHttpMcpUpstreamClient` is untouched and still has three
-  defects:** `initialized` is set to `true` even when `initialize` fails;
-  concurrent first calls can issue multiple `initialize` requests and
-  overwrite the shared `sessionId`; SSE responses are read via
-  `bodyAsString()`, which waits for the whole body instead of consuming the
-  matching JSON-RPC message incrementally. It also does not re-initialize
-  after a `404` from an expired session. Relevant only if `mcp.json` contains
-  generic `streamable-http` upstreams besides IntelliJ.
-- `repeatedServerSideDropsDoNotMultiplyConnections` and
-  `stopCancelsPendingReconnect` pass against the old logic too — they are
-  end-to-end sanity checks, not regression tests. The deterministic
-  callback-replay tests are what pin the fixed behaviour.
-- `IdeaSseSession` has no idle timeout on the SSE response, so a silently
-  half-open connection is only noticed when the OS reports it. A heartbeat
-  expectation would close that gap.
-- Nothing was pushed and no release was created or modified.
+- ToolView.named() accepts any non-blank name, so the null-ID -32602 branch is not reachable through ordinary HTTP requests; the null-ID response contract is tested through a test-only probe.
+- StreamableHttpMcpUpstreamClient remains outside this change set. Known areas for a separate follow-up are failed initialization marking the client initialized, concurrent first calls racing to set sessionId, reading SSE responses with bodyAsString() instead of incrementally, and failure to reinitialize after a 404 for an expired session.
+- IdeaSseSession has no idle timeout for a silently half-open SSE connection.
+- The exact trigger for the user's intermittent Error in input stream still needs production log correlation.
 
-## Commit hashes
+## Commits and PR
 
-- `70b43e3` Harden HTTP error handling against null values
-- `546578e` Make the MCP endpoint conform to Streamable HTTP
-- `7454b59` Serialize IdeaSseSession reconnects and guard against late callbacks
-- `5856baf` Decode SSE streams across network buffer boundaries
+Implementation commits on the feature branch:
+- 70b43e3 — Harden HTTP error handling against null values
+- 546578e — Make the MCP endpoint conform to Streamable HTTP
+- 7454b59 — Serialize IdeaSseSession reconnects and guard against late callbacks
+- 5856baf — Decode SSE streams across network buffer boundaries
+- 93dda7d10fe6954c3db78dccb4367b9ab87f6022 — Initial investigation report (the report and assignment were subsequently corrected as requested)
+
+The branch has been pushed and PR #108 is open as Draft. No merge, deployment, or release was performed.
