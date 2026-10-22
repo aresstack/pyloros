@@ -17,5 +17,10 @@ package com.aresstack.pyloros.oauth;
         boolean oauthRefreshTokenRotationEnabled();
     
         String oauthRefreshTokenStorePath();
+
+        /** Non-empty = CENTRAL mode: this AresStack issuer signs the access tokens. */
+        default String centralOauthIssuer() {
+            return "";
+        }
     }
     

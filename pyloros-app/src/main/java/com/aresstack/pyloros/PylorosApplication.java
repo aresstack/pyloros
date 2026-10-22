@@ -144,6 +144,10 @@ public final class PylorosApplication extends AbstractVerticle {
             log.info("[SECURITY] mode=oauth");
             return new OAuthSecurityModule(config);
         }
+        if ("central-oauth".equalsIgnoreCase(config.securityMode())) {
+            log.info("[SECURITY] mode=central-oauth issuer={}", config.centralOauthIssuer());
+            return new com.aresstack.pyloros.oauth.CentralOAuthSecurityModule(config);
+        }
         throw new IllegalArgumentException("Unsupported security mode: " + config.securityMode());
     }
 

@@ -19,6 +19,7 @@ public record PylorosConfig(
         int oauthRefreshTokenTtlSeconds,
         boolean oauthRefreshTokenRotationEnabled,
         String oauthRefreshTokenStorePath,
+        String centralOauthIssuer,
         String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
@@ -38,6 +39,7 @@ public record PylorosConfig(
                 intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000),
                 Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false")),
                 value("oauth.refresh-token.store.path", "OAUTH_REFRESH_TOKEN_STORE_PATH", properties, "data/oauth-refresh-tokens.json"),
+                normalizeOrigin(value("oauth.central-issuer", "CENTRAL_OAUTH_ISSUER", properties, "")),
                 resolveInjectedViewToken(properties)
         );
     }

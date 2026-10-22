@@ -105,7 +105,7 @@ public final class OAuthService {
                                                    String redirectUri,
                                                    String codeVerifier) {
         log.info("[OAUTH] token grantType={} code={} redirectUri={} clientId={} hasVerifier={}",
-                grantType, code, redirectUri, credentials.clientId(), codeVerifier != null);
+                grantType, shortValue(code), redirectUri, credentials.clientId(), codeVerifier != null);
 
         if (!isKnownOAuthClient(credentials)) {
             throw new OAuthException(401, "invalid_client");
