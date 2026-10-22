@@ -38,6 +38,8 @@ class IdeaSseSessionLifecycleTest {
 
     private final AtomicInteger connectionCount = new AtomicInteger();
     private final List<HttpConnection> liveConnections = new CopyOnWriteArrayList<>();
+    private final List<HttpServerResponse> liveStreams = new CopyOnWriteArrayList<>();
+    private final AtomicInteger attemptsToReject = new AtomicInteger();
     private volatile boolean dropImmediately;
 
     @BeforeEach
@@ -46,18 +48,39 @@ class IdeaSseSessionLifecycleTest {
 
         server = await(vertx.createHttpServer().requestHandler(request -> {
             connectionCount.incrementAndGet();
+
+            int reject = attemptsToReject.getAndUpdate(remaining -> remaining > 0 ? remaining - 1 : 0);
+            if (reject > 0) {
+                request.response().setStatusCode(503).end("rejected");
+                return;
+            }
+
             liveConnections.add(request.connection());
 
             HttpServerResponse response = request.response()
                     .setChunked(true)
                     .putHeader("Content-Type", "text/event-stream");
-            response.write("event: endpoint\ndata: /messages/fake\n\n");
+            liveStreams.add(response);
+            // CRLF and data-before-event, as the real IntelliJ MCP plugin emits them.
+            response.write("data: /messages/fake\r\nevent: endpoint\r\n\r\n");
 
             if (dropImmediately) {
                 // Kill the whole connection so the client sees a hard drop, not a clean end.
                 request.connection().close();
             }
         }).listen(0));
+    }
+
+    /** Kills every live connection: an abrupt drop, triggered by the test rather than waited for. */
+    private void dropLiveConnections() {
+        for (HttpConnection connection : List.copyOf(liveConnections)) {
+            try {
+                connection.close();
+            } catch (Exception ignored) {
+            }
+        }
+        liveConnections.clear();
+        liveStreams.clear();
     }
 
     @AfterEach
@@ -91,6 +114,59 @@ class IdeaSseSessionLifecycleTest {
         waitUntil(() -> session.isReady());
         assertEquals("/messages/fake", session.getEndpoint());
         assertEquals(1, connectionCount.get());
+    }
+
+    /** Scenario 1: the server kills a live connection; the session notices and re-establishes it. */
+    @Test
+    void abruptServerSideCloseIsDetectedAndConnectionIsReestablished() throws Exception {
+        session = newSession();
+        session.start();
+        waitUntil(() -> session.isReady());
+        long firstAttempt = session.activeAttempt();
+
+        dropLiveConnections();
+
+        // Detected...
+        waitUntil(() -> !session.isReady() || session.activeAttempt() != firstAttempt);
+        // ...and recovered under a new attempt.
+        waitUntil(() -> session.isReady(), 10_000);
+
+        assertEquals("/messages/fake", session.getEndpoint());
+        assertNotEquals(firstAttempt, session.activeAttempt());
+        assertEquals(2, session.attemptCount(), "exactly one reconnect for one drop");
+    }
+
+    /** Scenario 4: a rejected connection attempt is retried and then succeeds. */
+    @Test
+    void rejectedAttemptIsRetriedSuccessfully() throws Exception {
+        attemptsToReject.set(1);
+
+        session = newSession();
+        session.start();
+
+        waitUntil(() -> session.isReady(), 10_000);
+        assertEquals("/messages/fake", session.getEndpoint());
+        assertEquals(2, session.attemptCount(), "one rejected attempt plus one successful retry");
+    }
+
+    /**
+     * Scenario 6: a quiet stream stays valid. An SSE stream may legitimately carry no events for a
+     * long time, so silence must never be treated as a failure.
+     */
+    @Test
+    void quietStreamWithoutEventsStaysValid() throws Exception {
+        session = newSession();
+        session.start();
+        waitUntil(() -> session.isReady());
+        long attempt = session.activeAttempt();
+
+        // No events are sent for well beyond the reconnect delay.
+        Thread.sleep(RECONNECT_DELAY_MILLIS * 3L);
+
+        assertTrue(session.isReady(), "a quiet stream must stay valid");
+        assertEquals("/messages/fake", session.getEndpoint());
+        assertEquals(attempt, session.activeAttempt(), "no reconnect may be triggered by silence");
+        assertEquals(1, session.attemptCount(), "silence must not count as a failure");
     }
 
     @Test
