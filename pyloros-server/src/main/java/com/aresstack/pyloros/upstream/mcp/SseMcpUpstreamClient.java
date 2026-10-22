@@ -19,7 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class SseMcpUpstreamClient implements McpUpstreamClient {
 
@@ -36,12 +38,25 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
     private volatile String discoveredEndpoint;
     private volatile boolean closed;
 
+    /** Sentinel for "no attempt owns the connection state right now". */
+    private static final long NO_ATTEMPT = -1L;
+
+    // Same lifecycle guards as IdeaSseSession: a single drop delivers both an exception and an end
+    // event, so an unguarded reconnect starts two connections per drop cycle, and a late callback
+    // from an abandoned connection must not clear an endpoint a newer connection just discovered.
+    private final AtomicLong attemptCounter = new AtomicLong();
+    private volatile long activeAttempt = NO_ATTEMPT;
+    private final AtomicBoolean connectInFlight = new AtomicBoolean(false);
+    private final AtomicBoolean reconnectPending = new AtomicBoolean(false);
+    private volatile Long reconnectTimerId;
+
     public SseMcpUpstreamClient(Vertx vertx, McpUpstreamConfig config) {
         this.vertx = vertx;
         this.config = config;
 
         boolean ssl = "https".equalsIgnoreCase(config.url().getScheme());
-        this.sseClient = vertx.createHttpClient();
+        this.sseClient = vertx.createHttpClient(new io.vertx.core.http.HttpClientOptions()
+                .setConnectTimeout(Math.max(1000, config.connectTimeoutMillis())));
         this.rpcClient = WebClient.create(vertx, new WebClientOptions().setSsl(ssl).setConnectTimeout(config.connectTimeoutMillis()));
     }
 
@@ -81,6 +96,8 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
     @Override
     public Future<Void> stop() {
         closed = true;
+        activeAttempt = NO_ATTEMPT;
+        cancelReconnect();
         try {
             sseClient.close();
         } catch (Exception ignored) {
@@ -164,6 +181,14 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
         if (closed) {
             return;
         }
+        if (!connectInFlight.compareAndSet(false, true)) {
+            log.debug("[MCP-UPSTREAM] provider={} SSE connect skipped, an attempt is already in flight",
+                    config.providerId());
+            return;
+        }
+
+        long attempt = attemptCounter.incrementAndGet();
+        activeAttempt = attempt;
 
         int port = config.url().getPort() < 0 ? defaultPort(config.url().getScheme()) : config.url().getPort();
         String path = config.url().getPath() == null || config.url().getPath().isBlank() ? "/" : config.url().getPath();
@@ -174,22 +199,35 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
                     for (Map.Entry<String, String> header : config.headers().entrySet()) {
                         req.putHeader(header.getKey(), header.getValue());
                     }
+                    req.exceptionHandler(err -> handleConnectionLost(attempt, "request-exception", err));
                     req.send()
-                            .onSuccess(this::handleSseResponse)
-                            .onFailure(err -> scheduleReconnect("request-send-failure", err));
+                            .onSuccess(response -> handleSseResponse(attempt, response))
+                            .onFailure(err -> handleConnectionLost(attempt, "request-send-failure", err));
                 })
-                .onFailure(err -> scheduleReconnect("request-create-failure", err));
+                .onFailure(err -> handleConnectionLost(attempt, "request-create-failure", err));
     }
 
-    private void handleSseResponse(HttpClientResponse response) {
-        if (response.statusCode() >= 400) {
-            scheduleReconnect("status=" + response.statusCode(), null);
+    private void handleSseResponse(long attempt, HttpClientResponse response) {
+        if (isSuperseded(attempt)) {
+            log.debug("[MCP-UPSTREAM] provider={} ignoring SSE response from superseded attempt {}",
+                    config.providerId(), attempt);
             return;
         }
+
+        if (response.statusCode() >= 400) {
+            handleConnectionLost(attempt, "status=" + response.statusCode(), null);
+            return;
+        }
+
+        // Established; a later drop may start a fresh attempt.
+        connectInFlight.set(false);
 
         StringBuilder buffer = new StringBuilder();
         SseTextDecoder textDecoder = new SseTextDecoder();
         response.handler(chunk -> {
+            if (isSuperseded(attempt)) {
+                return;
+            }
             buffer.append(textDecoder.decode(chunk));
             String all = buffer.toString();
             int separator;
@@ -201,8 +239,39 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
             buffer.append(all);
         });
 
-        response.exceptionHandler(err -> scheduleReconnect("response-exception", err));
-        response.endHandler(v -> scheduleReconnect("response-ended", null));
+        response.exceptionHandler(err -> handleConnectionLost(attempt, "response-exception", err));
+        response.endHandler(v -> handleConnectionLost(attempt, "response-ended", null));
+    }
+
+    /**
+     * Single entry point for every way a connection attempt can die. Callbacks from a superseded
+     * attempt are dropped; the first callback of the current attempt retires it, so the second
+     * callback of the same drop cannot schedule another reconnect.
+     *
+     * <p>Package-private so tests can replay late and duplicate callbacks deterministically.
+     */
+    void handleConnectionLost(long attempt, String reason, Throwable cause) {
+        if (isSuperseded(attempt)) {
+            log.debug("[MCP-UPSTREAM] provider={} ignoring late SSE event '{}' from superseded attempt {}",
+                    config.providerId(), reason, attempt);
+            return;
+        }
+
+        activeAttempt = NO_ATTEMPT;
+        connectInFlight.set(false);
+        discoveredEndpoint = null;
+        failPending("SSE upstream disconnected (" + reason + ")");
+
+        if (cause != null) {
+            log.debug("[MCP-UPSTREAM] provider={} SSE connection lost reason={} error={}",
+                    config.providerId(), reason, cause.getMessage());
+        }
+
+        scheduleReconnect(reason, cause);
+    }
+
+    private boolean isSuperseded(long attempt) {
+        return closed || activeAttempt != attempt;
     }
 
     private void processEventBlock(String block) {
@@ -262,18 +331,46 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
     }
 
     private void scheduleReconnect(String reason, Throwable cause) {
-        discoveredEndpoint = null;
-        failPending("SSE upstream disconnected (" + reason + ")");
-
         if (closed) {
             return;
         }
-
-        if (cause != null) {
-            log.debug("[MCP-UPSTREAM] provider={} SSE reconnect scheduled reason={} error={}", config.providerId(), reason, cause.getMessage());
+        if (!reconnectPending.compareAndSet(false, true)) {
+            log.debug("[MCP-UPSTREAM] provider={} SSE reconnect already scheduled", config.providerId());
+            return;
         }
 
-        vertx.setTimer(Math.max(1000, config.connectTimeoutMillis()), timer -> connectSse());
+        reconnectTimerId = vertx.setTimer(Math.max(1000, config.connectTimeoutMillis()), timer -> {
+            reconnectTimerId = null;
+            reconnectPending.set(false);
+            connectSse();
+        });
+    }
+
+    private void cancelReconnect() {
+        Long timerId = reconnectTimerId;
+        reconnectTimerId = null;
+        reconnectPending.set(false);
+        if (timerId != null) {
+            try {
+                vertx.cancelTimer(timerId);
+            } catch (Exception ex) {
+                log.debug("[MCP-UPSTREAM] provider={} failed to cancel SSE reconnect timer: {}",
+                        config.providerId(), ex.getMessage());
+            }
+        }
+    }
+
+    /** Package-private test hooks. */
+    long activeAttempt() {
+        return activeAttempt;
+    }
+
+    long attemptCount() {
+        return attemptCounter.get();
+    }
+
+    String discoveredEndpoint() {
+        return discoveredEndpoint;
     }
 
     private void failPending(String message) {
@@ -281,12 +378,12 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
             return;
         }
         IllegalStateException failure = new IllegalStateException(message);
-        pendingResponses.forEach((id, promise) -> {
+        for (String id : new java.util.ArrayList<>(pendingResponses.keySet())) {
             Promise<JsonObject> removed = pendingResponses.remove(id);
             if (removed != null) {
                 removed.tryFail(failure);
             }
-        });
+        }
     }
 
     private static int defaultPort(String scheme) {
