@@ -52,7 +52,13 @@ class McpTransportConformanceTest {
     @BeforeEach
     void setUp() throws Exception {
         vertx = Vertx.vertx();
-        httpClient = HttpClient.newHttpClient();
+        httpClient = HttpClient.newBuilder()
+                // Pin HTTP/1.1: the JDK client otherwise attempts an h2c upgrade on plaintext
+                // HTTP, which intermittently fails against the HTTP/1.1 server with a
+                // ProtocolException under concurrent requests. Production traffic reaches
+                // Pyloros over HTTP/1.1 behind the reverse proxy anyway.
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
         authenticated = true;
 
         ToolProvider provider = new EchoToolProvider();
