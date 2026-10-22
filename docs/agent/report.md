@@ -123,8 +123,14 @@ production cause.**
   startup. The 1.5 s debounce collapses them, but the catalog is refreshed
   repeatedly for as long as the IDE keeps emitting.
 - `tools/list` size and dynamics were investigated in round 4 (section 5c) and
-  did not reproduce the symptom. Untested beyond Pyloros: Caddy's buffering of
-  a 412 KB body and the MCP client's own payload limits.
+  Caddy in round 5 (section 5d); neither reproduced the symptom. Still
+  untested: the actual ChatGPT MCP connector, which cannot be driven from
+  here.
+- **The deployment runs on a dynamic public IP behind DynDNS** (CNAME to an A
+  record with a 60 s TTL; the IP changed between 2026-10-19 and 2026-10-22).
+  An ISP forced reconnect severs every in-flight TLS connection, which matches
+  the symptom and would be invisible to both Pyloros and Caddy. Circumstantial
+  — see section 5d.
 - Locally, a second Pyloros instance (`pyloros-app/build/libs/pyloros.jar` on
   127.0.0.1:18099) was running alongside the public one and was holding the
   build directory. Both are stopped now; **nothing was restarted.**
@@ -295,6 +301,103 @@ accepting it, so "transferred completely" is a real assertion.
 limit, tool cap or fragmentation was introduced, per instruction, and none is
 warranted by these results. What remains untested is the path *outside*
 Pyloros: Caddy's buffering and the client's own limits for a 412 KB body.
+
+## 5d. Caddy and the client (round 5)
+
+No Pyloros code was changed in this round.
+
+### Which transmission faults were reproduced behind Caddy: none
+
+`scripts/caddy_large_response_probe.py` runs an isolated Caddy — throwaway
+Caddyfile, free ports, `auto_https off`, plain HTTP, storage and `XDG_*` in a
+temp dir — in front of a controlled upstream. The production Caddyfile, its
+data directory and the running instance were neither modified nor used as
+configuration. Each body is fetched directly from the upstream *and* through
+Caddy and compared by SHA-256, so "forwarded intact" is a byte-level claim.
+
+| Scenario | Direct | Through Caddy | Verdict |
+| --- | --- | --- | --- |
+| 421,795 B (live size) | 200, parses | 200, same SHA-256, `Content-Length: 421795` | intact |
+| 686,399 B (test size) | 200, parses | 200, same SHA-256, `Content-Length: 686399` | intact |
+| Truncated (length announced, half sent) | `IncompleteRead` | `IncompleteRead` | fault propagated, not masked |
+| Delayed chunks (10 × 150 ms, chunked) | 200, 1.51 s | 200, 1.51 s, same SHA-256 | intact, chunking preserved |
+| Aborted mid-stream (no terminating chunk) | `IncompleteRead` | `IncompleteRead` | fault propagated |
+| Complete but invalid JSON | 200, parse fails | 200, same SHA-256, parse fails | transfer and content correctly separate |
+| 10 concurrent large requests | — | 10/10 complete, 1 distinct digest | intact |
+
+Caddy did not truncate, alter or mask anything. **The hypothesis that the
+reverse proxy damages a large MCP response is not confirmed.**
+
+### Client behaviour, and the limit of what was tested
+
+Two independent HTTP clients were exercised: Java's `HttpClient` (in
+`ToolsListResponseSizeTest`) and Python's `urllib` (in the probe). Both accept
+a complete 686 KB body, both reject a truncated body and a mid-stream abort
+with an exception rather than returning a short body, both handle a 1.5 s
+delayed response, and both separate "transferred completely" from "parses as
+JSON".
+
+**The actual ChatGPT MCP connector was not tested and cannot be driven
+automatically from here.** Nothing in this round says anything about the
+production client's limits — its maximum payload size, its read timeout, or
+how it reports a severed stream. Every client-side fault above was
+*simulated*; none was observed occurring on its own.
+
+### A finding from the production logs that changes the picture
+
+While looking for Caddy's behaviour, its production log and configuration were
+read (read-only, nothing modified):
+
+- `generated/Caddyfile`: `pyloros.aresstack.de` → `localhost:8081`,
+  `askai.aresstack.de` → `localhost:8082`.
+- `logs/caddy.log` spans **2026-08-22 to 2026-10-22**, 2,711 entries: 1,751
+  error, 360 warn, 600 info. Of those, **`pyloros.aresstack.de` appears exactly
+  once** — a 502 when Pyloros was not listening, almost certainly from this
+  investigation. The 1,525 dominant errors are
+  `dial tcp [::1]:8082: connection refused`, i.e. the unrelated `askai`
+  service. **Caddy logged no proxy, stream or truncation error for Pyloros in
+  two months.** Caveat: no `log` directive is configured, so this is
+  error-level only — it shows the absence of recorded errors, not that requests
+  succeeded.
+- TLS is currently sound: the certificate for `pyloros.aresstack.de` is valid
+  2026-10-19 → 2027-01-17. The ACME failures on 2026-10-19 (NXDOMAIN, "Error
+  getting validation data", rate limit) were setup-time and resolved the same
+  evening.
+
+The notable part is the addressing. `pyloros.aresstack.de` is a **CNAME to
+`aresstack.de`**, whose A record is **89.57.85.200 with a TTL of 60 seconds**.
+On 2026-10-19 Let's Encrypt validated against **46.114.25.123**. The public IP
+therefore changed between then and now, and the webserver ships a
+`DynDnsClient` class — this is a dynamic-IP deployment behind DynDNS.
+
+That is the first hypothesis whose shape matches the symptom. German consumer
+lines are typically force-reconnected, commonly daily, and get a new public
+IP. At that moment every established TCP/TLS connection is severed; a client
+in the middle of reading a response sees the stream die, which is exactly what
+"Error in input stream" describes. Until DNS catches up, new connections go to
+an address that is no longer the server. It also explains the two months of
+Caddy logs without a single Pyloros stream error: the break happens between
+client and Caddy, below anything Caddy can observe.
+
+**This is circumstantial, not proof.** The evidence is one observed IP change,
+a 60-second TTL, a DynDNS updater and an absence of errors in the chain — not a
+failure timestamp correlated with an IP change. It is also entirely outside
+Pyloros, which is consistent with four rounds of failing to reproduce the
+symptom inside it.
+
+### Search for further hypotheses stopped here
+
+Per instruction, no further speculative fault hunting and no further code
+changes. What would actually settle it, in order of value:
+
+1. Capture one real failure: timestamp, MCP method, response size, and the
+   client-side error text.
+2. Correlate it with the DynDNS update history and the public IP at that
+   moment. A reconnect within seconds of the failure would confirm the
+   hypothesis above.
+3. Enable Caddy access logging for `pyloros.aresstack.de` so request-level data
+   exists next time — **a production configuration change, deliberately not
+   made here.**
 
 ## 6. GitHub Actions
 
