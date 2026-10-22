@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/central-oauth-backend
 
 jobs:
   build-jar:
@@ -20,6 +21,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      # Pyloros consumes com.aresstack:anauthentia(+/-jwt) 0.1.0-SNAPSHOT from
+      # mavenLocal until the library's first Maven Central release. CI builds
+      # the pinned library commit and publishes it locally first.
+      - name: Check out AnAuthentia (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: aresstack/anauthentia
+          ref: a9c4a80b6f30f38f6594c5a3fedbdfa047e27492
+          path: anauthentia
+
+      - name: Publish AnAuthentia to mavenLocal
+        run: |
+          cd anauthentia
+          chmod +x gradlew
+          ./gradlew --no-daemon publishToMavenLocal
 
       - name: Build executable Pyloros jar
         run: |

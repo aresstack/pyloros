@@ -23,7 +23,6 @@ import com.aresstack.pyloros.extension.TargetPlatformModuleLoader;
 import com.aresstack.pyloros.extension.TargetPlatformSkillsToolProvider;
 import com.aresstack.pyloros.http.HealthRoutes;
 import com.aresstack.pyloros.http.McpRoutes;
-import com.aresstack.pyloros.oauth.OAuthSecurityModule;
 import com.aresstack.pyloros.plugin.PluginActivationResolver;
 import com.aresstack.pyloros.plugin.PluginLoadResult;
 import com.aresstack.pyloros.plugin.PluginRegistry;
@@ -116,7 +115,7 @@ public final class PylorosApplication extends AbstractVerticle {
 
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(config.serverPort())
+                .listen(config.serverPort(), config.serverHost())
                 .onSuccess(server -> log.info(
                         "Pyloros listening on port {} with public MCP URL {}/",
                         config.serverPort(),
@@ -140,15 +139,12 @@ public final class PylorosApplication extends AbstractVerticle {
             log.info("[SECURITY] mode=none");
             return new NoSecurityModule();
         }
-        if ("oauth".equalsIgnoreCase(config.securityMode())) {
-            log.info("[SECURITY] mode=oauth");
-            return new OAuthSecurityModule(config);
-        }
         if ("central-oauth".equalsIgnoreCase(config.securityMode())) {
             log.info("[SECURITY] mode=central-oauth issuer={}", config.centralOauthIssuer());
             return new com.aresstack.pyloros.oauth.CentralOAuthSecurityModule(config);
         }
-        throw new IllegalArgumentException("Unsupported security mode: " + config.securityMode());
+        throw new IllegalArgumentException("Unsupported security mode '" + config.securityMode()
+                + "'. Use 'central-oauth' (requires CENTRAL_OAUTH_ISSUER) or 'none'.");
     }
 
     private void loadPlugins(List<ToolProvider> providers) {
