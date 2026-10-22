@@ -107,12 +107,20 @@ class McpErrorResponseContractTest {
         // A messageless throwable is the exact trigger of the original NPE-in-callback hang.
         callToolBehavior = () -> Future.failedFuture(new RuntimeException());
 
+        long startNanos = System.nanoTime();
         JsonNode response = postRpc("/", "tools/call", "{\"name\":\"test__echo\",\"arguments\":{}}");
+        long elapsedMillis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
 
         assertEquals(-32000, response.path("error").path("code").asInt());
         String message = response.path("error").path("message").asText();
         assertFalse(message.isBlank(), "error message must never be blank");
         assertEquals("RuntimeException", message);
+
+        // The point of the fix: the response is produced by the failure callback, not by the
+        // client giving up. Timing it out would also satisfy the assertions above, so bound it.
+        assertTrue(elapsedMillis < RESPONSE_TIMEOUT.toMillis() / 2,
+                "the response must be ended by the handler, not left for the client to time out; took "
+                        + elapsedMillis + "ms of a " + RESPONSE_TIMEOUT.toMillis() + "ms client timeout");
     }
 
     @Test
