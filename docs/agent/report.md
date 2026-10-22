@@ -103,9 +103,9 @@ production cause.**
   NPEs a message. The null-id branch is unreachable over HTTP because
   `ToolView.named()` accepts any non-blank name. Reachability is real but
   unproven.
-- **The IDEA SSE path was the best fit for the symptom, and round 3 ruled it
-  out.** See section 5b: a dropped IDE connection yields a prompt 200 with an
-  empty tool list, never an error or a stall.
+- **The IDEA SSE path did not reproduce the symptom in round 3**, but is not
+  proven uninvolved. See section 5b: a dropped IDE connection yields a prompt
+  200 with an empty tool list in the tested scenarios.
 
 ## 4. Remaining risks
 
@@ -122,10 +122,9 @@ production cause.**
 - IntelliJ emits `notifications/tools/list_changed` continuously, not only at
   startup. The 1.5 s debounce collapses them, but the catalog is refreshed
   repeatedly for as long as the IDE keeps emitting.
-- `tools/list` is roughly 412 KB for 259 tools across 9 providers. Not
-  investigated, and not a known fault — but it is the largest untested
-  variable at the public endpoint and the tool count fluctuates with IDE
-  state.
+- `tools/list` size and dynamics were investigated in round 4 (section 5c) and
+  did not reproduce the symptom. Untested beyond Pyloros: Caddy's buffering of
+  a 412 KB body and the MCP client's own payload limits.
 - Locally, a second Pyloros instance (`pyloros-app/build/libs/pyloros.jar` on
   127.0.0.1:18099) was running alongside the public one and was holding the
   build directory. Both are stopped now; **nothing was restarted.**
@@ -200,10 +199,11 @@ an empty tool list**, promptly, with no JSON-RPC error and no stall. A
 `tools/call` while disconnected returns an `isError` result, also promptly.
 
 A client-side broken input stream requires an unanswered or truncated
-response. This path produces neither. **The IDEA SSE path is ruled out as the
-cause.** Combined with round 2, where the Streamable HTTP defects were ruled
-out against the actually configured upstreams, no examined Pyloros path
-currently explains the symptom.
+response. This path produced neither **in the tested scenarios**. That is not
+the same as proving the path uninvolved under all conditions: a large,
+concurrently changing tool list was not covered here (see section 5c). The
+honest statement is that the IDEA SSE path did not reproduce the symptom, not
+that it is excluded.
 
 What the live instance did show: the IntelliJ plugin emits
 `notifications/tools/list_changed` **continuously**, not only at startup, and
@@ -225,6 +225,76 @@ confirm an abrupt server-side close is detected and recovered. A connect
 timeout is bounded, which is a different thing from an idle timeout. If
 half-open detection is ever needed, the correct mechanism is an application
 heartbeat agreed with the upstream, not a blanket timeout.
+
+## 5c. tools/list size and dynamics (round 4)
+
+### Measured size
+
+Taken from the response the **live instance actually produced** (captured while
+it ran `217fe5c`, i.e. the pre-fix `HttpJson`):
+
+| Metric | Value |
+| --- | --- |
+| HTTP body | 421,795 UTF-8 bytes |
+| Compact JSON re-serialization | 421,795 bytes — identical, so no pretty-printing |
+| Tools / providers | 259 / 9 |
+| Per-tool bytes | min 183, median 1,318, mean 1,627, max 21,121 |
+| Largest single description | 19,709 bytes |
+| Tools containing non-ASCII | 126 of 259 |
+
+Bytes by provider: intellij 163,354 (122 tools), github 136,548 (49),
+intellij-index 48,420 (30), debugger-mcp-server 28,132 (23), mcp-steroid 37,065
+(10), acp_registry 2,430 (8), pyloros 2,815 (7), dirac 1,351 (5),
+deepagents 1,376 (5).
+
+That captured response parses as valid, complete JSON. Since it was produced by
+the previous implementation, it also serves as the old-versus-new comparison for
+the large-response path: both versions serialize the whole envelope with
+Jackson and end the response once. The `HttpJson` change affects only error
+paths, not this one.
+
+### Transport shape
+
+`ToolsListResponseSizeTest` reproduces the measured distribution — 259 tools
+over 9 providers, one 19.7 KB description, unicode in every tool — and drives
+the real route chain over HTTP. Measured in the test: **686,399 body bytes,
+`Content-Length: 686399`, no `Transfer-Encoding`, `application/json`, status
+200, full JSON parse succeeds, 259 tools, 259 of 259 with non-ASCII.**
+
+So the JSON-RPC message is delivered as one complete, length-delimited body.
+There is no chunking and no fragmentation at this layer; transport overhead is
+the status line plus five headers.
+
+### Catalog dynamics
+
+Every public `tools/list` triggers a full refresh of all providers
+(`ToolCatalog.listTools` → `refresh`). `toEntry` copies each provider map
+before adding the prefixed name, so the catalog never mutates a provider's
+cached maps — the shared-mutation hypothesis (a `ConcurrentModificationException`
+mid-serialization, which would truncate the body) does **not** hold.
+
+One real finding, deterministically demonstrated by
+`refreshBetweenProviderCallsStillProducesACompleteResponse`: a single
+`tools/list` response is **not** a point-in-time snapshot across providers. The
+providers are asked one after another, so a refresh landing between two
+provider calls yields a response mixing catalog generations — measured
+`{intellij=1, github=2, intellij-index=2, …}`. Each provider's own tool set
+stays internally consistent, the tool count is complete and the JSON is valid,
+so no client-visible corruption follows. It is recorded as a property, not
+fixed, because no defect follows from it.
+
+### Does this explain "Error in input stream"? No.
+
+A 686 KB response — larger than production — is transferred complete and valid,
+including while the catalog is switched under it and under six concurrent
+requests. `aTruncatedResponseIsDetectedAndNotAcceptedAsComplete` confirms the
+premise: the test client raises `IOException` on a short body rather than
+accepting it, so "transferred completely" is a real assertion.
+
+**Size and dynamics of `tools/list` did not reproduce the symptom.** No size
+limit, tool cap or fragmentation was introduced, per instruction, and none is
+warranted by these results. What remains untested is the path *outside*
+Pyloros: Caddy's buffering and the client's own limits for a 412 KB body.
 
 ## 6. GitHub Actions
 
