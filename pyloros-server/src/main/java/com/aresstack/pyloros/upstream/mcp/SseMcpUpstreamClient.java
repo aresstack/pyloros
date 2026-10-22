@@ -188,9 +188,9 @@ public final class SseMcpUpstreamClient implements McpUpstreamClient {
         }
 
         StringBuilder buffer = new StringBuilder();
+        SseTextDecoder textDecoder = new SseTextDecoder();
         response.handler(chunk -> {
-            String str = chunk.toString(StandardCharsets.UTF_8).replace("\r\n", "\n").replace('\r', '\n');
-            buffer.append(str);
+            buffer.append(textDecoder.decode(chunk));
             String all = buffer.toString();
             int separator;
             while ((separator = all.indexOf("\n\n")) >= 0) {

@@ -8,7 +8,7 @@ import io.vertx.core.http.HttpClientResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
+import com.aresstack.pyloros.upstream.mcp.SseTextDecoder;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Handler;
 import java.util.ArrayList;
@@ -133,15 +133,15 @@ public final class IdeaSseSession {
         connectInFlight.set(false);
 
         StringBuilder sb = new StringBuilder();
+        // One decoder per connection: it carries partial UTF-8 characters and a dangling \r across
+        // network buffer boundaries.
+        SseTextDecoder textDecoder = new SseTextDecoder();
 
         response.handler(buff -> {
             if (isSuperseded(attempt)) {
                 return;
             }
-            String chunk = buff.toString(StandardCharsets.UTF_8)
-                    .replace("\r\n", "\n")
-                    .replace('\r', '\n');
-            sb.append(chunk);
+            sb.append(textDecoder.decode(buff));
             // process complete events separated by double-newline
             String all = sb.toString();
             int idx;
