@@ -3,8 +3,10 @@
 ## Status
 
 - Repository: aresstack/pyloros
-- Branch: `fix/mcp-stream-robustness-20261022`, pushed to `origin`
-- Draft PR: https://github.com/aresstack/pyloros/pull/108 (not merged, no release)
+- Branch: `fix/mcp-stream-robustness-clean-20261022`, pushed to `origin`
+- Draft PR: https://github.com/aresstack/pyloros/pull/109 (not merged, no release)
+- Superseded: PR #108, closed; its branch left intact, central-OAuth work
+  preserved on `feature/central-oauth-backend`
 - Base of the MCP work: `217fe5c`
 
 **The cause of the production error is still not proven.** This round added a
@@ -101,31 +103,29 @@ production cause.**
   NPEs a message. The null-id branch is unreachable over HTTP because
   `ToolView.named()` accepts any non-blank name. Reachability is real but
   unproven.
-- **The IDEA SSE path remains the best fit for the symptom.** It is the only
-  long-lived stream (`intellij`, 122 tools over `http://localhost:64343/sse`),
-  it drops whenever the IDE or its plugin restarts, and
-  `IdeaToolProvider.listTools()` does **not** recover, so a failure there
-  propagates to the public endpoint. The reconnect storm and the endpoint-wiping
-  late callback were fixed here. This was not reproduced live, because doing so
-  would mean taking down the user's IDE.
+- **The IDEA SSE path was the best fit for the symptom, and round 3 ruled it
+  out.** See section 5b: a dropped IDE connection yields a prompt 200 with an
+  empty tool list, never an error or a stall.
 
 ## 4. Remaining risks
 
 - The production trigger is unidentified. A failure timestamp correlated with
   Pyloros and Caddy access logs is still the decisive missing evidence.
-- `IdeaSseSession` has no idle timeout, so a silently half-open SSE connection
-  is only noticed when the OS reports it. A heartbeat expectation would close
-  this gap and is the most promising remaining lead.
-- `SseMcpUpstreamClient` (the transport the `intellij` provider actually uses)
-  received only the UTF-8 decoding fix. Its own reconnect logic was not given
-  the generation guard that `IdeaSseSession` now has.
-- 123 `notifications/tools/list_changed` arrive from IntelliJ within one second
-  of startup, collapsed into few refreshes. Controlled today, but the upstream
-  is noisy.
-- Draft PR #108 contains eight commits, including
-  `feat: central OAuth mode validating AresStack-issued JWTs (AP 7)`, which is
-  unrelated to this work. The PR is no longer the focused change set it was
-  meant to be.
+- Neither SSE client has idle-timeout based half-open detection. This is a
+  deliberate decision, not an omission — see section 5b. A quiet SSE stream is
+  legitimate and the transport defines no mandatory keepalive, so a blanket
+  idle timeout would kill healthy connections.
+- `SseMcpUpstreamClient` now has the same generation guards as
+  `IdeaSseSession`. Note it currently serves no configured upstream:
+  `intellij` is routed to `IdeaMcpClient` and everything else uses
+  streamable-http.
+- IntelliJ emits `notifications/tools/list_changed` continuously, not only at
+  startup. The 1.5 s debounce collapses them, but the catalog is refreshed
+  repeatedly for as long as the IDE keeps emitting.
+- `tools/list` is roughly 412 KB for 259 tools across 9 providers. Not
+  investigated, and not a known fault — but it is the largest untested
+  variable at the public endpoint and the tool count fluctuates with IDE
+  state.
 - Locally, a second Pyloros instance (`pyloros-app/build/libs/pyloros.jar` on
   127.0.0.1:18099) was running alongside the public one and was holding the
   build directory. Both are stopped now; **nothing was restarted.**
@@ -139,8 +139,12 @@ On `fix/mcp-stream-robustness-20261022`:
 - `7454b59` Serialize IdeaSseSession reconnects and guard against late callbacks
 - `5856baf` Decode SSE streams across network buffer boundaries
 - `93dda7d` Report findings and fixes
-- `aafe9d3` Make the Streamable HTTP upstream client survive a flaky backend
-- `1c1f620` Bound how long a broken upstream may delay the public MCP endpoint
+- `2adbff1` Make the Streamable HTTP upstream client survive a flaky backend
+- `84f0e52` Bound how long a broken upstream may delay the public MCP endpoint
+- `2530442` Give SseMcpUpstreamClient the same connection lifecycle guards
+- `6638be0` Trace the IDEA SSE path to the public endpoint and rule it out
+
+(Commit hashes differ from PR #108's by the cherry-pick onto the clean branch.)
 
 Files added this round:
 
@@ -153,6 +157,74 @@ Changed: `StreamableHttpMcpUpstreamClient.java`, `McpErrorResponseContractTest.j
 
 The webserver and its TLS configuration were not touched. Nothing merged, no
 release, no production configuration changed.
+
+## 5b. IDEA SSE path investigation (round 3)
+
+### Corrections to this report
+
+Two earlier statements were wrong and are withdrawn:
+
+1. "`IdeaToolProvider.listTools()` does not recover, so a failure there
+   propagates to the public endpoint." Its `try/catch` covers only
+   *synchronous* throws, but the failure never gets that far:
+   `IdeaMcpClient.listTools()` completes with `List.of()` on **every** path —
+   not ready, parse failure, and its `onFailure` handler. Neither method can
+   fail its future.
+2. The earlier claim that the stale June jar served production traffic;
+   already withdrawn in round 2.
+
+### Which faults were reproduced
+
+`SseMcpUpstreamClient` carried exactly the defects already fixed in
+`IdeaSseSession`, because the previous round only touched its UTF-8 decoding:
+an unguarded `scheduleReconnect()` reached from both the response exception
+handler and the end handler, an unconditionally cleared `discoveredEndpoint`,
+and a reconnect timer left armed by `stop()`. Reproduced and fixed with the
+same generation-numbered attempt pattern.
+
+### Which tests fail against the previous code
+
+Of the seven `SseMcpUpstreamClientLifecycleTest` cases, **two** fail against
+the old semantics: `duplicateDropEventsScheduleOnlyOneReconnect` and
+`lateCallbackFromSupersededAttemptDoesNotClearFreshEndpoint`. The other five —
+abrupt close with recovery, rejected attempt retried, stop during a pending
+reconnect, quiet stream staying valid, pending request failed on disconnect —
+pass either way and document behaviour rather than pinning a regression. The
+same split applies to the extended `IdeaSseSessionLifecycleTest`.
+
+### Does this explain "Error in input stream"? No.
+
+`IdeaSseEndToEndTest` runs the production chain against a controllable SSE
+server. When the IDE connection drops, the public endpoint answers **200 with
+an empty tool list**, promptly, with no JSON-RPC error and no stall. A
+`tools/call` while disconnected returns an `isError` result, also promptly.
+
+A client-side broken input stream requires an unanswered or truncated
+response. This path produces neither. **The IDEA SSE path is ruled out as the
+cause.** Combined with round 2, where the Streamable HTTP defects were ruled
+out against the actually configured upstreams, no examined Pyloros path
+currently explains the symptom.
+
+What the live instance did show: the IntelliJ plugin emits
+`notifications/tools/list_changed` **continuously**, not only at startup, and
+uses CRLF with `data:` before `event:`. The parsers handle that format; the
+tests now use it.
+
+### Idle timeout: deliberately not implemented
+
+Observed read-only on the running IDE endpoint for 30 s: no comment or
+heartbeat frames, only `list_changed` notifications. The MCP SSE transport
+defines no mandatory keepalive, so a quiet stream is legitimate and a
+data-based idle timeout would kill healthy connections — precisely the
+behaviour to avoid. `quietStreamWithoutEventsStaysValid` now pins that a
+silent stream stays valid in both clients.
+
+Detection therefore stays at the transport level, where Vert.x surfaces a
+closed or reset connection through the exception and end handlers; the tests
+confirm an abrupt server-side close is detected and recovered. A connect
+timeout is bounded, which is a different thing from an idle timeout. If
+half-open detection is ever needed, the correct mechanism is an application
+heartbeat agreed with the upstream, not a blanket timeout.
 
 ## 6. GitHub Actions
 
@@ -179,7 +251,9 @@ PR #108 was left untouched.
 
 ## 7. Build and test result
 
-`./gradlew build` — BUILD SUCCESSFUL, **370 tests, 0 failures, 0 skipped**
+`./gradlew build` — BUILD SUCCESSFUL, **381 tests, 0 failures, 0 skipped**
 (`clean` fails only while a local instance holds `pyloros-app/build`).
-New this round: `StreamableHttpMcpUpstreamClientTest` (11),
-`McpUpstreamFailureEndToEndTest` (4).
+New in round 2: `StreamableHttpMcpUpstreamClientTest` (11),
+`McpUpstreamFailureEndToEndTest` (4). New in round 3:
+`SseMcpUpstreamClientLifecycleTest` (7), `IdeaSseEndToEndTest` (4), plus three
+more `IdeaSseSessionLifecycleTest` cases.
