@@ -154,7 +154,30 @@ Changed: `StreamableHttpMcpUpstreamClient.java`, `McpErrorResponseContractTest.j
 The webserver and its TLS configuration were not touched. Nothing merged, no
 release, no production configuration changed.
 
-## 6. Build and test result
+## 6. GitHub Actions
+
+`Verify Root MCP` runs on `pull_request` and `workflow_dispatch` only.
+
+On `fix/mcp-stream-robustness-20261022` it **cannot** verify this work. Since
+`3a13df6` the build fails during dependency resolution:
+`com.aresstack:anauthentia:0.1.0-SNAPSHOT` and `anauthentia-jwt:0.1.0-SNAPSHOT`
+are required by `pyloros-auth-oauth` but are published neither to Maven Central
+nor to the runner's local repository. It resolves locally only because those
+artifacts are installed in the developer's `~/.m2`. This is a consequence of
+the central-OAuth commit sitting on the branch, not of the MCP work.
+
+One commit earlier, `4fe851e` (documentation only) failed on
+`AcpIntegrationTest > testErrorSession()`, which had passed at `93dda7d`. That
+test is flaky on the runner and unrelated to MCP.
+
+To obtain an actual CI confirmation, `fix/mcp-stream-robustness-clean-20261022`
+was created from `4fe851e` with the three new commits cherry-picked, i.e. every
+MCP commit and none of the central-OAuth change. Manually dispatched run
+[39769671595](https://github.com/aresstack/pyloros/actions/runs/39769671595) on
+`ae5b5bf`: **BUILD SUCCESSFUL**. No pull request was opened for this branch and
+PR #108 was left untouched.
+
+## 7. Build and test result
 
 `./gradlew build` — BUILD SUCCESSFUL, **370 tests, 0 failures, 0 skipped**
 (`clean` fails only while a local instance holds `pyloros-app/build`).
