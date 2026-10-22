@@ -51,15 +51,6 @@ allprojects {
             : project.version
 
     repositories {
-        // Scoped exception: the AnAuthentia OAuth/JWT library is consumed from
-        // mavenLocal (publishToMavenLocal in C:/Projects/anauthentia) until its
-        // first Maven Central release; everything else stays on Central.
-        mavenLocal {
-            content {
-                includeModule 'com.aresstack', 'anauthentia'
-                includeModule 'com.aresstack', 'anauthentia-jwt'
-            }
-        }
         mavenCentral()
     }
 }
