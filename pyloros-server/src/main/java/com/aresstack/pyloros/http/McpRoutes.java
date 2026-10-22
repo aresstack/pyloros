@@ -71,7 +71,7 @@ public final class McpRoutes {
         try {
             requestedToolView = resolveRequestedToolView(context);
         } catch (IllegalArgumentException exception) {
-            HttpJson.rpcError(context, null, -32602, exception.getMessage());
+            HttpJson.rpcError(context, null, -32602, HttpJson.errorMessage(exception));
             return;
         }
 
@@ -115,8 +115,8 @@ public final class McpRoutes {
 
     private void listTools(RoutingContext context, JsonNode id, ToolView toolView) {
         toolCatalog.listTools(toolView)
-                .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools)))
-                .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+                .onSuccess(tools -> HttpJson.rpcResult(context, id, Map.of("tools", tools == null ? List.of() : tools)))
+                .onFailure(error -> HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error)));
     }
 
     private void callTool(RoutingContext context, JsonNode id, JsonNode request, ToolView toolView) {
@@ -125,7 +125,7 @@ public final class McpRoutes {
         logToolsCall("rpc", toolCall);
         toolRouter.callTool(toolCall, toolView)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
-                .onFailure(error -> HttpJson.rpcError(context, id, -32000, error.getMessage()));
+                .onFailure(error -> HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error)));
     }
 
     private ToolView resolveRequestedToolView(RoutingContext context) {
