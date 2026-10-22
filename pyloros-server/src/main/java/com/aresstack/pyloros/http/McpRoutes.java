@@ -43,21 +43,30 @@ public final class McpRoutes {
     }
 
     public void mount(Router router) {
-        router.get("/").handler(this::mcpSse);
+        router.get("/").handler(this::mcpGet);
         router.post("/").handler(this::mcpPost);
     }
 
-    private void mcpSse(RoutingContext context) {
+    /**
+     * MCP Streamable HTTP allows a server that does not offer a server-initiated SSE stream to
+     * answer GET on the MCP endpoint with {@code 405 Method Not Allowed}.
+     *
+     * <p>Pyloros has no server-to-client JSON-RPC messages to push: every response is produced
+     * synchronously on the POST that requested it. Previously this handler emitted a single
+     * {@code event: endpoint} frame — a leftover of the deprecated HTTP+SSE transport — and closed
+     * the stream. A Streamable HTTP client that opens this stream receives a {@code text/event-stream}
+     * response that never carries a JSON-RPC message and then ends, which it can only report as a
+     * broken stream. Answering 405 tells the client unambiguously that there is no GET stream.
+     */
+    private void mcpGet(RoutingContext context) {
         AuthenticationResult authentication = authenticator.authenticate(authenticationRequest(context));
         if (!authentication.isAuthenticated()) {
             unauthorized(context, authentication);
             return;
         }
 
-        context.response()
-                .putHeader(HttpHeaders.CONTENT_TYPE, "text/event-stream")
-                .putHeader(HttpHeaders.CACHE_CONTROL, "no-cache")
-                .end("event: endpoint\ndata: /\n\n");
+        context.response().putHeader(HttpHeaders.ALLOW, "POST");
+        HttpJson.send(context, 405, Map.of("error", "GET is not supported on the MCP endpoint"));
     }
 
     private void mcpPost(RoutingContext context) {
@@ -91,7 +100,10 @@ public final class McpRoutes {
         }
 
         if (id == null || id.isNull()) {
-            HttpJson.send(context, 202, Map.of("status", "accepted"));
+            // A JSON-RPC notification carries no id and has no response. MCP Streamable HTTP
+            // requires a bodyless 202 Accepted here; a JSON body would be an unexpected payload
+            // for a client that is not reading one.
+            HttpJson.sendNoBody(context, 202);
             return;
         }
 
