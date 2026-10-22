@@ -8,17 +8,12 @@ import java.util.Properties;
 
 public record PylorosConfig(
         int serverPort,
+        String serverHost,
         String publicOrigin,
         String mcpProtocolVersion,
         String securityMode,
         String targetPlatformModules,
-        String oauthClientId,
-        String oauthClientSecret,
-        String fixedAccessToken,
-        int oauthAccessTokenTtlSeconds,
-        int oauthRefreshTokenTtlSeconds,
-        boolean oauthRefreshTokenRotationEnabled,
-        String oauthRefreshTokenStorePath,
+        String centralOauthIssuer,
         String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
@@ -27,17 +22,16 @@ public record PylorosConfig(
 
         return new PylorosConfig(
                 intValue("server.port", "SERVER_PORT", properties, 8081),
+                // Loopback by default: the AresStack webserver (Caddy) is the only
+                // intended caller; direct external access must not bypass it.
+                value("server.host", "SERVER_HOST", properties, "127.0.0.1"),
                 normalizeOrigin(value("public.origin", "PUBLIC_ORIGIN", properties, "https://current-car.com")),
                 value("mcp.protocol.version", "MCP_VERSION_CHATGPT", properties, "2025-03-26"),
-                value("security.mode", "SECURITY_MODE", properties, "oauth"),
+                // Secure default: validate centrally issued JWTs. Opt out with
+                // SECURITY_MODE=none for unprotected local setups.
+                value("security.mode", "SECURITY_MODE", properties, "central-oauth"),
                 value("target.platform.modules", "TARGET_PLATFORM_MODULES", properties, "intellij"),
-                value("oauth.client.id", "OAUTH_CLIENT_ID", properties, value("oauth.client.id", "BASIC_AUTH_USER", properties, "")),
-                value("oauth.client.secret", "OAUTH_CLIENT_SECRET", properties, value("oauth.client.secret", "BASIC_AUTH_PASS", properties, "")),
-                value("oauth.fixed-access-token", "OAUTH_ACCESS_TOKEN", properties, ""),
-                intValue("oauth.access-token.ttl.seconds", "OAUTH_ACCESS_TOKEN_TTL_SECONDS", properties, 3600),
-                intValue("oauth.refresh-token.ttl.seconds", "OAUTH_REFRESH_TOKEN_TTL_SECONDS", properties, 2592000),
-                Boolean.parseBoolean(value("oauth.refresh-token.rotation.enabled", "OAUTH_REFRESH_TOKEN_ROTATION_ENABLED", properties, "false")),
-                value("oauth.refresh-token.store.path", "OAUTH_REFRESH_TOKEN_STORE_PATH", properties, "data/oauth-refresh-tokens.json"),
+                normalizeOrigin(value("oauth.central-issuer", "CENTRAL_OAUTH_ISSUER", properties, "")),
                 resolveInjectedViewToken(properties)
         );
     }

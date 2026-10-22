@@ -50,4 +50,4 @@ jobs:
             --no-daemon \
             -x test \
             verifyReleasePoms \
-            publishAggregationToCentralPortal
+            publishAllPublicationsToCentralPortal

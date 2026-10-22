@@ -34,6 +34,8 @@ jobs:
           unzip -p pyloros-app/build/libs/pyloros.jar META-INF/MANIFEST.MF | grep '^Main-Class: com.aresstack.pyloros.PylorosApplication'
           jar tf pyloros-app/build/libs/pyloros.jar | grep '^io/vertx/core/Vertx.class$'
           jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/fasterxml/jackson/databind/ObjectMapper.class$'
+          # AnAuthentia is consumed from Maven Central; fail if it is missing.
+          jar tf pyloros-app/build/libs/pyloros.jar | grep '^com/aresstack/anauthentia/'
 
       - name: Prepare jar artifact
         run: |
