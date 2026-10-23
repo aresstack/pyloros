@@ -21,10 +21,11 @@ public interface OAuthConfig {
      *
      * <p>Was a hardcoded {@code mcp} in the authenticator, which made the
      * webserver's per-site scope configuration ineffective: a service-specific
-     * scope could be issued but never demanded. Defaults to {@code mcp} so an
-     * existing deployment keeps working without migration.
+     * scope could be issued but never demanded. The default is the service's own
+     * name, so a token minted for a neighbouring service on the same authorization
+     * server cannot be replayed here.
      */
     default String requiredScope() {
-        return "mcp";
+        return "pyloros";
     }
 }

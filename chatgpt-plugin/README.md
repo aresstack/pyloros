@@ -30,7 +30,7 @@ python3 scripts/build_chatgpt_plugin.py --version 0.1.1
    - Public MCP URL: `https://pyloros.aresstack.de/`
    - OAuth client ID: `angel`
    - Token endpoint authentication: `client_secret_basic`
-   - Scope: `mcp`
+   - Scope: `pyloros`
 4. Enter the OAuth client secret in the ChatGPT connection setup flow when requested.
    This is the value used by Pyloros' `OAUTH_CLIENT_SECRET` environment variable.
    Never commit it, embed it in `mcp.json`, or add it as a GitHub Actions secret.

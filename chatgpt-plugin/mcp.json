@@ -15,7 +15,7 @@
             },
             "authorizationUrl": "https://pyloros.aresstack.de/oauth/authorize",
             "tokenUrl": "https://pyloros.aresstack.de/oauth/token",
-            "baseScopes": ["mcp"]
+            "baseScopes": ["pyloros"]
           }
         }
       }

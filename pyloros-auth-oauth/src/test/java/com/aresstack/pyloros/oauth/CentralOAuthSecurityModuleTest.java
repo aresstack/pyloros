@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class CentralOAuthSecurityModuleTest {
 
+    /** The service scope the gateway demands by default. */
+    private static final String SCOPE = "pyloros";
     private static final String ISSUER = "https://pyloros.example.com";
     private static final String AUDIENCE = ISSUER + "/";
 
@@ -40,7 +42,7 @@ class CentralOAuthSecurityModuleTest {
     @Test
     void validCentralJwtAuthenticatesWithItsClientId() {
         Instant now = Instant.now();
-        String token = tokenIssuer.generate("chatgpt", "mcp", now, now.plus(Duration.ofMinutes(5)));
+        String token = tokenIssuer.generate("chatgpt", SCOPE, now, now.plus(Duration.ofMinutes(5)));
         AuthenticationResult result = authenticate("Bearer " + token);
         assertTrue(result.isAuthenticated());
     }
@@ -56,11 +58,11 @@ class CentralOAuthSecurityModuleTest {
 
         Instant past = now.minus(Duration.ofHours(1));
         assertRejected(authenticate("Bearer " + tokenIssuer.generate(
-                "chatgpt", "mcp", past, past.plus(Duration.ofMinutes(5)))));
+                "chatgpt", SCOPE, past, past.plus(Duration.ofMinutes(5)))));
 
         JwtKeyRing foreign = JwtKeyRing.generate("foreign");
         String foreignToken = new JwtAccessTokenIssuer(ISSUER, AUDIENCE, foreign)
-                .generate("chatgpt", "mcp", now, now.plus(Duration.ofMinutes(5)));
+                .generate("chatgpt", SCOPE, now, now.plus(Duration.ofMinutes(5)));
         assertRejected(authenticate("Bearer " + foreignToken));
     }
 

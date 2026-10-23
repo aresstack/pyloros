@@ -102,7 +102,7 @@ public final class PylorosPingToolProvider implements ToolProvider {
     }
 
     private Map<String, Object> toolDefinition() {
-        Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
+        Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"pyloros"});
 
         return Map.of(
                 "name", TOOL_NAME,
@@ -118,7 +118,7 @@ public final class PylorosPingToolProvider implements ToolProvider {
     }
 
     private Map<String, Object> saveToolDefinition() {
-        Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
+        Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"pyloros"});
 
         return Map.of(
                 "name", SAVE_TOOL_NAME,

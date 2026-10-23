@@ -12,12 +12,13 @@ import java.util.Optional;
 
 /**
  * CENTRAL mode: validates RS256 access tokens of the central AresStack issuer
- * offline (signature via cached JWKS, issuer, audience, expiry, mcp scope).
+ * offline (signature via cached JWKS, issuer, audience, expiry, service scope).
  * No local token state exists in this mode — and no fixed-token backdoor.
  */
 public final class CentralJwtRequestAuthenticator implements RequestAuthenticator {
 
-    static final String DEFAULT_REQUIRED_SCOPE = "mcp";
+    /** The service's own scope, so a neighbouring service's token is not accepted. */
+    static final String DEFAULT_REQUIRED_SCOPE = "pyloros";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String WWW_AUTHENTICATE_INVALID_TOKEN =
             "Bearer error=\"invalid_token\", error_description=\"The access token is invalid or expired\"";

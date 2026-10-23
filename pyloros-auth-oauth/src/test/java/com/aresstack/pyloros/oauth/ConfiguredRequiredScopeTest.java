@@ -34,7 +34,7 @@ class ConfiguredRequiredScopeTest {
 
     @Test
     void rejectsATokenWithoutTheConfiguredScope() {
-        // mcp alone is no longer enough once the service demands its own scope.
+        // The generic mcp scope is no longer enough: the service demands its own.
         AuthenticationResult result = authenticate("pyloros", List.of("mcp"));
 
         assertFalse(result.isAuthenticated());
@@ -43,10 +43,14 @@ class ConfiguredRequiredScopeTest {
     }
 
     @Test
-    void defaultsToMcpSoAnExistingDeploymentKeepsWorking() {
-        assertTrue(authenticate(null, List.of("mcp")).isAuthenticated());
-        assertTrue(authenticate("   ", List.of("mcp")).isAuthenticated());
-        assertFalse(authenticate(null, List.of("pyloros")).isAuthenticated());
+    void defaultsToTheServiceScopeSoANeighbourTokenIsNotAccepted() {
+        // Unset or blank configuration must not fall back to a scope that another
+        // service on the same authorization server also issues.
+        assertTrue(authenticate(null, List.of("pyloros")).isAuthenticated());
+        assertTrue(authenticate("   ", List.of("pyloros")).isAuthenticated());
+        assertFalse(authenticate(null, List.of("mcp")).isAuthenticated());
+        assertFalse(authenticate(null, List.of("askai")).isAuthenticated(),
+                "a token minted for the neighbouring service must be rejected");
     }
 
     @Test

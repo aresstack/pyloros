@@ -109,7 +109,7 @@ package com.aresstack.pyloros.extension;
         }
     
         private Map<String, Object> toolDefinition(String name, String description, Map<String, Object> properties) {
-            Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"mcp"});
+            Map<String, Object> securityScheme = Map.of("type", "oauth2", "scopes", new String[]{"pyloros"});
             return Map.of(
                     "name", name,
                     "description", description,

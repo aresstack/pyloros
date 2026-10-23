@@ -1,32 +1,41 @@
 # Per-tool scopes
 
 Pyloros authenticates a request against one gateway scope (`security.required-scope`,
-default `mcp`). On top of that, a provider can declare a scope for an individual tool
+default `pyloros`). On top of that, a provider can declare a scope for an individual tool
 via `ToolProvider.requiredScope(upstreamToolName)`. `ToolRouter` then refuses a call
 whose token does not carry that scope.
 
-## Enforcement is opt-in
+## Service scope
+
+The gateway scope is `pyloros` (`security.required-scope` / `REQUIRED_SCOPE`), not the
+generic `mcp`. That separates this connector from `askai`, which has its own scope on
+the same authorization server, so a token minted for one service is useless for the
+other. The ChatGPT connector requests it through `baseScopes` in
+`chatgpt-plugin/mcp.json`; the webserver must have `pyloros` approved for the site,
+otherwise the authorization request is rejected with `invalid_scope`.
+
+## Per-tool enforcement is opt-in
 
 `security.tool-scopes` / `TOOL_SCOPES` (default `false`).
 
-The deployed ChatGPT connector requests exactly one scope. This is not an assumption:
-the reverse-proxy log of the production webserver contains the real authorization
-requests, for example
+The connector requests exactly the scopes configured in its manifest, and nothing
+else. A real authorization request looks like this (from the production reverse-proxy
+log, here for the neighbouring askai connector):
 
 ```
-GET /oauth/authorize?response_type=code&client_id=angel
+GET /oauth/authorize?response_type=code&client_id=…
     &redirect_uri=https%3A%2F%2Fchatgpt.com%2Fconnector%2Foauth%2F…
-    &scope=mcp&code_challenge=…&code_challenge_method=S256
+    &scope=askai&code_challenge=…&code_challenge_method=S256
     &resource=https%3A%2F%2Faskai.aresstack.de%2F&state=…
 ```
 
-with the token endpoint being called by `openai-connectors-oauth/1.0`. A token issued
-from such a request carries `scope=mcp` and nothing else — the stored refresh tokens
-confirm it (`client=chatgpt scope=mcp resource=https://pyloros.aresstack.de/`).
+The token endpoint is then called by `openai-connectors-oauth/1.0`, and the issued
+token carries the requested and approved scopes - no more.
 
 Enforcing per-tool scopes by default would therefore deny every writing tool to the
-only client that currently exists. Switch `TOOL_SCOPES=true` on once a client actually
-requests the finer scopes and the webserver has them approved for the resource.
+only client that currently exists. Switch `TOOL_SCOPES=true` on once the manifest
+requests the finer scopes as well and the webserver has them approved for the
+resource.
 
 ## Declared mappings
 

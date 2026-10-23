@@ -34,10 +34,10 @@ public record PylorosConfig(
                 value("security.mode", "SECURITY_MODE", properties, "central-oauth"),
                 value("target.platform.modules", "TARGET_PLATFORM_MODULES", properties, "intellij"),
                 normalizeOrigin(value("oauth.central-issuer", "CENTRAL_OAUTH_ISSUER", properties, "")),
-                // The scope an incoming token must carry. Defaults to mcp so an
-                // existing deployment keeps working; set it per service to make the
-                // webserver's per-site scope configuration effective.
-                value("security.required-scope", "REQUIRED_SCOPE", properties, "mcp"),
+                // The scope an incoming token must carry. Defaults to this service's
+                // own name so a token issued for a neighbouring service on the same
+                // authorization server cannot be replayed here.
+                value("security.required-scope", "REQUIRED_SCOPE", properties, "pyloros"),
                 // Per-tool scopes are declared by the providers but only enforced when
                 // this is switched on. The deployed ChatGPT connector requests a single
                 // scope, so enforcing by default would deny every writing tool.

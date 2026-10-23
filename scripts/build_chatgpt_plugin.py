@@ -71,7 +71,9 @@ def validate_mcp(mcp):
     require(client.get("clientId") == "angel", "OAuth client ID does not match Pyloros")
     require(client.get("tokenEndpointAuthMethod") == "client_secret_basic",
             "Pyloros expects a confidential OAuth client")
-    require(auth.get("baseScopes") == ["mcp"], "Pyloros expects the mcp scope")
+    # The service scope, not the generic "mcp": it separates this connector from
+    # askai, which has its own scope on the same authorization server.
+    require(auth.get("baseScopes") == ["pyloros"], "Pyloros expects the pyloros scope")
     validate_https_url(auth.get("authorizationUrl", ""), "OAuth authorization URL")
     validate_https_url(auth.get("tokenUrl", ""), "OAuth token URL")
     origin = urlparse(server["url"]).netloc
