@@ -30,7 +30,8 @@ class PerToolScopeEnforcementTest {
     void setUp() throws Exception {
         ProviderRegistry registry = new ProviderRegistry(List.of(new ScopedToolProvider()));
         ToolCatalog catalog = new ToolCatalog(registry, ToolNameFormatter.defaultFormatter());
-        router = new ToolRouter(registry, catalog);
+        // Per-tool enforcement is opt-in; this suite is about the enforcing path.
+        router = new ToolRouter(registry, catalog, true);
         // Populate the catalogue the router consults for the tool's requirement.
         await(catalog.refreshForView(ToolView.PUBLIC));
     }

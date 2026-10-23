@@ -82,6 +82,23 @@ public final class AcpRegistryManagementToolProvider implements ToolProvider {
         return List.of(ToolView.PUBLIC);
     }
 
+    /**
+     * Installing, updating, uninstalling and configuring an agent changes which
+     * executables Pyloros runs on the host, which is an administrative act rather
+     * than an ordinary write. The remaining tools only read the registry, the
+     * installed-agent list or an agent's status - {@code refresh_registry} reloads
+     * the cache from the configured upstream URL and changes nothing else - so they
+     * need nothing beyond the gateway scope.
+     */
+    @Override
+    public String requiredScope(String upstreamToolName) {
+        return switch (upstreamToolName == null ? "" : upstreamToolName) {
+            case TOOL_INSTALL_AGENT, TOOL_UPDATE_AGENT, TOOL_UNINSTALL_AGENT,
+                 TOOL_CONFIGURE_AGENT -> "pyloros:admin";
+            default -> null;
+        };
+    }
+
     @Override
     public Future<List<Map<String, Object>>> listTools() {
         List<Map<String, Object>> tools = List.of(

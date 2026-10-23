@@ -15,6 +15,7 @@ public record PylorosConfig(
         String targetPlatformModules,
         String centralOauthIssuer,
         String requiredScope,
+        boolean enforceToolScopes,
         String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
@@ -37,6 +38,11 @@ public record PylorosConfig(
                 // existing deployment keeps working; set it per service to make the
                 // webserver's per-site scope configuration effective.
                 value("security.required-scope", "REQUIRED_SCOPE", properties, "mcp"),
+                // Per-tool scopes are declared by the providers but only enforced when
+                // this is switched on. The deployed ChatGPT connector requests a single
+                // scope, so enforcing by default would deny every writing tool.
+                Boolean.parseBoolean(
+                        value("security.tool-scopes", "TOOL_SCOPES", properties, "false")),
                 resolveInjectedViewToken(properties)
         );
     }

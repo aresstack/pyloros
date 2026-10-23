@@ -15,10 +15,25 @@ public final class ToolRouter {
 
     private final ProviderRegistry providerRegistry;
     private final ToolCatalog toolCatalog;
+    private final boolean enforceToolScopes;
 
+    /**
+     * Keeps per-tool scopes declared but unenforced.
+     *
+     * <p>The deployed ChatGPT connector provably requests a single scope ({@code mcp},
+     * see the authorization requests in the reverse proxy log), so enforcing a tool's
+     * own scope by default would instantly deny every writing tool. Enforcement is
+     * therefore opt-in until a client actually requests the finer scopes.
+     */
     public ToolRouter(ProviderRegistry providerRegistry, ToolCatalog toolCatalog) {
+        this(providerRegistry, toolCatalog, false);
+    }
+
+    public ToolRouter(ProviderRegistry providerRegistry, ToolCatalog toolCatalog,
+                      boolean enforceToolScopes) {
         this.providerRegistry = providerRegistry;
         this.toolCatalog = toolCatalog;
+        this.enforceToolScopes = enforceToolScopes;
     }
 
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
@@ -31,10 +46,13 @@ public final class ToolRouter {
      * <p>The gateway only checks the service-wide scope. Without this step a token
      * that is good enough to reach Pyloros would be good enough for every tool,
      * which is why a finer permission model could be configured but never enforced.
+     *
+     * <p>Only active when per-tool enforcement is switched on; otherwise the call is
+     * dispatched exactly as before.
      */
     public Future<Map<String, Object>> callTool(McpToolCall toolCall, ToolView toolView,
                                                 java.util.List<String> grantedScopes) {
-        if (toolCall != null && toolCall.name() != null) {
+        if (enforceToolScopes && toolCall != null && toolCall.name() != null) {
             String required = requiredScopeFor(toolCall.name(), toolView);
             if (required != null && !required.isBlank()
                     && (grantedScopes == null || !grantedScopes.contains(required))) {
