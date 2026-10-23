@@ -31,6 +31,18 @@ public interface ToolProvider {
         return listTools();
     }
 
+    /**
+     * Scope a caller must hold for this tool, or {@code null} when the gate's scope
+     * is enough.
+     *
+     * <p>Only the provider knows whether a tool reads or writes, so the mapping
+     * belongs here rather than in the central configuration. Returning {@code null}
+     * by default keeps every existing provider working unchanged.
+     */
+    default String requiredScope(String upstreamToolName) {
+        return null;
+    }
+
     Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments);
 }
     

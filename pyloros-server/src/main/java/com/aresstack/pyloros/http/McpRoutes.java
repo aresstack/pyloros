@@ -112,7 +112,8 @@ public final class McpRoutes {
             case "tools/list" -> listTools(context, id, requestedToolView);
             case "resources/list" -> HttpJson.rpcResult(context, id, Map.of("resources", new Object[]{}));
             case "prompts/list" -> HttpJson.rpcResult(context, id, Map.of("prompts", new Object[]{}));
-            case "tools/call", "call_tool" -> callTool(context, id, request, requestedToolView);
+            case "tools/call", "call_tool" ->
+                    callTool(context, id, request, requestedToolView, authentication.scopes());
             default -> HttpJson.rpcError(context, id, -32601, "Method not supported");
         }
     }
@@ -131,11 +132,13 @@ public final class McpRoutes {
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error)));
     }
 
-    private void callTool(RoutingContext context, JsonNode id, JsonNode request, ToolView toolView) {
+    private void callTool(RoutingContext context, JsonNode id, JsonNode request, ToolView toolView,
+                          List<String> grantedScopes) {
         McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request);
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
-        toolRouter.callTool(toolCall, toolView)
+        // The granted scopes decide whether this particular tool may run.
+        toolRouter.callTool(toolCall, toolView, grantedScopes)
                 .onSuccess(result -> HttpJson.rpcResult(context, id, result))
                 .onFailure(error -> HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error)));
     }

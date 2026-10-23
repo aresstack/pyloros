@@ -15,4 +15,16 @@ public interface OAuthConfig {
      * model this is the service's own public origin.
      */
     String centralOauthIssuer();
+
+    /**
+     * The scope an incoming token must carry for this service.
+     *
+     * <p>Was a hardcoded {@code mcp} in the authenticator, which made the
+     * webserver's per-site scope configuration ineffective: a service-specific
+     * scope could be issued but never demanded. Defaults to {@code mcp} so an
+     * existing deployment keeps working without migration.
+     */
+    default String requiredScope() {
+        return "mcp";
+    }
 }

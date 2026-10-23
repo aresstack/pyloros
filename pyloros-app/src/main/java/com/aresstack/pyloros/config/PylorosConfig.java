@@ -14,6 +14,7 @@ public record PylorosConfig(
         String securityMode,
         String targetPlatformModules,
         String centralOauthIssuer,
+        String requiredScope,
         String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
@@ -32,6 +33,10 @@ public record PylorosConfig(
                 value("security.mode", "SECURITY_MODE", properties, "central-oauth"),
                 value("target.platform.modules", "TARGET_PLATFORM_MODULES", properties, "intellij"),
                 normalizeOrigin(value("oauth.central-issuer", "CENTRAL_OAUTH_ISSUER", properties, "")),
+                // The scope an incoming token must carry. Defaults to mcp so an
+                // existing deployment keeps working; set it per service to make the
+                // webserver's per-site scope configuration effective.
+                value("security.required-scope", "REQUIRED_SCOPE", properties, "mcp"),
                 resolveInjectedViewToken(properties)
         );
     }
