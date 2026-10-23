@@ -27,6 +27,16 @@ public final class PylorosPingToolProvider implements ToolProvider {
         return true;
     }
 
+    /**
+     * {@code ping} returns a constant string and needs nothing beyond the gateway
+     * scope; {@code skills_save} writes a file into the Pyloros user directory, so it
+     * demands the write scope.
+     */
+    @Override
+    public String requiredScope(String upstreamToolName) {
+        return SAVE_TOOL_NAME.equals(upstreamToolName) ? "pyloros:write" : null;
+    }
+
     @Override
     public Future<List<Map<String, Object>>> listTools() {
         return Future.succeededFuture(List.of(toolDefinition(), saveToolDefinition()));

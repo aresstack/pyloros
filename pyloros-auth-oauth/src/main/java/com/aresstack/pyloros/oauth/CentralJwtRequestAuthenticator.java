@@ -17,15 +17,22 @@ import java.util.Optional;
  */
 public final class CentralJwtRequestAuthenticator implements RequestAuthenticator {
 
-    static final String REQUIRED_SCOPE = "mcp";
+    static final String DEFAULT_REQUIRED_SCOPE = "mcp";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String WWW_AUTHENTICATE_INVALID_TOKEN =
             "Bearer error=\"invalid_token\", error_description=\"The access token is invalid or expired\"";
 
     private final JwtAccessTokenValidator validator;
+    private final String requiredScope;
 
     public CentralJwtRequestAuthenticator(JwtAccessTokenValidator validator) {
+        this(validator, DEFAULT_REQUIRED_SCOPE);
+    }
+
+    public CentralJwtRequestAuthenticator(JwtAccessTokenValidator validator, String requiredScope) {
         this.validator = validator;
+        this.requiredScope = requiredScope == null || requiredScope.isBlank()
+                ? DEFAULT_REQUIRED_SCOPE : requiredScope.trim();
     }
 
     @Override
@@ -36,10 +43,13 @@ public final class CentralJwtRequestAuthenticator implements RequestAuthenticato
         }
         Optional<JwtAccessToken> validated =
                 validator.validate(header.substring(BEARER_PREFIX.length()).trim());
-        if (validated.isEmpty() || !validated.get().hasScope(REQUIRED_SCOPE)) {
+        if (validated.isEmpty() || !validated.get().hasScope(requiredScope)) {
             return AuthenticationResult.rejected(401, "invalid_token", rejectionHeaders());
         }
-        return AuthenticationResult.authenticated(validated.get().getClientId());
+        // The granted scopes travel on, so a protected call can demand more than the
+        // gate does.
+        return AuthenticationResult.authenticated(validated.get().getClientId(),
+                java.util.List.copyOf(validated.get().getScopes()));
     }
 
     private static Map<String, String> rejectionHeaders() {

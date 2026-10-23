@@ -15,14 +15,70 @@ public final class ToolRouter {
 
     private final ProviderRegistry providerRegistry;
     private final ToolCatalog toolCatalog;
+    private final boolean enforceToolScopes;
 
+    /**
+     * Keeps per-tool scopes declared but unenforced.
+     *
+     * <p>The deployed ChatGPT connector provably requests a single scope ({@code mcp},
+     * see the authorization requests in the reverse proxy log), so enforcing a tool's
+     * own scope by default would instantly deny every writing tool. Enforcement is
+     * therefore opt-in until a client actually requests the finer scopes.
+     */
     public ToolRouter(ProviderRegistry providerRegistry, ToolCatalog toolCatalog) {
+        this(providerRegistry, toolCatalog, false);
+    }
+
+    public ToolRouter(ProviderRegistry providerRegistry, ToolCatalog toolCatalog,
+                      boolean enforceToolScopes) {
         this.providerRegistry = providerRegistry;
         this.toolCatalog = toolCatalog;
+        this.enforceToolScopes = enforceToolScopes;
     }
 
     public Future<Map<String, Object>> callTool(McpToolCall toolCall) {
         return callTool(toolCall, ToolView.PUBLIC);
+    }
+
+    /**
+     * Dispatches a call and enforces the tool's own scope requirement.
+     *
+     * <p>The gateway only checks the service-wide scope. Without this step a token
+     * that is good enough to reach Pyloros would be good enough for every tool,
+     * which is why a finer permission model could be configured but never enforced.
+     *
+     * <p>Only active when per-tool enforcement is switched on; otherwise the call is
+     * dispatched exactly as before.
+     */
+    public Future<Map<String, Object>> callTool(McpToolCall toolCall, ToolView toolView,
+                                                java.util.List<String> grantedScopes) {
+        if (enforceToolScopes && toolCall != null && toolCall.name() != null) {
+            String required = requiredScopeFor(toolCall.name(), toolView);
+            if (required != null && !required.isBlank()
+                    && (grantedScopes == null || !grantedScopes.contains(required))) {
+                log.info("[TOOL-ROUTER] denied externalName={} missingScope={}",
+                        toolCall.name(), required);
+                return Future.succeededFuture(Map.of(
+                        "content", List.of(Map.of("type", "text",
+                                "text", "Permission denied: this tool requires the scope '"
+                                        + required + "'.")),
+                        "isError", true));
+            }
+        }
+        return callTool(toolCall, toolView);
+    }
+
+    /** The scope the owning provider demands for this external tool name. */
+    private String requiredScopeFor(String externalName, ToolView toolView) {
+        ToolCatalogEntry entry = toolCatalog.cachedSnapshotForView(
+                        toolView == null ? ToolView.PUBLIC : toolView)
+                .findByExternalName(externalName).orElse(null);
+        if (entry == null) {
+            return null;
+        }
+        return providerRegistry.findById(entry.address().providerId())
+                .map(provider -> provider.requiredScope(entry.address().upstreamToolName()))
+                .orElse(null);
     }
 
     public Future<Map<String, Object>> callTool(McpToolCall toolCall, ToolView toolView) {

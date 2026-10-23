@@ -23,7 +23,8 @@ public final class CentralOAuthSecurityModule implements SecurityModule {
     private final RequestAuthenticator authenticator;
 
     public CentralOAuthSecurityModule(OAuthConfig config) {
-        this(config, new CentralJwtRequestAuthenticator(buildValidator(config)));
+        this(config, new CentralJwtRequestAuthenticator(buildValidator(config),
+                config.requiredScope()));
     }
 
     /** Test seam: inject an authenticator with a known key set. */
@@ -57,7 +58,7 @@ public final class CentralOAuthSecurityModule implements SecurityModule {
                 HttpJson.send(context, 200, Map.of(
                         "resource", config.publicOrigin() + "/",
                         "authorization_servers", new String[]{config.centralOauthIssuer()},
-                        "scopes_supported", new String[]{CentralJwtRequestAuthenticator.REQUIRED_SCOPE},
+                        "scopes_supported", new String[]{config.requiredScope()},
                         "bearer_methods_supported", new String[]{"header"})));
     }
 }

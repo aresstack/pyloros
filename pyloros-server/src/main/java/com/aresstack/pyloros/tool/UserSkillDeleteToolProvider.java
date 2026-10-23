@@ -16,6 +16,12 @@ public final class UserSkillDeleteToolProvider implements ToolProvider {
         return true;
     }
 
+    /** Removes stored user data from the Pyloros user directory: a write operation. */
+    @Override
+    public String requiredScope(String upstreamToolName) {
+        return TOOL_NAME.equals(upstreamToolName) ? "pyloros:write" : null;
+    }
+
     @Override
     public Future<List<Map<String, Object>>> listTools() {
         return Future.succeededFuture(List.of(toolDefinition()));

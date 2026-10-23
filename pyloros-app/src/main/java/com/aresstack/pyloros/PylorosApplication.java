@@ -109,7 +109,8 @@ public final class PylorosApplication extends AbstractVerticle {
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
-        ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
+        ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog,
+                config.enforceToolScopes());
 
         Router router = createRouter(config, securityModule, toolCatalog, toolRouter);
 
