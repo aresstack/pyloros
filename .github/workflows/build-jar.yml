@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  # Lets a branch be built into a runnable jar without merging it first.
+  workflow_dispatch:
 
 jobs:
   build-jar:
@@ -50,7 +52,10 @@ jobs:
           path: build/release/pyloros.jar
           if-no-files-found: error
 
+      # Only main publishes to main-latest. A branch build must stay an artifact on its own run:
+      # anything consuming main-latest would otherwise pick up unmerged code as the latest build.
       - name: Publish latest main jar to GitHub Releases
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
