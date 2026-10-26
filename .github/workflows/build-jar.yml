@@ -1,17 +1,20 @@
 name: Build Runnable Jar
 
 on:
+  # Every branch. Deliberately not tags: the publish jobs below move the
+  # snapshot-latest / main-latest tags, and a tag trigger would make that recurse.
   push:
     branches:
-      - main
-  # Lets a branch be built into a runnable jar without merging it first.
+      - '**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build-jar:
+  build:
+    name: Build and test
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Check out sources
@@ -23,12 +26,21 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # Both publishing paths depend on this one job, so neither can publish a jar
+      # whose tests did not pass.
+      - name: Run the test suite
+        run: ./gradlew --no-daemon clean test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/test'
+          if-no-files-found: ignore
+
       - name: Build executable Pyloros jar
-        run: |
-          ./gradlew \
-            --no-daemon \
-            clean \
-            :pyloros-app:shadowJar
+        run: ./gradlew --no-daemon :pyloros-app:shadowJar
 
       - name: Verify executable jar manifest and dependencies
         run: |
@@ -52,17 +64,117 @@ jobs:
           path: build/release/pyloros.jar
           if-no-files-found: error
 
-      # Only main publishes to main-latest. A branch build must stay an artifact on its own run:
-      # anything consuming main-latest would otherwise pick up unmerged code as the latest build.
-      - name: Publish latest main jar to GitHub Releases
-        if: github.ref == 'refs/heads/main'
+  publish-snapshot:
+    name: Publish rolling snapshot
+    needs: build
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Serialised rather than cancelled: every build still finishes, and the
+    # staleness guard below decides which commit the snapshot ends up holding.
+    concurrency:
+      group: publish-snapshot-latest
+      cancel-in-progress: false
+
+    steps:
+      - name: Download runnable jar
+        uses: actions/download-artifact@v4
+        with:
+          name: pyloros.jar
+          path: build/release
+
+      - name: Publish to snapshot-latest release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: snapshot-latest
+          TITLE: Latest snapshot build
         run: |
-          gh release view main-latest >/dev/null 2>&1 || \
-            gh release create main-latest \
-              --title "Latest main build" \
-              --notes "Automated runnable jar built from the latest main branch push." \
-              --prerelease \
-              --target "$GITHUB_SHA"
-          gh release upload main-latest build/release/pyloros.jar --clobber
+          set -euo pipefail
+
+          committed=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.committer.date')
+          epoch=$(date -u -d "$committed" +%s)
+
+          # An older build must not replace a newer snapshot. Ordered by commit date
+          # rather than by run order, because a branch pushed later can carry an
+          # older commit, and because two branches can reach this job at once.
+          previous=""
+          if gh release view "$TAG" --json body --jq '.body' > published-notes.txt 2>/dev/null; then
+            previous=$(tr -d '\r' < published-notes.txt \
+              | sed -n 's/^Commit-epoch: \([0-9]\{1,\}\)$/\1/p' | head -1)
+          fi
+          if [ -n "$previous" ] && [ "$epoch" -lt "$previous" ]; then
+            echo "::notice::$TAG already holds a newer commit (epoch $previous > $epoch); leaving it untouched"
+            exit 0
+          fi
+
+          notes=$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n' \
+            "Rolling snapshot of the most recent successful branch build. Every newer branch build replaces it." \
+            "Branch: ${GITHUB_REF_NAME}" \
+            "Commit: ${GITHUB_SHA}" \
+            "Commit-date: ${committed}" \
+            "Commit-epoch: ${epoch}" \
+            "Run: ${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}")
+
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            # Losing a creation race is fine; the authoritative state is set below.
+            gh release create "$TAG" --target "$GITHUB_SHA" --prerelease \
+              --title "$TITLE" --notes "$notes" || true
+          fi
+
+          # Move the rolling tag, so the release points at the commit it was built from.
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" \
+            -f sha="$GITHUB_SHA" -F force=true > /dev/null
+
+          gh release edit "$TAG" --prerelease --title "$TITLE" --notes "$notes"
+          gh release upload "$TAG" build/release/pyloros.jar --clobber
+
+  publish-main:
+    name: Publish main release
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-main-latest
+      cancel-in-progress: false
+
+    steps:
+      - name: Download runnable jar
+        uses: actions/download-artifact@v4
+        with:
+          name: pyloros.jar
+          path: build/release
+
+      - name: Publish to main-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: main-latest
+          TITLE: Latest main build
+        run: |
+          set -euo pipefail
+
+          committed=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.committer.date')
+
+          notes=$(printf '%s\n\n%s\n%s\n%s\n%s\n' \
+            "Runnable jar built from the latest main commit." \
+            "Branch: ${GITHUB_REF_NAME}" \
+            "Commit: ${GITHUB_SHA}" \
+            "Commit-date: ${committed}" \
+            "Run: ${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}")
+
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --latest \
+              --title "$TITLE" --notes "$notes" || true
+          fi
+
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" \
+            -f sha="$GITHUB_SHA" -F force=true > /dev/null
+
+          # --prerelease=false also converts a main-latest left behind from when this
+          # was published as a prerelease; --latest keeps it the current release.
+          gh release edit "$TAG" --prerelease=false --latest --title "$TITLE" --notes "$notes"
+          gh release upload "$TAG" build/release/pyloros.jar --clobber

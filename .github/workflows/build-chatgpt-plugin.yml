@@ -62,11 +62,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          # No --prerelease here: main-latest is a regular release, and recreating it
+          # as a prerelease would silently undo that whenever this workflow wins the
+          # race against the jar build.
           if ! gh release view main-latest > /dev/null 2>&1; then
             gh release create main-latest \
               --title "Latest main build" \
               --notes "Automatically built packages from the main branch." \
-              --prerelease \
+              --latest \
               --target "$GITHUB_SHA" \
               || gh release view main-latest > /dev/null
           fi
