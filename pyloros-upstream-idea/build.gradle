@@ -10,5 +10,9 @@ dependencies {
     implementation "io.vertx:vertx-core:${vertxVersion}"
     implementation "io.vertx:vertx-web-client:${vertxVersion}"
     implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+
+    // Test-only: the SSE correlation diagnostics are observable through the log alone, so the
+    // tests that pin them down need a real binding with an inspectable appender.
+    testImplementation "ch.qos.logback:logback-classic:${logbackVersion}"
 }
 // Maven Central publishing is configured centrally in the root build.gradle.

@@ -71,13 +71,18 @@ public final class McpJsonConfigLoader {
             return null;
         }
 
+        int connectTimeoutMillis = server.connectTimeoutMillisOr(DEFAULT_CONNECT_TIMEOUT_MS);
+        int responseTimeoutMillis = server.responseTimeoutMillisOr(DEFAULT_RESPONSE_TIMEOUT_MS);
+        log.info("[MCP-CONFIG] provider={} transport={} connectTimeout={}ms responseTimeout={}ms source={}",
+                providerId, transport, connectTimeoutMillis, responseTimeoutMillis, sourcePath);
+
         return new McpUpstreamConfig(
                 providerId,
                 transport,
                 server.url(),
                 server.resolvedHeaders(),
-                DEFAULT_CONNECT_TIMEOUT_MS,
-                DEFAULT_RESPONSE_TIMEOUT_MS,
+                connectTimeoutMillis,
+                responseTimeoutMillis,
                 sourcePath.toString()
         );
     }

@@ -70,9 +70,13 @@ public final class IdeaToolProvider implements ToolProvider {
                 .put("name", requestedName)
                 .put("arguments", arguments);
 
-        log.info("IdeaToolProvider: forwarding tools/call {}", requestedName);
+        // The tool's own deadline, not the transport default, decides how long this call may take.
+        long responseTimeoutMillis =
+                IdeaToolTimeouts.resolve(requestedName, arguments, config.responseTimeoutMillis());
 
-        return client.call("tools/call", params)
+        log.info("IdeaToolProvider: forwarding tools/call {} (timeout={} ms)", requestedName, responseTimeoutMillis);
+
+        return client.call("tools/call", params, responseTimeoutMillis)
                 .map(response -> {
                     if (response == null) {
                         return errorResult("IDEA returned empty response for " + requestedName);

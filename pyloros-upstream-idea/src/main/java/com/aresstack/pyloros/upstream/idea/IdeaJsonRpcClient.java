@@ -5,6 +5,7 @@ import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.HttpClientResponse;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
@@ -17,6 +18,12 @@ import org.slf4j.LoggerFactory;
 public final class IdeaJsonRpcClient {
 
     private static final Logger log = LoggerFactory.getLogger(IdeaJsonRpcClient.class);
+
+    /**
+     * Tool results run to thousands of lines and can carry credentials or file contents, so neither
+     * the log nor a caller-facing error message gets the full body.
+     */
+    private static final int LOGGED_BODY_LIMIT = 512;
 
     private final Vertx vertx;
     private final IdeaMcpConfig config;
@@ -36,6 +43,14 @@ public final class IdeaJsonRpcClient {
     }
 
     public Future<JsonObject> postJsonRpc(String method, JsonObject params) {
+        return postJsonRpc(method, params, config.responseTimeoutMillis());
+    }
+
+    /**
+     * @param responseTimeoutMillis how long to wait for the answer, overriding the configured
+     *                              default so a call that was asked to run long is not cut short
+     */
+    public Future<JsonObject> postJsonRpc(String method, JsonObject params, long responseTimeoutMillis) {
         if (!hasEndpoint()) {
             return Future.failedFuture(new IllegalStateException("No IDEA endpoint available"));
         }
@@ -60,32 +75,24 @@ public final class IdeaJsonRpcClient {
 
         try {
             // register pending response via SSE session
-            sseSession.registerPendingResponse(id, promise, config.responseTimeoutMillis());
+            sseSession.registerPendingResponse(id, promise, responseTimeoutMillis);
 
-            log.info("IdeaJsonRpcClient POST {} -> {}:{}{} (id={})", method, config.host(), config.port(), endpoint, id);
+            // Every terminal outcome retires the registration, not only the SSE one. A synchronous
+            // body, an HTTP error status and a failed POST all settle the promise here, and an entry
+            // left behind keeps its timeout timer armed for the whole window — up to an hour now
+            // that a tool's own deadline can extend it. Hanging this on the future instead of the
+            // individual call sites makes that hold for outcomes added later, too.
+            promise.future().onComplete(ignored -> sseSession.releasePendingResponse(id));
+
+            log.info("IdeaJsonRpcClient POST {} -> {}:{}{} (id={}, timeout={} ms)",
+                    method, config.host(), config.port(), endpoint, id, responseTimeoutMillis);
             client.request(HttpMethod.POST, config.port(), config.host(), endpoint)
                     .onSuccess(req -> {
                         req.putHeader("Content-Type", "application/json");
                         req.putHeader("Accept", "application/json");
                         config.headers().forEach(req::putHeader);
                         req.send(Buffer.buffer(body))
-                                .onSuccess(response -> {
-                                    // If server returns a sync result in body (rare), complete promise.
-                                    try {
-                                        String resp = response.body() == null ? "" : response.body().toString();
-                                        if (resp != null && !resp.isBlank()) {
-                                            log.info("IdeaJsonRpcClient synchronous response for {}: {}", method, resp);
-                                            JsonObject json = new JsonObject(resp);
-                                            if (json.containsKey("result")) {
-                                                promise.tryComplete(json.getJsonObject("result"));
-                                            } else {
-                                                promise.tryComplete(json);
-                                            }
-                                        }
-                                    } catch (Exception ex) {
-                                        // ignore here, waiting for SSE
-                                    }
-                                })
+                                .onSuccess(response -> handleHttpResponse(method, id, response, promise))
                                 .onFailure(promise::tryFail);
                     })
                     .onFailure(promise::tryFail);
@@ -94,6 +101,76 @@ public final class IdeaJsonRpcClient {
         } catch (Exception ex) {
             return Future.failedFuture(ex);
         }
+    }
+
+    /**
+     * Evaluates the POST response.
+     *
+     * <p>IDEA MCP normally acknowledges the POST with 202 and an empty body, then delivers the real
+     * JSON-RPC response over the SSE channel. Two cases still have to be acted on here:
+     * a non-2xx status means the request never reached the tool, and a body that already carries a
+     * JSON-RPC envelope is a valid synchronous answer. Neither must be left to the SSE timeout.
+     *
+     * <p>{@code response.body()} is a {@code Future<Buffer>} — it has to be composed, never
+     * stringified. Doing the latter yielded the literal {@code Future{unresolved}} for every call.
+     */
+    private void handleHttpResponse(String method, String id, HttpClientResponse response, Promise<JsonObject> promise) {
+        int status = response.statusCode();
+        response.body()
+                .onFailure(err -> {
+                    log.warn("IdeaJsonRpcClient could not read {} response body (id={}, status={}): {}",
+                            method, id, status, err.getMessage());
+                    if (status < 200 || status >= 300) {
+                        promise.tryFail(new IllegalStateException(
+                                "IDEA MCP returned HTTP " + status + " for " + method));
+                    }
+                })
+                .onSuccess(buffer -> {
+                    String resp = buffer == null ? "" : buffer.toString();
+                    if (status < 200 || status >= 300) {
+                        log.warn("IdeaJsonRpcClient {} rejected with HTTP {} (id={}): {}",
+                                method, status, id, excerpt(resp));
+                        promise.tryFail(new IllegalStateException(
+                                "IDEA MCP returned HTTP " + status + " for " + method + ": " + excerpt(resp)));
+                        return;
+                    }
+                    if (resp.isBlank()) {
+                        log.debug("IdeaJsonRpcClient {} acknowledged with HTTP {} and empty body (id={}), awaiting SSE response",
+                                method, status, id);
+                        return;
+                    }
+
+                    JsonObject json;
+                    try {
+                        json = new JsonObject(resp);
+                    } catch (Exception ex) {
+                        // Not a JSON-RPC envelope, so the real answer still has to arrive over SSE.
+                        log.debug("IdeaJsonRpcClient {} returned a non-JSON body (id={}), awaiting SSE response: {}",
+                                method, id, excerpt(resp));
+                        return;
+                    }
+
+                    log.debug("IdeaJsonRpcClient synchronous response for {} (id={}, {} chars)",
+                            method, id, resp.length());
+                    if (json.containsKey("error")) {
+                        promise.tryFail(new IllegalStateException(
+                                "IDEA MCP error for " + method + ": " + json.getValue("error")));
+                    } else if (json.getValue("result") instanceof JsonObject result) {
+                        promise.tryComplete(result);
+                    } else {
+                        promise.tryComplete(json);
+                    }
+                });
+    }
+
+    private static String excerpt(String body) {
+        if (body == null) {
+            return "";
+        }
+        if (body.length() <= LOGGED_BODY_LIMIT) {
+            return body;
+        }
+        return body.substring(0, LOGGED_BODY_LIMIT) + "… (" + body.length() + " chars total)";
     }
 }
 

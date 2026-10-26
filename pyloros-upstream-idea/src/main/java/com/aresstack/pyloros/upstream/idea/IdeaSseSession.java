@@ -12,6 +12,8 @@ import com.aresstack.pyloros.upstream.mcp.SseTextDecoder;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Handler;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
@@ -41,6 +43,9 @@ public final class IdeaSseSession {
     /** Sentinel for "no attempt owns the connection state right now". */
     private static final long NO_ATTEMPT = -1L;
 
+    /** How many timed-out request ids to remember so a late answer can still be attributed. */
+    private static final int TIMED_OUT_ID_HISTORY = 64;
+
     private final Vertx vertx;
     private final IdeaMcpConfig config;
 
@@ -49,7 +54,17 @@ public final class IdeaSseSession {
 
     private HttpClient client;
     // pending responses keyed by id published to IDEA and answered back via SSE 'message' events
-    private final Map<String, Promise<JsonObject>> pendingResponses = new ConcurrentHashMap<>();
+    private final Map<String, PendingResponse> pendingResponses = new ConcurrentHashMap<>();
+    // Ids whose promise the response timeout already failed, with the timestamp of that timeout.
+    // Without this a late SSE answer is indistinguishable from an id that was never correlated at
+    // all, which is exactly the distinction needed to tell a slow IDEA tool from a routing bug.
+    private final Map<String, Long> timedOutIds = Collections.synchronizedMap(
+            new LinkedHashMap<>(16, 0.75f, false) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                    return size() > TIMED_OUT_ID_HISTORY;
+                }
+            });
     // optional handler invoked for incoming notification messages (e.g. notifications/tools/list_changed)
     private volatile Handler<JsonObject> notificationHandler;
     // optional handler invoked when SSE connection is lost and endpoint becomes stale
@@ -222,15 +237,26 @@ public final class IdeaSseSession {
                 // If a pending promise exists for this id, complete it with the result (or the whole message)
                 if (json.containsKey("id")) {
                     String id = String.valueOf(json.getValue("id"));
-                    Promise<JsonObject> p = pendingResponses.remove(id);
-                    if (p != null) {
+                    PendingResponse pending = takePending(id);
+                    if (pending != null) {
+                        log.debug("IDEA SSE response matched pending id {}", id);
                         if (json.containsKey("result")) {
-                            p.tryComplete(json.getJsonObject("result"));
+                            pending.promise.tryComplete(json.getJsonObject("result"));
                         } else {
-                            p.tryComplete(json);
+                            pending.promise.tryComplete(json);
                         }
                         return;
                     }
+
+                    // Nobody is waiting any more. Both branches used to fall through without a trace.
+                    Long timedOutAt = timedOutIds.remove(id);
+                    if (timedOutAt != null) {
+                        log.warn("IDEA SSE response for id {} arrived {} ms after its timeout and was discarded",
+                                id, System.currentTimeMillis() - timedOutAt);
+                    } else {
+                        log.warn("IDEA SSE message for unmatched id {} discarded, no request is pending", id);
+                    }
+                    return;
                 }
             } catch (Exception ex) {
                 log.debug("Failed to parse IDEA SSE message event: {}", ex.getMessage());
@@ -257,14 +283,85 @@ public final class IdeaSseSession {
      * Register a pending response promise for a request id and schedule timeout.
      */
     public void registerPendingResponse(String id, Promise<JsonObject> promise, long timeoutMillis) {
-        pendingResponses.put(id, promise);
+        PendingResponse pending = new PendingResponse(promise);
+        pendingResponses.put(id, pending);
+        log.debug("IDEA SSE awaiting response for id {} (timeout {} ms, {} pending)",
+                id, timeoutMillis, pendingResponses.size());
         if (timeoutMillis > 0) {
-            vertx.setTimer(timeoutMillis, t -> {
-                Promise<JsonObject> p = pendingResponses.remove(id);
-                if (p != null && !p.future().isComplete()) {
-                    p.tryFail(new IllegalStateException("Timeout waiting for IDEA SSE response for id " + id));
+            // Held on the entry so a response that arrives in time can cancel it. Leaving the timer
+            // armed kept one dead timer per request alive for the whole timeout window.
+            pending.timerId = vertx.setTimer(timeoutMillis, t -> {
+                PendingResponse timedOut = pendingResponses.remove(id);
+                if (timedOut == null) {
+                    return;
+                }
+                timedOut.settled.set(true);
+                if (!timedOut.promise.future().isComplete()) {
+                    timedOutIds.put(id, System.currentTimeMillis());
+                    log.warn("IDEA SSE response timeout for id {} after {} ms, no answer received",
+                            id, timeoutMillis);
+                    timedOut.promise.tryFail(
+                            new IllegalStateException("Timeout waiting for IDEA SSE response for id " + id));
                 }
             });
+
+            // The timer id only exists after the entry was published, so a release that ran in
+            // between could not have cancelled it. The settled flag records that it happened, and
+            // the timer is retired here instead. Reversing the order is not an option: a timer that
+            // fires before its entry is in the map could never fail the promise at all.
+            if (pending.settled.get()) {
+                cancelTimer(pending.timerId);
+            }
+        }
+    }
+
+    /**
+     * Retires the registration for {@code id} without completing anything.
+     *
+     * <p>Needed because the SSE message is not the only way a request ends. The POST can answer
+     * synchronously, be rejected with an HTTP error, or fail outright, and each of those settles the
+     * promise elsewhere. Those paths used to leave the entry and its armed timer behind for the full
+     * timeout window.
+     */
+    public void releasePendingResponse(String id) {
+        takePending(id);
+    }
+
+    /** Removes the pending entry for {@code id} and cancels its timeout timer. */
+    private PendingResponse takePending(String id) {
+        PendingResponse pending = pendingResponses.remove(id);
+        if (pending != null) {
+            pending.settled.set(true);
+            cancelTimer(pending.timerId);
+        }
+        return pending;
+    }
+
+    /** Package-private test hook: registrations still awaiting an answer. */
+    int pendingResponseCount() {
+        return pendingResponses.size();
+    }
+
+    private void cancelTimer(Long timerId) {
+        if (timerId == null) {
+            return;
+        }
+        try {
+            vertx.cancelTimer(timerId);
+        } catch (Exception ex) {
+            log.debug("Failed to cancel IDEA SSE response timer: {}", ex.getMessage());
+        }
+    }
+
+    /** A request awaiting its SSE answer, together with the timer that gives up on it. */
+    private static final class PendingResponse {
+        private final Promise<JsonObject> promise;
+        /** Set once the entry has been retired, so a timer armed afterwards is cancelled at once. */
+        private final AtomicBoolean settled = new AtomicBoolean(false);
+        private volatile Long timerId;
+
+        private PendingResponse(Promise<JsonObject> promise) {
+            this.promise = promise;
         }
     }
 
@@ -350,10 +447,11 @@ public final class IdeaSseSession {
         IllegalStateException failure = new IllegalStateException(message, cause);
 
         List<String> ids = new ArrayList<>(pendingResponses.keySet());
+        log.warn("IDEA SSE failing {} pending response(s) because the upstream is gone: {}", ids.size(), ids);
         for (String id : ids) {
-            Promise<JsonObject> removed = pendingResponses.remove(id);
+            PendingResponse removed = takePending(id);
             if (removed != null) {
-                removed.tryFail(failure);
+                removed.promise.tryFail(failure);
             }
         }
     }
