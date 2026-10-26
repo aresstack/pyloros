@@ -39,14 +39,6 @@ public final class IdeaJsonRpcClient {
     }
 
     public Future<JsonObject> postJsonRpc(String method, JsonObject params) {
-        return postJsonRpc(method, params, config.responseTimeoutMillis());
-    }
-
-    /**
-     * @param responseTimeoutMillis how long to wait for the answer, overriding the configured
-     *                              default so a call that was asked to run long is not cut short
-     */
-    public Future<JsonObject> postJsonRpc(String method, JsonObject params, long responseTimeoutMillis) {
         if (!hasEndpoint()) {
             return Future.failedFuture(new IllegalStateException("No IDEA endpoint available"));
         }
@@ -71,17 +63,16 @@ public final class IdeaJsonRpcClient {
 
         try {
             // register pending response via SSE session
-            sseSession.registerPendingResponse(id, promise, responseTimeoutMillis);
+            sseSession.registerPendingResponse(id, promise, config.responseTimeoutMillis());
 
             // Every terminal outcome retires the registration, not only the SSE one. A synchronous
             // body, an HTTP error status and a failed POST all settle the promise here, and an entry
-            // left behind keeps its timeout timer armed for the whole window — up to an hour now
-            // that a tool's own deadline can extend it. Hanging this on the future instead of the
-            // individual call sites makes that hold for outcomes added later, too.
+            // left behind keeps its timeout timer armed for the whole window. Hanging this on the
+            // future instead of the individual call sites makes that hold for outcomes added later.
             promise.future().onComplete(ignored -> sseSession.releasePendingResponse(id));
 
             log.info("IdeaJsonRpcClient POST {} -> {}:{}{} (id={}, timeout={} ms)",
-                    method, config.host(), config.port(), endpoint, id, responseTimeoutMillis);
+                    method, config.host(), config.port(), endpoint, id, config.responseTimeoutMillis());
             client.request(HttpMethod.POST, config.port(), config.host(), endpoint)
                     .onSuccess(req -> {
                         req.putHeader("Content-Type", "application/json");

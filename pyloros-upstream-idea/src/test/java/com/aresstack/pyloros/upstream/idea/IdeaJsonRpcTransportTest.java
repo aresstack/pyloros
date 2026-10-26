@@ -32,12 +32,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code Future<Buffer>} returned by {@code response.body()} and swallowed the resulting parse
  * error. Two consequences, both reproduced here as the first two tests: a genuinely synchronous
  * JSON-RPC body was discarded, and an HTTP error status was indistinguishable from an
- * acknowledgement — so both could only ever end in the 60 s SSE timeout.
+ * acknowledgement — so both could only ever end in the SSE timeout.
  *
  * <p>The remaining tests pin the consequences of that: a response arriving after its timeout used to
  * fall through the id correlation without a trace, which made "the IDE never answered" and "the IDE
- * answered too late" look identical in the log; and a request settled anywhere other than the SSE
- * path kept its registration and its armed timeout timer alive for the whole window.
+ * answered too late" look identical in the log; a request settled anywhere other than the SSE path
+ * kept its registration and its armed timeout timer alive for the whole window; and an upstream
+ * JSON-RPC error was completed as a successful call.
+ *
+ * <p>Each test starts its own session, because the wait for an answer comes solely from the
+ * configured {@code responseTimeoutMillis} and some tests need that bound short while others need
+ * it long.
  */
 class IdeaJsonRpcTransportTest {
 
@@ -46,11 +51,11 @@ class IdeaJsonRpcTransportTest {
     private static final long FAST_FAILURE_BUDGET_MILLIS = RESPONSE_TIMEOUT_MILLIS / 2;
 
     /**
-     * Deadline for the cleanup probes below, far enough out that the timeout timer cannot be what
-     * retires the registration. With the configured 1 s timeout the timer tidies up on its own
-     * within any sane wait, and the probes would pass whether or not the release path works.
+     * Configured timeout for the cleanup probes, far enough out that the timeout timer cannot be
+     * what retires the registration. With the 1 s default the timer tidies up on its own within any
+     * sane wait, and the probes would pass whether or not the release path works.
      */
-    private static final long CLEANUP_PROBE_TIMEOUT_MILLIS = 30_000;
+    private static final int CLEANUP_PROBE_RESPONSE_TIMEOUT_MILLIS = 30_000;
 
     /** Long enough to lose a race against the HTTP body, short enough to stay inside the timeout. */
     private static final long SSE_ANSWER_DELAY_MILLIS = 250;
@@ -87,13 +92,6 @@ class IdeaJsonRpcTransportTest {
             response.write("data: /messages/fake\r\nevent: endpoint\r\n\r\n");
         }).listen(0));
 
-        IdeaMcpConfig config = new IdeaMcpConfig(
-                URI.create("http://127.0.0.1:" + ideServer.actualPort() + "/sse"),
-                Map.of(),
-                1000,
-                RESPONSE_TIMEOUT_MILLIS
-        );
-
         sessionLogger = (Logger) LoggerFactory.getLogger(IdeaSseSession.class);
         sessionLog = new ListAppender<>();
         sessionLog.start();
@@ -103,6 +101,19 @@ class IdeaJsonRpcTransportTest {
         clientLog = new ListAppender<>();
         clientLog.start();
         clientLogger.addAppender(clientLog);
+    }
+
+    private void startSession() throws Exception {
+        startSession(RESPONSE_TIMEOUT_MILLIS);
+    }
+
+    private void startSession(int responseTimeoutMillis) throws Exception {
+        IdeaMcpConfig config = new IdeaMcpConfig(
+                URI.create("http://127.0.0.1:" + ideServer.actualPort() + "/sse"),
+                Map.of(),
+                1000,
+                responseTimeoutMillis
+        );
 
         session = new IdeaSseSession(vertx, config);
         session.start();
@@ -143,6 +154,7 @@ class IdeaJsonRpcTransportTest {
                         .put("id", rpc.getValue("id"))
                         .put("result", new JsonObject().put("answer", "sync"))
                         .encode());
+        startSession();
 
         long startNanos = System.nanoTime();
         JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
@@ -153,8 +165,9 @@ class IdeaJsonRpcTransportTest {
     }
 
     @Test
-    void httpErrorStatusFailsTheCallInsteadOfWaitingForTheTimeout() {
+    void httpErrorStatusFailsTheCallInsteadOfWaitingForTheTimeout() throws Exception {
         postBehaviour = (rpc, response) -> response.setStatusCode(500).end("tool blew up");
+        startSession();
 
         long startNanos = System.nanoTime();
         ExecutionException failure = assertThrows(ExecutionException.class,
@@ -175,6 +188,7 @@ class IdeaJsonRpcTransportTest {
             response.setStatusCode(202).end();
             vertx.setTimer(RESPONSE_TIMEOUT_MILLIS * 2L, t -> pushResult(rpc.getValue("id")));
         };
+        startSession();
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> await(client.postJsonRpc("tools/call", new JsonObject())));
@@ -190,6 +204,7 @@ class IdeaJsonRpcTransportTest {
             response.setStatusCode(202).end();
             pushResult(rpc.getValue("id"));
         };
+        startSession();
 
         JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
 
@@ -201,12 +216,13 @@ class IdeaJsonRpcTransportTest {
      * The SSE message is not the only way a request ends, but it used to be the only way its
      * registration was retired. Each terminal outcome below settles the promise outside the SSE
      * path, and each used to leave the entry behind with its timeout timer still armed for the full
-     * window — now up to an hour, since a tool's own deadline can extend it.
+     * window.
      *
      * <p>The armed timer itself is not observable from outside Vert.x. The registration it belongs
      * to is, and the same call retires both, so the count stands in for the timer.
      *
-     * <p>Each probe passes an explicit long deadline: see {@link #CLEANUP_PROBE_TIMEOUT_MILLIS}.
+     * <p>Each probe runs with a long configured timeout: see
+     * {@link #CLEANUP_PROBE_RESPONSE_TIMEOUT_MILLIS}.
      */
     @Test
     void aSynchronousResponseRetiresThePendingRegistration() throws Exception {
@@ -218,8 +234,9 @@ class IdeaJsonRpcTransportTest {
                         .put("id", rpc.getValue("id"))
                         .put("result", new JsonObject().put("answer", "sync"))
                         .encode());
+        startSession(CLEANUP_PROBE_RESPONSE_TIMEOUT_MILLIS);
 
-        await(client.postJsonRpc("tools/call", new JsonObject(), CLEANUP_PROBE_TIMEOUT_MILLIS));
+        await(client.postJsonRpc("tools/call", new JsonObject()));
 
         waitUntil(() -> session.pendingResponseCount() == 0, FAST_FAILURE_BUDGET_MILLIS);
     }
@@ -227,9 +244,10 @@ class IdeaJsonRpcTransportTest {
     @Test
     void anHttpErrorStatusRetiresThePendingRegistration() throws Exception {
         postBehaviour = (rpc, response) -> response.setStatusCode(500).end("tool blew up");
+        startSession(CLEANUP_PROBE_RESPONSE_TIMEOUT_MILLIS);
 
         assertThrows(ExecutionException.class,
-                () -> await(client.postJsonRpc("tools/call", new JsonObject(), CLEANUP_PROBE_TIMEOUT_MILLIS)));
+                () -> await(client.postJsonRpc("tools/call", new JsonObject())));
 
         waitUntil(() -> session.pendingResponseCount() == 0, FAST_FAILURE_BUDGET_MILLIS);
     }
@@ -238,19 +256,21 @@ class IdeaJsonRpcTransportTest {
     void aFailedPostRetiresThePendingRegistration() throws Exception {
         // The connection goes away under the POST, so the send never produces a response at all.
         postBehaviour = (rpc, response) -> response.reset();
+        startSession(CLEANUP_PROBE_RESPONSE_TIMEOUT_MILLIS);
 
         assertThrows(ExecutionException.class,
-                () -> await(client.postJsonRpc("tools/call", new JsonObject(), CLEANUP_PROBE_TIMEOUT_MILLIS)));
+                () -> await(client.postJsonRpc("tools/call", new JsonObject())));
 
         waitUntil(() -> session.pendingResponseCount() == 0, FAST_FAILURE_BUDGET_MILLIS);
     }
 
     @Test
-    void aLargeErrorBodyIsNeitherLoggedNorReturnedInFull() {
+    void aLargeErrorBodyIsNeitherLoggedNorReturnedInFull() throws Exception {
         // A rejected call can answer with an HTML error page, and a successful one with thousands of
         // lines of terminal output that may contain credentials. Neither belongs in the log verbatim.
         String huge = "x".repeat(20_000);
         postBehaviour = (rpc, response) -> response.setStatusCode(500).end(huge);
+        startSession();
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> await(client.postJsonRpc("tools/call", new JsonObject())));
@@ -264,7 +284,7 @@ class IdeaJsonRpcTransportTest {
     }
 
     @Test
-    void aJsonRpcErrorOverSseFailsTheCallInsteadOfCompletingIt() {
+    void aJsonRpcErrorOverSseFailsTheCallInsteadOfCompletingIt() throws Exception {
         postBehaviour = (rpc, response) -> {
             response.setStatusCode(202).end();
             pushEnvelope(new JsonObject()
@@ -274,6 +294,7 @@ class IdeaJsonRpcTransportTest {
                             .put("code", -32603)
                             .put("message", "Internal error")));
         };
+        startSession();
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> await(client.postJsonRpc("tools/call", new JsonObject())));
@@ -296,6 +317,7 @@ class IdeaJsonRpcTransportTest {
                             .encode());
             pushLater(rpc.getValue("id"));
         };
+        startSession();
 
         JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
 
@@ -312,6 +334,7 @@ class IdeaJsonRpcTransportTest {
                     .end(new JsonObject().put("status", "ok").encode());
             pushLater(rpc.getValue("id"));
         };
+        startSession();
 
         JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
 
@@ -320,13 +343,14 @@ class IdeaJsonRpcTransportTest {
     }
 
     @Test
-    void anSseResponseWithNeitherResultNorErrorIsRejected() {
+    void anSseResponseWithNeitherResultNorErrorIsRejected() throws Exception {
         // JSON-RPC requires exactly one of the two. Completing with the envelope handed
         // IdeaToolProvider something it reports as a successful call with no content at all.
         postBehaviour = (rpc, response) -> {
             response.setStatusCode(202).end();
             pushEnvelope(new JsonObject().put("jsonrpc", "2.0").put("id", rpc.getValue("id")));
         };
+        startSession();
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> await(client.postJsonRpc("tools/call", new JsonObject())));
@@ -336,7 +360,7 @@ class IdeaJsonRpcTransportTest {
     }
 
     @Test
-    void aJsonRpcErrorsDataMemberIsNeitherLoggedNorReturned() {
+    void aJsonRpcErrorsDataMemberIsNeitherLoggedNorReturned() throws Exception {
         // 'data' is free-form and unbounded. A stack trace or file excerpt in it would otherwise be
         // rendered in full, which is exactly what the HTTP body limit was introduced to prevent.
         String secret = "s3cret-".repeat(2_000);
@@ -350,6 +374,7 @@ class IdeaJsonRpcTransportTest {
                             .put("message", "Internal error")
                             .put("data", secret)));
         };
+        startSession();
 
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> await(client.postJsonRpc("tools/call", new JsonObject())));

@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class McpUpstreamFailureEndToEndTest {
 
     /** The production default from McpJsonConfigLoader. */
-    private static final int PRODUCTION_RESPONSE_TIMEOUT_MILLIS = 60_000;
+    private static final int PRODUCTION_RESPONSE_TIMEOUT_MILLIS = 100_000;
 
     /** Any answer must arrive far sooner than a client or proxy would give up. */
     private static final long ACCEPTABLE_ANSWER_MILLIS = 10_000;

@@ -154,10 +154,6 @@ public final class IdeaMcpClient {
         return jsonRpcClient.postJsonRpc(method, params);
     }
 
-    public Future<JsonObject> call(String method, JsonObject params, long responseTimeoutMillis) {
-        return jsonRpcClient.postJsonRpc(method, params, responseTimeoutMillis);
-    }
-
     public boolean hasKnownTools() {
         Set<String> current = knownOriginalToolNames.get();
         return current != null && !current.isEmpty();
