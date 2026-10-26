@@ -150,6 +150,14 @@ public final class IdeaJsonRpcClient {
                         return;
                     }
 
+                    if (!isResponseEnvelopeFor(id, json)) {
+                        // Valid JSON, but not an answer to this request. Completing the call with it
+                        // would discard the real answer that is still on its way over SSE.
+                        log.debug("IdeaJsonRpcClient {} returned a body that is not a JSON-RPC response for id {}, "
+                                + "awaiting SSE response: {}", method, id, excerpt(resp));
+                        return;
+                    }
+
                     log.debug("IdeaJsonRpcClient synchronous response for {} (id={}, {} chars)",
                             method, id, resp.length());
                     if (json.containsKey("error")) {
@@ -161,6 +169,20 @@ public final class IdeaJsonRpcClient {
                         promise.tryComplete(json);
                     }
                 });
+    }
+
+    /**
+     * @return whether {@code json} is a JSON-RPC response to request {@code id}
+     *
+     * <p>Correlation was missing here: any JSON object was accepted as the result, so a proxy's
+     * {@code {"status":"ok"}} or an envelope belonging to another request could settle the call.
+     */
+    private static boolean isResponseEnvelopeFor(String id, JsonObject json) {
+        if (!json.containsKey("result") && !json.containsKey("error")) {
+            return false;
+        }
+        Object responseId = json.getValue("id");
+        return responseId != null && id.equals(String.valueOf(responseId));
     }
 
     private static String excerpt(String body) {

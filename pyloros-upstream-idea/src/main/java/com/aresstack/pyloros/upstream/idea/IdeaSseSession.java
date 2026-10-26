@@ -234,17 +234,13 @@ public final class IdeaSseSession {
                 } catch (Exception ignore) {
                     // fall through to other handling
                 }
-                // If a pending promise exists for this id, complete it with the result (or the whole message)
+                // If a pending promise exists for this id, settle it from the envelope
                 if (json.containsKey("id")) {
                     String id = String.valueOf(json.getValue("id"));
                     PendingResponse pending = takePending(id);
                     if (pending != null) {
                         log.debug("IDEA SSE response matched pending id {}", id);
-                        if (json.containsKey("result")) {
-                            pending.promise.tryComplete(json.getJsonObject("result"));
-                        } else {
-                            pending.promise.tryComplete(json);
-                        }
+                        settleFromEnvelope(id, json, pending.promise);
                         return;
                     }
 
@@ -262,6 +258,34 @@ public final class IdeaSseSession {
                 log.debug("Failed to parse IDEA SSE message event: {}", ex.getMessage());
             }
         }
+    }
+
+    /**
+     * Settles a pending request from a JSON-RPC response envelope.
+     *
+     * <p>An {@code error} member has to fail the promise. Completing it with the envelope instead
+     * was the one failure a client cannot detect: {@code IdeaToolProvider} finds no {@code content}
+     * and no {@code isError}, so it wraps the error text as ordinary output and reports
+     * {@code isError=false}. A genuine upstream failure then arrives at the caller as a successful
+     * tool call. The synchronous HTTP path already handled this; the two must not disagree.
+     */
+    private void settleFromEnvelope(String id, JsonObject json, Promise<JsonObject> promise) {
+        Object error = json.getValue("error");
+        if (error != null) {
+            log.warn("IDEA SSE response for id {} carries a JSON-RPC error: {}", id, error);
+            promise.tryFail(new IllegalStateException("IDEA MCP error: " + error));
+            return;
+        }
+
+        if (json.containsKey("result")) {
+            // A result that is not an object is unusable downstream. Completing with null lets
+            // IdeaToolProvider report that as an error instead of throwing a ClassCastException here.
+            Object result = json.getValue("result");
+            promise.tryComplete(result instanceof JsonObject resultObject ? resultObject : null);
+            return;
+        }
+
+        promise.tryComplete(json);
     }
 
     /**

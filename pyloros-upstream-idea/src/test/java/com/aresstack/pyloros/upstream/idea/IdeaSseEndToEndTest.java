@@ -66,6 +66,9 @@ class IdeaSseEndToEndTest {
     private final List<HttpConnection> liveConnections = new CopyOnWriteArrayList<>();
     private final List<HttpServerResponse> liveStreams = new CopyOnWriteArrayList<>();
 
+    /** When set, the fake IDE answers a tools/call with this JSON-RPC error instead of a result. */
+    private volatile JsonObject toolCallError;
+
     @BeforeEach
     void setUp() throws Exception {
         vertx = Vertx.vertx();
@@ -144,6 +147,13 @@ class IdeaSseEndToEndTest {
     private void pushResult(JsonObject rpc) {
         Object id = rpc.getValue("id");
         String method = rpc.getString("method");
+
+        JsonObject error = toolCallError;
+        if (error != null && "tools/call".equals(method)) {
+            push(new JsonObject().put("jsonrpc", "2.0").put("id", id).put("error", error));
+            return;
+        }
+
         JsonObject result = "tools/list".equals(method)
                 ? new JsonObject().put("tools", new JsonArray().add(new JsonObject()
                         .put("name", "echo")
@@ -151,11 +161,10 @@ class IdeaSseEndToEndTest {
                         .put("inputSchema", new JsonObject().put("type", "object"))))
                 : new JsonObject();
 
-        JsonObject message = new JsonObject()
-                .put("jsonrpc", "2.0")
-                .put("id", id)
-                .put("result", result);
+        push(new JsonObject().put("jsonrpc", "2.0").put("id", id).put("result", result));
+    }
 
+    private void push(JsonObject message) {
         for (HttpServerResponse stream : List.copyOf(liveStreams)) {
             try {
                 stream.write("data: " + message.encode() + "\r\nevent: message\r\n\r\n");
@@ -235,6 +244,27 @@ class IdeaSseEndToEndTest {
                 "a call against a disconnected IDE must report an error: " + response.body());
         assertTrue(response.elapsedMillis() < ACCEPTABLE_ANSWER_MILLIS,
                 "must not wait for the response timeout; took " + response.elapsedMillis() + "ms");
+    }
+
+    @Test
+    void aJsonRpcErrorFromTheIdeDoesNotSurfaceAsASuccessfulToolCall() throws Exception {
+        assertTrue(timedPostRpc("tools/list", "{}").body()
+                .path("result").path("tools").toString().contains("intellij__echo"));
+
+        toolCallError = new JsonObject().put("code", -32603).put("message", "Internal error");
+
+        Timed response = timedPostRpc("tools/call", "{\"name\":\"intellij__echo\",\"arguments\":{}}");
+
+        // The envelope carries no 'content' and no 'isError', so completing the call with it made
+        // IdeaToolProvider wrap the error text as ordinary output and report isError=false. A real
+        // upstream failure then arrived at the client as a successful tool call — the one outcome a
+        // client has no way to detect.
+        assertEquals(200, response.statusCode());
+        assertTrue(response.body().path("result").path("isError").asBoolean(false)
+                        || response.body().has("error"),
+                "an upstream JSON-RPC error must be reported as an error: " + response.body());
+        assertTrue(response.body().toString().contains("Internal error"),
+                "the upstream message has to survive: " + response.body());
     }
 
     private record Timed(int statusCode, JsonNode body, long elapsedMillis) {

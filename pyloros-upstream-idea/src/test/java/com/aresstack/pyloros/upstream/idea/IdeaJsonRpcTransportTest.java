@@ -52,6 +52,9 @@ class IdeaJsonRpcTransportTest {
      */
     private static final long CLEANUP_PROBE_TIMEOUT_MILLIS = 30_000;
 
+    /** Long enough to lose a race against the HTTP body, short enough to stay inside the timeout. */
+    private static final long SSE_ANSWER_DELAY_MILLIS = 250;
+
     private Vertx vertx;
     private HttpServer ideServer;
     private IdeaSseSession session;
@@ -260,11 +263,81 @@ class IdeaJsonRpcTransportTest {
                 "the full body must not reach the log");
     }
 
+    @Test
+    void aJsonRpcErrorOverSseFailsTheCallInsteadOfCompletingIt() {
+        postBehaviour = (rpc, response) -> {
+            response.setStatusCode(202).end();
+            pushEnvelope(new JsonObject()
+                    .put("jsonrpc", "2.0")
+                    .put("id", rpc.getValue("id"))
+                    .put("error", new JsonObject()
+                            .put("code", -32603)
+                            .put("message", "Internal error")));
+        };
+
+        ExecutionException failure = assertThrows(ExecutionException.class,
+                () -> await(client.postJsonRpc("tools/call", new JsonObject())));
+
+        assertTrue(failure.getCause().getMessage().contains("Internal error"),
+                "the upstream error has to reach the caller: " + failure.getCause().getMessage());
+    }
+
+    @Test
+    void aSynchronousBodyForAnotherRequestIdIsIgnored() throws Exception {
+        // A well-formed envelope carrying somebody else's id, with the real answer following over
+        // SSE afterwards. Accepting the first would discard the second.
+        postBehaviour = (rpc, response) -> {
+            response.setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(new JsonObject()
+                            .put("jsonrpc", "2.0")
+                            .put("id", "some-other-request")
+                            .put("result", new JsonObject().put("answer", "wrong-correlation"))
+                            .encode());
+            pushLater(rpc.getValue("id"));
+        };
+
+        JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
+
+        assertEquals("sse", result.getString("answer"),
+                "the answer must come from the correlated SSE response, not the mismatched body");
+    }
+
+    @Test
+    void aSynchronousBodyWithoutAResponseEnvelopeIsIgnored() throws Exception {
+        // What a reverse proxy or health endpoint in front of the IDE might answer with.
+        postBehaviour = (rpc, response) -> {
+            response.setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(new JsonObject().put("status", "ok").encode());
+            pushLater(rpc.getValue("id"));
+        };
+
+        JsonObject result = await(client.postJsonRpc("tools/call", new JsonObject()));
+
+        assertEquals("sse", result.getString("answer"),
+                "a body that is not a JSON-RPC response must not settle the call");
+    }
+
+    /**
+     * Answers over SSE only after the HTTP body has certainly been processed.
+     *
+     * <p>Pushing immediately makes the two answers race, and the SSE one tends to win — which let
+     * both correlation tests above pass even with the validation removed. The delay makes the
+     * unvalidated body deterministically the first to settle the call.
+     */
+    private void pushLater(Object id) {
+        vertx.setTimer(SSE_ANSWER_DELAY_MILLIS, t -> pushResult(id));
+    }
+
     private void pushResult(Object id) {
-        JsonObject message = new JsonObject()
+        pushEnvelope(new JsonObject()
                 .put("jsonrpc", "2.0")
                 .put("id", id)
-                .put("result", new JsonObject().put("answer", "sse"));
+                .put("result", new JsonObject().put("answer", "sse")));
+    }
+
+    private void pushEnvelope(JsonObject message) {
         for (io.vertx.core.http.HttpServerResponse stream : java.util.List.copyOf(liveStreams)) {
             try {
                 stream.write("data: " + message.encode() + "\r\nevent: message\r\n\r\n");
