@@ -319,6 +319,49 @@ class IdeaJsonRpcTransportTest {
                 "a body that is not a JSON-RPC response must not settle the call");
     }
 
+    @Test
+    void anSseResponseWithNeitherResultNorErrorIsRejected() {
+        // JSON-RPC requires exactly one of the two. Completing with the envelope handed
+        // IdeaToolProvider something it reports as a successful call with no content at all.
+        postBehaviour = (rpc, response) -> {
+            response.setStatusCode(202).end();
+            pushEnvelope(new JsonObject().put("jsonrpc", "2.0").put("id", rpc.getValue("id")));
+        };
+
+        ExecutionException failure = assertThrows(ExecutionException.class,
+                () -> await(client.postJsonRpc("tools/call", new JsonObject())));
+
+        assertTrue(failure.getCause().getMessage().contains("invalid JSON-RPC response"),
+                "expected the envelope to be rejected, got: " + failure.getCause().getMessage());
+    }
+
+    @Test
+    void aJsonRpcErrorsDataMemberIsNeitherLoggedNorReturned() {
+        // 'data' is free-form and unbounded. A stack trace or file excerpt in it would otherwise be
+        // rendered in full, which is exactly what the HTTP body limit was introduced to prevent.
+        String secret = "s3cret-".repeat(2_000);
+        postBehaviour = (rpc, response) -> {
+            response.setStatusCode(202).end();
+            pushEnvelope(new JsonObject()
+                    .put("jsonrpc", "2.0")
+                    .put("id", rpc.getValue("id"))
+                    .put("error", new JsonObject()
+                            .put("code", -32603)
+                            .put("message", "Internal error")
+                            .put("data", secret)));
+        };
+
+        ExecutionException failure = assertThrows(ExecutionException.class,
+                () -> await(client.postJsonRpc("tools/call", new JsonObject())));
+
+        String message = failure.getCause().getMessage();
+        assertFalse(message.contains("s3cret"), "the data member must not reach the caller: " + message);
+        assertTrue(message.contains("-32603") && message.contains("Internal error"),
+                "code and message still have to survive: " + message);
+        assertFalse(sessionLog.list.stream().anyMatch(e -> e.getFormattedMessage().contains("s3cret")),
+                "the data member must not reach the log");
+    }
+
     /**
      * Answers over SSE only after the HTTP body has certainly been processed.
      *

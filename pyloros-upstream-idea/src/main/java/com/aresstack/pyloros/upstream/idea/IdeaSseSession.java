@@ -272,8 +272,9 @@ public final class IdeaSseSession {
     private void settleFromEnvelope(String id, JsonObject json, Promise<JsonObject> promise) {
         Object error = json.getValue("error");
         if (error != null) {
-            log.warn("IDEA SSE response for id {} carries a JSON-RPC error: {}", id, error);
-            promise.tryFail(new IllegalStateException("IDEA MCP error: " + error));
+            String described = UpstreamText.describeError(error);
+            log.warn("IDEA SSE response for id {} carries a JSON-RPC error: {}", id, described);
+            promise.tryFail(new IllegalStateException("IDEA MCP error: " + described));
             return;
         }
 
@@ -285,7 +286,11 @@ public final class IdeaSseSession {
             return;
         }
 
-        promise.tryComplete(json);
+        // JSON-RPC requires exactly one of result or error. Completing with the envelope instead
+        // handed IdeaToolProvider something it reports as a successful call with no content.
+        log.warn("IDEA SSE response for id {} carries neither result nor error, rejecting it", id);
+        promise.tryFail(new IllegalStateException(
+                "IDEA MCP returned an invalid JSON-RPC response for id " + id));
     }
 
     /**

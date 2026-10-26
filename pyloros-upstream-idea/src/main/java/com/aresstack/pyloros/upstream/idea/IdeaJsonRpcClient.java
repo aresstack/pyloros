@@ -19,11 +19,7 @@ public final class IdeaJsonRpcClient {
 
     private static final Logger log = LoggerFactory.getLogger(IdeaJsonRpcClient.class);
 
-    /**
-     * Tool results run to thousands of lines and can carry credentials or file contents, so neither
-     * the log nor a caller-facing error message gets the full body.
-     */
-    private static final int LOGGED_BODY_LIMIT = 512;
+
 
     private final Vertx vertx;
     private final IdeaMcpConfig config;
@@ -161,8 +157,8 @@ public final class IdeaJsonRpcClient {
                     log.debug("IdeaJsonRpcClient synchronous response for {} (id={}, {} chars)",
                             method, id, resp.length());
                     if (json.containsKey("error")) {
-                        promise.tryFail(new IllegalStateException(
-                                "IDEA MCP error for " + method + ": " + json.getValue("error")));
+                        promise.tryFail(new IllegalStateException("IDEA MCP error for " + method + ": "
+                                + UpstreamText.describeError(json.getValue("error"))));
                     } else if (json.getValue("result") instanceof JsonObject result) {
                         promise.tryComplete(result);
                     } else {
@@ -186,13 +182,7 @@ public final class IdeaJsonRpcClient {
     }
 
     private static String excerpt(String body) {
-        if (body == null) {
-            return "";
-        }
-        if (body.length() <= LOGGED_BODY_LIMIT) {
-            return body;
-        }
-        return body.substring(0, LOGGED_BODY_LIMIT) + "… (" + body.length() + " chars total)";
+        return UpstreamText.excerpt(body);
     }
 }
 
