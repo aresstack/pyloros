@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class McpJsonConfigLoaderTimeoutTest {
 
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 5000;
-    private static final int DEFAULT_RESPONSE_TIMEOUT_MS = 60000;
+    private static final int DEFAULT_RESPONSE_TIMEOUT_MS = 100000;
 
     @TempDir
     Path tempDir;

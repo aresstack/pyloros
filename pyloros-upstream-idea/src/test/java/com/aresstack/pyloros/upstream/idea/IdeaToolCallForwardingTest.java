@@ -16,34 +16,29 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The regression test for the reproduced 60 s cut-off.
+ * What Pyloros does and does not do with a {@code tools/call}.
  *
- * <p>A terminal command that needed 75 s was sent with {@code timeout: 100000} and still failed
- * after the configured 60 s with {@code Timeout waiting for IDEA SSE response}. The tool's declared
- * deadline had no path into the transport, so the gateway gave up while the command was still
- * running in the IDE.
+ * <p>A tool's execution deadline belongs to the MCP server that runs the tool. Pyloros forwards the
+ * arguments as received and waits for an answer for exactly as long as the configured
+ * {@code responseTimeoutMillis} says — it does not read, rewrite or extrapolate from an argument
+ * like {@code timeout} or {@code timeoutSeconds}.
  *
- * <p>Same shape here on a 1 s scale: the configured timeout stands in for the 60 s, the declared
- * deadline for the 100 s, and the IDE's answer arrives after the configured timeout has passed. The
- * control test runs the identical scenario <em>without</em> the argument and must still fail — the
- * point is that the declared deadline is what makes the difference, not a generally longer wait.
+ * <p>The pair of timeout tests is what pins that down: identical arguments and an identical IDE
+ * delay, decided solely by the configured value.
  */
-class IdeaLongRunningToolCallTest {
+class IdeaToolCallForwardingTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** Stands in for the production 60 s. */
-    private static final int CONFIGURED_RESPONSE_TIMEOUT_MILLIS = 1_000;
-    /** Stands in for the 75 s the command actually needed: past the configured timeout. */
-    private static final long IDE_ANSWER_DELAY_MILLIS = 2_000;
-    /** Stands in for the caller's {@code timeout: 100000}. */
-    private static final int DECLARED_TOOL_TIMEOUT_MILLIS = 3_000;
+    /** How long the fake IDE takes to answer, in both timeout tests. */
+    private static final long IDE_ANSWER_DELAY_MILLIS = 1_500;
 
     private Vertx vertx;
     private HttpServer ideServer;
@@ -51,18 +46,28 @@ class IdeaLongRunningToolCallTest {
     private IdeaToolProvider provider;
 
     private final CopyOnWriteArrayList<HttpServerResponse> liveStreams = new CopyOnWriteArrayList<>();
+    private final AtomicReference<JsonObject> receivedRequest = new AtomicReference<>();
+
+    private volatile long answerDelayMillis;
 
     @BeforeEach
     void setUp() throws Exception {
         vertx = Vertx.vertx();
+        answerDelayMillis = 0;
 
         ideServer = await(vertx.createHttpServer().requestHandler(request -> {
             if (request.method() == io.vertx.core.http.HttpMethod.POST) {
                 request.bodyHandler(body -> {
                     JsonObject rpc = new JsonObject(body);
+                    if ("tools/call".equals(rpc.getString("method"))) {
+                        receivedRequest.set(rpc);
+                    }
                     request.response().setStatusCode(202).end();
-                    // The IDE takes its time, exactly as a long-running terminal command does.
-                    vertx.setTimer(IDE_ANSWER_DELAY_MILLIS, t -> pushResult(rpc.getValue("id")));
+                    if (answerDelayMillis <= 0) {
+                        pushResult(rpc.getValue("id"));
+                    } else {
+                        vertx.setTimer(answerDelayMillis, t -> pushResult(rpc.getValue("id")));
+                    }
                 });
                 return;
             }
@@ -73,12 +78,14 @@ class IdeaLongRunningToolCallTest {
             liveStreams.add(response);
             response.write("data: /messages/fake\r\nevent: endpoint\r\n\r\n");
         }).listen(0));
+    }
 
+    private void startProvider(int responseTimeoutMillis) throws Exception {
         IdeaMcpConfig config = new IdeaMcpConfig(
                 URI.create("http://127.0.0.1:" + ideServer.actualPort() + "/sse"),
                 Map.of(),
                 1000,
-                CONFIGURED_RESPONSE_TIMEOUT_MILLIS
+                responseTimeoutMillis
         );
 
         ideaClient = new IdeaMcpClient(vertx, config);
@@ -102,32 +109,56 @@ class IdeaLongRunningToolCallTest {
     }
 
     @Test
-    void aToolCallDeclaringALongerDeadlineOutlivesTheConfiguredTimeout() throws Exception {
-        String arguments = "{\"command\":\"sleep 75\",\"timeout\":" + DECLARED_TOOL_TIMEOUT_MILLIS + "}";
+    void argumentsReachTheIdeUnchanged() throws Exception {
+        startProvider(5_000);
 
-        long startNanos = System.nanoTime();
-        Map<String, Object> result = await(
-                provider.callTool("execute_terminal_command", JSON.readTree(arguments)));
-        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+        String arguments = "{"
+                + "\"command\":\"sleep 75\","
+                + "\"timeout\":100000,"
+                + "\"timeoutSeconds\":600,"
+                + "\"executeInShell\":true,"
+                + "\"nested\":{\"keep\":[1,2,3]}"
+                + "}";
 
-        assertFalse((Boolean) result.get("isError"),
-                "the declared deadline has to be honoured: " + result);
-        assertEquals("command finished", firstText(result));
-        assertTrue(elapsedMillis > CONFIGURED_RESPONSE_TIMEOUT_MILLIS,
-                "the answer must have arrived after the configured timeout, otherwise this test "
-                        + "proves nothing; took " + elapsedMillis + "ms");
+        await(provider.callTool("execute_terminal_command", JSON.readTree(arguments)));
+
+        JsonObject forwarded = receivedRequest.get().getJsonObject("params");
+        assertEquals("execute_terminal_command", forwarded.getString("name"));
+        // Compared as a whole, so an added, dropped or rewritten member fails the test.
+        assertEquals(new JsonObject(arguments), forwarded.getJsonObject("arguments"));
     }
 
     @Test
-    void theSameCallWithoutADeclaredDeadlineStillHitsTheConfiguredTimeout() throws Exception {
-        Map<String, Object> result = await(
-                provider.callTool("execute_terminal_command", JSON.readTree("{\"command\":\"sleep 75\"}")));
+    void aDeclaredToolTimeoutDoesNotExtendTheConfiguredWait() throws Exception {
+        // The configured wait is shorter than the IDE takes, even though the call declares a far
+        // longer deadline of its own. Pyloros must still give up when its own timeout elapses.
+        answerDelayMillis = IDE_ANSWER_DELAY_MILLIS;
+        startProvider(800);
 
-        // Control: without the argument there is nothing to extend, so the configured timeout stands.
-        // This is what keeps the test above honest.
-        assertTrue((Boolean) result.get("isError"), "expected the configured timeout to apply: " + result);
+        Map<String, Object> result = await(provider.callTool("execute_terminal_command",
+                JSON.readTree("{\"command\":\"sleep 75\",\"timeout\":100000}")));
+
+        assertTrue((Boolean) result.get("isError"),
+                "the declared deadline must not extend the configured wait: " + result);
         assertTrue(firstText(result).contains("Timeout waiting for IDEA SSE response"),
-                "expected an SSE timeout, got: " + firstText(result));
+                "expected the configured timeout to apply, got: " + firstText(result));
+    }
+
+    @Test
+    void aConfiguredTimeoutLongerThanTheCallIsHonoured() throws Exception {
+        // Same arguments and the same IDE delay as above; only the configured value differs.
+        answerDelayMillis = IDE_ANSWER_DELAY_MILLIS;
+        startProvider(5_000);
+
+        long startNanos = System.nanoTime();
+        Map<String, Object> result = await(provider.callTool("execute_terminal_command",
+                JSON.readTree("{\"command\":\"sleep 75\",\"timeout\":100000}")));
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+        assertFalse((Boolean) result.get("isError"), "expected the call to succeed: " + result);
+        assertEquals("command finished", firstText(result));
+        assertTrue(elapsedMillis >= IDE_ANSWER_DELAY_MILLIS,
+                "the call must actually have waited for the IDE; took " + elapsedMillis + "ms");
     }
 
     @SuppressWarnings("unchecked")

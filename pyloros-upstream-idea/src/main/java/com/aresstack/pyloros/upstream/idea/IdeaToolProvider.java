@@ -24,7 +24,7 @@ public final class IdeaToolProvider implements ToolProvider {
     }
 
     public IdeaToolProvider(IdeaMcpConfig config, IdeaMcpClient client) {
-        this.config = config == null ? new IdeaMcpConfig(null, Map.of(), 3000, 60000) : config;
+        this.config = config == null ? new IdeaMcpConfig(null, Map.of(), 3000, 100000) : config;
         this.client = client;
     }
 
@@ -70,13 +70,12 @@ public final class IdeaToolProvider implements ToolProvider {
                 .put("name", requestedName)
                 .put("arguments", arguments);
 
-        // The tool's own deadline, not the transport default, decides how long this call may take.
-        long responseTimeoutMillis =
-                IdeaToolTimeouts.resolve(requestedName, arguments, config.responseTimeoutMillis());
+        // The arguments are forwarded as received. A tool's own execution deadline belongs to the
+        // MCP server that runs it; Pyloros neither reads nor rewrites it, and waits for an answer
+        // for exactly as long as responseTimeoutMillis says.
+        log.info("IdeaToolProvider: forwarding tools/call {}", requestedName);
 
-        log.info("IdeaToolProvider: forwarding tools/call {} (timeout={} ms)", requestedName, responseTimeoutMillis);
-
-        return client.call("tools/call", params, responseTimeoutMillis)
+        return client.call("tools/call", params)
                 .map(response -> {
                     if (response == null) {
                         return errorResult("IDEA returned empty response for " + requestedName);

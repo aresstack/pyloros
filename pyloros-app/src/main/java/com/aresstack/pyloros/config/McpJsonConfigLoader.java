@@ -20,7 +20,7 @@ public final class McpJsonConfigLoader {
     private static final Logger log = LoggerFactory.getLogger(McpJsonConfigLoader.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 5000;
-    private static final int DEFAULT_RESPONSE_TIMEOUT_MS = 60000;
+    private static final int DEFAULT_RESPONSE_TIMEOUT_MS = 100000;
 
     public Optional<LoadedMcpJsonConfig> load(String[] args) {
         for (Path candidate : candidatePaths(args)) {
