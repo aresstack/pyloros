@@ -118,13 +118,21 @@ public final class HttpJson {
                     response.putHeader(HttpHeaders.CONTENT_TYPE, contentType);
                 }
             }
-            if (payload == null) {
-                response.end();
-            } else {
-                response.end(payload);
+            McpHttpCallTrace trace = McpHttpCallTrace.from(context);
+            if (trace != null) {
+                trace.responseEndSubmitted(statusCode, payload);
+            }
+            var endFuture = payload == null ? response.end() : response.end(payload);
+            if (trace != null) {
+                int finalStatus = statusCode;
+                endFuture.onComplete(result -> trace.responseEndResult(finalStatus, result));
             }
         } catch (Exception exception) {
             log.warn("Failed to end HTTP response: {}", errorMessage(exception));
+            McpHttpCallTrace trace = McpHttpCallTrace.from(context);
+            if (trace != null) {
+                trace.writeException(exception);
+            }
         }
     }
 }

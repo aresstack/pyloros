@@ -137,10 +137,17 @@ public final class McpRoutes {
         McpToolCall toolCall = ToolCallRequestResolver.resolveRpcToolCall(request);
         logMcpPost(context, request, "rpc", toolCall.name());
         logToolsCall("rpc", toolCall);
+        McpHttpCallTrace trace = McpHttpCallTrace.begin(context, toolCall.name());
         // The granted scopes decide whether this particular tool may run.
         toolRouter.callTool(toolCall, toolView, grantedScopes)
-                .onSuccess(result -> HttpJson.rpcResult(context, id, result))
-                .onFailure(error -> HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error)));
+                .onSuccess(result -> {
+                    trace.upstreamCompleted(true);
+                    HttpJson.rpcResult(context, id, result);
+                })
+                .onFailure(error -> {
+                    trace.upstreamCompleted(false);
+                    HttpJson.rpcError(context, id, -32000, HttpJson.errorMessage(error));
+                });
     }
 
     private ToolView resolveRequestedToolView(RoutingContext context) {
