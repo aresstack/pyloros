@@ -7,15 +7,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 public class AcpProcessLauncher {
+
+    private final Function<List<String>, ProcessBuilder> processBuilderFactory;
+
+    public AcpProcessLauncher() {
+        this(ProcessBuilder::new);
+    }
+
+    AcpProcessLauncher(Function<List<String>, ProcessBuilder> processBuilderFactory) {
+        this.processBuilderFactory = Objects.requireNonNull(
+                processBuilderFactory, "processBuilderFactory must not be null");
+    }
 
     public AcpProcessHandle launch(AcpProcessConfiguration config) {
         AcpProcessConfiguration processConfiguration = Objects.requireNonNull(config, "config must not be null");
         List<String> commandLine = commandLine(processConfiguration);
-        ProcessBuilder processBuilder = new ProcessBuilder(commandLine);
+        ProcessBuilder processBuilder = Objects.requireNonNull(
+                processBuilderFactory.apply(commandLine), "processBuilder must not be null");
         processBuilder.redirectError(ProcessBuilder.Redirect.PIPE);
         applyWorkingDirectory(processConfiguration, processBuilder);
+        WindowsUserProfileEnvironment.restore(
+                processBuilder.environment(),
+                System.getProperty("os.name"),
+                System.getProperty("user.home"));
         applyEnvironment(processConfiguration.environment(), processBuilder.environment());
 
         try {
