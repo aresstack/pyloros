@@ -39,6 +39,10 @@ final class AntigravityInjectedMcpInteropTest {
     private static final String AGENT_VIEW = "antigravity-acp-agent-view";
     private static final String TEST_TOKEN = "local-integration-test-token";
     private static final int TIMEOUT_SECONDS = 45;
+    private static final java.util.concurrent.atomic.AtomicInteger DIRECT_TOOL_CALLS =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.concurrent.atomic.AtomicInteger READ_ONLY_CALLS =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     @Test
     @EnabledIfEnvironmentVariable(named = "AGY_ACP_EXECUTABLE", matches = ".+")
@@ -143,6 +147,98 @@ final class AntigravityInjectedMcpInteropTest {
     @EnabledIfEnvironmentVariable(named = "AGY_ACP_EXECUTABLE", matches = ".+")
     void completesBackgroundTaskWithMinimalWindowsServiceEnvironment() throws Exception {
         assertBackgroundTaskCompletes(0, launcherWithMinimalWindowsEnvironment());
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "AGY_ACP_EXECUTABLE", matches = ".+")
+    void callsEagerMcpToolDirectlyThroughRealAcpAgent() throws Exception {
+        DIRECT_TOOL_CALLS.set(0);
+        Vertx vertx = Vertx.vertx();
+        HttpServer server = null;
+        try {
+            server = startMcpServer(vertx);
+            String workspace = workspace();
+            String mcpUrl = "http://127.0.0.1:" + server.actualPort() + "/";
+            AcpVirtualToolProvider provider = createProductionProvider(vertx, mcpUrl, workspace);
+            JsonNode request = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of(
+                    "prompt", "Call the directly registered MCP tool mcp_pyloros_diagnostic__ping exactly once. "
+                            + "This is a read-only test tool which returns pong. Do not use call_mcp_tool, "
+                            + "read schema files, execute shell commands or modify any files. "
+                            + "Then report the result.",
+                    "cwd", workspace,
+                    "timeoutSeconds", 75
+            ));
+            long startedAt = System.nanoTime();
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            JsonNode started = toolPayload(provider.callTool("start_task", request)
+                    .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+            String taskId = started.path("taskId").asText();
+            JsonNode status = started;
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90);
+            while (!"WAITING_FOR_PERMISSION".equals(status.path("state").asText())
+                    && !"COMPLETED".equals(status.path("state").asText())
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(300);
+                status = toolPayload(provider.callTool("get_task_status",
+                        mapper.valueToTree(Map.of("taskId", taskId)))
+                        .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+            }
+            assertEquals("WAITING_FOR_PERMISSION", status.path("state").asText(), status.toString());
+            String permissionId = status.path("pendingPermissions").get(0).path("id").asText();
+            JsonNode answer = toolPayload(provider.callTool("respond_to_permission", mapper.valueToTree(Map.of(
+                    "taskId", taskId, "permissionId", permissionId, "approve", true)))
+                    .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+            assertTrue(answer.path("approved").asBoolean());
+
+            while (!"COMPLETED".equals(status.path("state").asText()) && System.nanoTime() < deadline) {
+                Thread.sleep(300);
+                status = toolPayload(provider.callTool("get_task_status",
+                        mapper.valueToTree(Map.of("taskId", taskId)))
+                        .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+            }
+            reportElapsed("direct eager MCP tool call with explicit approval", startedAt);
+            System.out.println("Direct MCP task result: " + status);
+            assertEquals("COMPLETED", status.path("state").asText(), status.toString());
+            assertEquals(1, DIRECT_TOOL_CALLS.get(), "The native eager MCP tool must actually execute");
+        } finally {
+            if (server != null) {
+                server.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            }
+            vertx.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "AGY_ACP_EXECUTABLE", matches = ".+")
+    void automaticallyApprovesAndExecutesDirectReadOnlyIntellijTool() throws Exception {
+        READ_ONLY_CALLS.set(0);
+        Vertx vertx = Vertx.vertx();
+        HttpServer server = null;
+        try {
+            server = startMcpServer(vertx, new ReadOnlyIntellijProvider());
+            String workspace = workspace();
+            String mcpUrl = "http://127.0.0.1:" + server.actualPort() + "/";
+            AcpVirtualToolProvider provider = createProductionProvider(vertx, mcpUrl, workspace);
+            JsonNode request = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of(
+                    "prompt", "Call the direct MCP tool mcp_pyloros_intellij__get_repositories "
+                            + "with projectPath C:/Projects/pyloros exactly once. "
+                            + "Do not use call_mcp_tool or run shell commands. Then report the result.",
+                    "cwd", workspace,
+                    "timeoutSeconds", 75
+            ));
+            long started = System.nanoTime();
+            JsonNode result = toolPayload(provider.callTool("run_task", request)
+                    .toCompletionStage().toCompletableFuture().get(85, TimeUnit.SECONDS));
+            reportElapsed("direct read-only IntelliJ MCP tool", started);
+            System.out.println("Read-only direct tool result: " + result);
+            assertEquals("COMPLETED", result.path("state").asText(), result.toString());
+            assertEquals(1, READ_ONLY_CALLS.get(), "Known read-only MCP tools must execute without approval");
+        } finally {
+            if (server != null) {
+                server.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            }
+            vertx.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        }
     }
 
     private static void assertBackgroundTaskCompletes(int additionalTools) throws Exception {
@@ -251,7 +347,11 @@ final class AntigravityInjectedMcpInteropTest {
     }
 
     private static HttpServer startMcpServer(Vertx vertx, int additionalTools) throws Exception {
-        ProviderRegistry registry = new ProviderRegistry(List.of(new DiagnosticToolProvider(additionalTools)));
+        return startMcpServer(vertx, new DiagnosticToolProvider(additionalTools));
+    }
+
+    private static HttpServer startMcpServer(Vertx vertx, ToolProvider provider) throws Exception {
+        ProviderRegistry registry = new ProviderRegistry(List.of(provider));
         ToolView agentView = ToolView.named(AGENT_VIEW);
         ToolCatalog catalog = new ToolCatalog(
                 registry, ToolNameFormatter.defaultFormatter(), Set.of(agentView)
@@ -324,6 +424,40 @@ final class AntigravityInjectedMcpInteropTest {
         }
     }
 
+    private static final class ReadOnlyIntellijProvider implements ToolProvider {
+        @Override
+        public String providerId() {
+            return "intellij";
+        }
+
+        @Override
+        public ProviderType providerType() {
+            return ProviderType.MCP;
+        }
+
+        @Override
+        public Future<List<Map<String, Object>>> listTools() {
+            return Future.succeededFuture(List.of(Map.of(
+                    "name", "get_repositories",
+                    "description", "Return the repositories of the specified IntelliJ project without changing files",
+                    "inputSchema", Map.of(
+                            "type", "object",
+                            "properties", Map.of("projectPath", Map.of("type", "string"))),
+                    "_meta", Map.of("antigravity/alwaysLoad", true)
+            )));
+        }
+
+        @Override
+        public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments) {
+            if ("get_repositories".equals(upstreamToolName)) {
+                READ_ONLY_CALLS.incrementAndGet();
+            }
+            return Future.succeededFuture(Map.of(
+                    "content", List.of(Map.of("type", "text", "text", "Repository: pyloros")),
+                    "isError", false));
+        }
+    }
+
     private static final class DiagnosticToolProvider implements ToolProvider {
         private final int additionalTools;
 
@@ -346,8 +480,9 @@ final class AntigravityInjectedMcpInteropTest {
             List<Map<String, Object>> tools = new java.util.ArrayList<>();
             tools.add(Map.of(
                     "name", "ping",
-                    "description", "Return a diagnostic response",
-                    "inputSchema", Map.of("type", "object")
+                    "description", "Return pong without changing any data",
+                    "inputSchema", Map.of("type", "object", "properties", Map.of()),
+                    "_meta", Map.of("antigravity/alwaysLoad", true)
             ));
             for (int index = 0; index < additionalTools; index++) {
                 tools.add(Map.of(
@@ -367,6 +502,9 @@ final class AntigravityInjectedMcpInteropTest {
 
         @Override
         public Future<Map<String, Object>> callTool(String upstreamToolName, JsonNode arguments) {
+            if ("ping".equals(upstreamToolName)) {
+                DIRECT_TOOL_CALLS.incrementAndGet();
+            }
             return Future.succeededFuture(Map.of(
                     "content", List.of(Map.of("type", "text", "text", "pong")),
                     "isError", false

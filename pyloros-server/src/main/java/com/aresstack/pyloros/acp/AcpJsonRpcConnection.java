@@ -50,6 +50,29 @@ public final class AcpJsonRpcConnection implements Closeable {
         writeMessage(notification(method, params));
     }
 
+    public void sendResult(JsonNode requestId, Object result) {
+        Objects.requireNonNull(requestId, "requestId must not be null");
+        if (requestId.isNull() || !(requestId.isTextual() || requestId.isIntegralNumber())) {
+            throw new IllegalArgumentException("requestId must be a string or integer");
+        }
+        ObjectNode message = OBJECT_MAPPER.createObjectNode();
+        message.put("jsonrpc", "2.0");
+        message.set("id", requestId.deepCopy());
+        message.set("result", OBJECT_MAPPER.valueToTree(result));
+        writeMessage(message);
+    }
+
+    public void sendError(JsonNode requestId, int code, String message) {
+        Objects.requireNonNull(requestId, "requestId must not be null");
+        ObjectNode response = OBJECT_MAPPER.createObjectNode();
+        response.put("jsonrpc", "2.0");
+        response.set("id", requestId.deepCopy());
+        ObjectNode error = response.putObject("error");
+        error.put("code", code);
+        error.put("message", Objects.requireNonNull(message, "message must not be null"));
+        writeMessage(response);
+    }
+
     public CompletableFuture<JsonNode> readNext() {
         if (closed.get()) {
             return CompletableFuture.failedFuture(new IllegalStateException("ACP JSON-RPC connection is closed"));

@@ -11,6 +11,7 @@ public final class AcpToolDefinitions {
     public static final String GET_TASK_STATUS = "get_task_status";
     public static final String GET_TASK_RESULT = "get_task_result";
     public static final String CANCEL_TASK = "cancel_task";
+    public static final String RESPOND_TO_PERMISSION = "respond_to_permission";
 
     private AcpToolDefinitions() {
     }
@@ -36,7 +37,11 @@ public final class AcpToolDefinitions {
                 toolDefinition(
                         CANCEL_TASK,
                         "Requests cancellation for a running ACP task.",
-                        taskIdSchema())
+                        taskIdSchema()),
+                toolDefinition(
+                        RESPOND_TO_PERMISSION,
+                        "Approves or rejects one pending ACP agent permission. Inspect get_task_status first.",
+                        permissionResponseSchema())
         );
     }
 
@@ -60,6 +65,16 @@ public final class AcpToolDefinitions {
                 ),
                 List.of("taskId")
         );
+    }
+
+    private static Map<String, Object> permissionResponseSchema() {
+        return schema(
+                Map.of(
+                        "taskId", Map.of("type", "string"),
+                        "permissionId", Map.of("type", "string"),
+                        "approve", Map.of("type", "boolean")
+                ),
+                List.of("taskId", "permissionId", "approve"));
     }
 
     private static Map<String, Object> taskIdSchema() {

@@ -16,14 +16,21 @@ public final class AcpAgentClient implements AutoCloseable {
 
     private final AcpProcessHandle processHandle;
     private final AcpJsonRpcConnection connection;
+    private final AcpPermissionHandler permissionHandler;
     private final Map<String, CompletableFuture<JsonNode>> pendingRequests = new ConcurrentHashMap<>();
     private final Queue<JsonNode> queuedEvents = new ConcurrentLinkedQueue<>();
     private final Queue<CompletableFuture<JsonNode>> eventWaiters = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public AcpAgentClient(AcpProcessHandle processHandle, AcpJsonRpcConnection connection) {
+        this(processHandle, connection, AcpPermissionHandler.denyByDefault());
+    }
+
+    public AcpAgentClient(AcpProcessHandle processHandle, AcpJsonRpcConnection connection,
+                          AcpPermissionHandler permissionHandler) {
         this.processHandle = Objects.requireNonNull(processHandle, "processHandle must not be null");
         this.connection = Objects.requireNonNull(connection, "connection must not be null");
+        this.permissionHandler = Objects.requireNonNull(permissionHandler, "permissionHandler must not be null");
         pumpIncomingMessages();
     }
 
@@ -142,7 +149,36 @@ public final class AcpAgentClient implements AutoCloseable {
                 return;
             }
         }
+        if (idNode != null && !idNode.isNull() && message.hasNonNull("method")) {
+            handleIncomingRequest(idNode, message);
+            return;
+        }
         publishEvent(message);
+    }
+
+    private void handleIncomingRequest(JsonNode requestId, JsonNode request) {
+        String method = request.path("method").asText();
+        if (!"session/request_permission".equals(method)) {
+            connection.sendError(requestId, -32601, "Unsupported ACP client request");
+            return;
+        }
+        try {
+            permissionHandler.requestPermission(request.path("params"))
+                    .whenComplete((answer, error) -> {
+                        if (closed.get()) {
+                            return;
+                        }
+                        if (error != null) {
+                            connection.sendResult(requestId, Map.of(
+                                    "outcome", Map.of("outcome", "cancelled")));
+                        } else {
+                            connection.sendResult(requestId, answer);
+                        }
+                    });
+        } catch (RuntimeException exception) {
+            connection.sendResult(requestId, Map.of(
+                    "outcome", Map.of("outcome", "cancelled")));
+        }
     }
 
     private void completePendingRequest(CompletableFuture<JsonNode> pendingRequest, JsonNode message) {

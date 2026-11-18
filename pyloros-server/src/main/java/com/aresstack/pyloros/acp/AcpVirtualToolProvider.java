@@ -52,6 +52,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
     private final AcpEventMapper eventMapper;
     private final String injectedViewToken;
     private final ConcurrentHashMap<AgentTaskId, AcpProcessHandle> activeProcesses = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<AgentTaskId, AcpTaskPermissionHandler> activePermissionHandlers =
+            new ConcurrentHashMap<>();
 
     public AcpVirtualToolProvider(Vertx vertx, AcpProviderConfiguration config, AgentTaskRepository agentTaskRepository) {
         this(vertx, config, agentTaskRepository, new AcpProcessLauncher(), new AcpAuditLogger(), new AcpEventMapper(), "");
@@ -132,6 +134,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             case AcpToolDefinitions.GET_TASK_STATUS -> Future.succeededFuture(getTaskStatus(normalizedArguments));
             case AcpToolDefinitions.GET_TASK_RESULT -> Future.succeededFuture(getTaskResult(normalizedArguments));
             case AcpToolDefinitions.CANCEL_TASK -> Future.succeededFuture(cancelTask(normalizedArguments));
+            case AcpToolDefinitions.RESPOND_TO_PERMISSION ->
+                    Future.succeededFuture(respondToPermission(normalizedArguments));
             default -> Future.succeededFuture(errorResult("Unknown tool: " + upstreamToolName));
         };
     }
@@ -182,6 +186,9 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         long startedAt = System.nanoTime();
         AcpProcessHandle processHandle = null;
         ScheduledFuture<?> timeoutFuture = null;
+        AcpTaskPermissionHandler permissionHandler = new AcpTaskPermissionHandler(
+                task, agentTaskRepository, AcpDirectToolPolicy.readOnlyToolNames());
+        activePermissionHandlers.put(task.taskId(), permissionHandler);
 
         try {
             if (isTerminal(task.state())) {
@@ -192,7 +199,7 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             timeoutFuture = scheduleTimeout(task, processHandle, request.timeoutSeconds());
 
             try (AcpJsonRpcConnection connection = new AcpJsonRpcConnection(processHandle.stdout(), processHandle.stdin());
-                 AcpAgentClient client = new AcpAgentClient(processHandle, connection)) {
+                 AcpAgentClient client = new AcpAgentClient(processHandle, connection, permissionHandler)) {
                 if (isTerminal(task.state())) {
                     return;
                 }
@@ -226,6 +233,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             if (timeoutFuture != null) {
                 timeoutFuture.cancel(true);
             }
+            activePermissionHandlers.remove(task.taskId(), permissionHandler);
+            permissionHandler.cancelPending();
             if (processHandle != null) {
                 activeProcesses.remove(task.taskId(), processHandle);
                 processHandle.destroy();
@@ -374,6 +383,27 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return errorResult("Task did not complete successfully: " + task.state().name());
     }
 
+    private Map<String, Object> respondToPermission(JsonNode arguments) {
+        TaskLookup lookup = lookupTask(arguments);
+        if (lookup.errorMessage() != null) {
+            return errorResult(lookup.errorMessage());
+        }
+        String permissionId = requiredText(arguments, "permissionId");
+        Boolean approve = optionalBoolean(arguments, "approve");
+        if (permissionId == null || approve == null) {
+            return errorResult("permissionId and approve are required");
+        }
+        AcpTaskPermissionHandler handler = activePermissionHandlers.get(lookup.task().taskId());
+        if (handler == null || !handler.respond(permissionId, approve)) {
+            return errorResult("Permission is not pending or cannot be approved");
+        }
+        return successResult(Map.of(
+                "taskId", lookup.task().taskId().value(),
+                "permissionId", permissionId,
+                "approved", approve,
+                "state", lookup.task().state().name()));
+    }
+
     private Map<String, Object> cancelTask(JsonNode arguments) {
         TaskLookup taskLookup = lookupTask(arguments);
         if (taskLookup.errorMessage() != null) {
@@ -468,7 +498,12 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         payload.put("updatedAt", instantText(task.updatedAt()));
         payload.put("completedAt", instantText(task.completedAt()));
         payload.put("cancellationRequested", task.cancellationRequested());
-        payload.put("pendingPermissions", task.pendingPermissions());
+        payload.put("pendingPermissions", task.pendingPermissions().stream()
+                .map(permission -> Map.of(
+                        "id", permission.id(),
+                        "description", permission.description(),
+                        "requestedAt", instantText(permission.requestedAt())))
+                .toList());
         if (includeEvents) {
             payload.put("events", limitedEvents(task.events(), maxEvents));
         }

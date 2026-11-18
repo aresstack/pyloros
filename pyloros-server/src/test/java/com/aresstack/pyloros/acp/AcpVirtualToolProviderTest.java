@@ -43,13 +43,14 @@ class AcpVirtualToolProviderTest {
             List<Map<String, Object>> tools = await(context.provider().listTools());
             Set<String> names = toolNames(tools);
 
-            assertEquals(5, tools.size());
+            assertEquals(6, tools.size());
             assertEquals(Set.of(
                     "run_task",
                     "start_task",
                     "get_task_status",
                     "get_task_result",
-                    "cancel_task"
+                    "cancel_task",
+                    "respond_to_permission"
             ), names);
         }
     }
