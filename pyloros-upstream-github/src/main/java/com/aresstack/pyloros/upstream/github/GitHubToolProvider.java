@@ -1,5 +1,6 @@
 package com.aresstack.pyloros.upstream.github;
 
+import com.aresstack.pyloros.provider.ProviderType;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.upstream.mcp.GenericMcpToolProvider;
 import com.aresstack.pyloros.upstream.mcp.McpUpstreamClient;
@@ -19,6 +20,11 @@ public final class GitHubToolProvider implements ToolProvider {
     public GitHubToolProvider(Vertx vertx, McpUpstreamConfig config) {
         McpUpstreamClient client = McpUpstreamClients.create(vertx, config);
         this.delegate = new GenericMcpToolProvider(config, client);
+    }
+
+    @Override
+    public ProviderType providerType() {
+        return delegate.providerType();
     }
 
     @Override

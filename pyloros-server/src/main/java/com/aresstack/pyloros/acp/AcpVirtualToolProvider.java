@@ -103,6 +103,10 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         return ProviderType.ACP;
     }
 
+    public ToolView agentToolView() {
+        return ToolView.named(config.agentToolView());
+    }
+
     @Override
     public List<ToolView> exposedViews() {
         return config.exposeInViews().stream()

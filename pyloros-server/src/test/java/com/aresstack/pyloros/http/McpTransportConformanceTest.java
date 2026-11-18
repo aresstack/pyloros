@@ -2,6 +2,7 @@ package com.aresstack.pyloros.http;
 
 import com.aresstack.pyloros.config.ServerConfig;
 import com.aresstack.pyloros.provider.ProviderRegistry;
+import com.aresstack.pyloros.provider.ProviderType;
 import com.aresstack.pyloros.security.AuthenticationResult;
 import com.aresstack.pyloros.security.RequestAuthenticator;
 import com.aresstack.pyloros.tool.ToolCatalog;
@@ -26,6 +27,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -63,7 +65,7 @@ class McpTransportConformanceTest {
 
         ToolProvider provider = new EchoToolProvider();
         ProviderRegistry providerRegistry = new ProviderRegistry(List.of(provider));
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, ToolNameFormatter.defaultFormatter());
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, ToolNameFormatter.defaultFormatter(), Set.of(ToolView.AGENT));
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog);
 
         Router router = Router.router(vertx);
@@ -74,7 +76,8 @@ class McpTransportConformanceTest {
                         ? AuthenticationResult.authenticated("test")
                         : AuthenticationResult.rejected(401, "invalid_token", Map.of()),
                 toolCatalog,
-                toolRouter
+                toolRouter,
+                Set.of(ToolView.AGENT)
         ).mount(router);
 
         server = await(vertx.createHttpServer().requestHandler(router).listen(0));
@@ -150,6 +153,72 @@ class McpTransportConformanceTest {
         assertEquals("2025-03-26", body.path("result").path("protocolVersion").asText());
     }
 
+    @Test
+    void trustedLocalAgentCanInitializeWithoutOAuthBearerToken() throws Exception {
+        authenticated = false;
+
+        HttpResponse<String> response = postAsInjectedAgent("/?view=agent", "test-injected-token");
+
+        assertEquals(200, response.statusCode());
+        JsonNode body = HttpJson.mapper().readTree(response.body());
+        assertEquals("pyloros", body.path("result").path("serverInfo").path("name").asText());
+    }
+
+    @Test
+    void trustedLocalAgentCanDiscoverMcpToolsWithoutOAuthBearerToken() throws Exception {
+        authenticated = false;
+
+        HttpResponse<String> response = postAsInjectedAgent("/?view=agent", "test-injected-token", "tools/list");
+
+        assertEquals(200, response.statusCode());
+        JsonNode tools = HttpJson.mapper().readTree(response.body()).path("result").path("tools");
+        assertEquals(1, tools.size());
+        assertEquals("test__echo", tools.get(0).path("name").asText());
+    }
+
+    @Test
+    void untrustedLocalAgentCannotBypassOAuth() throws Exception {
+        authenticated = false;
+
+        assertEquals(401, postAsInjectedAgent("/?view=agent", "wrong-token").statusCode());
+        assertEquals(401, postAsInjectedAgent("/", "test-injected-token").statusCode());
+        assertEquals(401, postAsInjectedAgent("/?view=public", "test-injected-token").statusCode());
+        assertEquals(401, postAsInjectedAgent("/?view=admin", "test-injected-token").statusCode());
+    }
+
+    @Test
+    void trustedLocalAgentGetStillReportsMethodNotAllowed() throws Exception {
+        authenticated = false;
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/?view=agent"))
+                .timeout(RESPONSE_TIMEOUT)
+                .header("X-Pyloros-Injected-View", "acp")
+                .header("X-Pyloros-Injected-View-Token", "test-injected-token")
+                .GET()
+                .build();
+
+        assertEquals(405, httpClient.send(request, HttpResponse.BodyHandlers.ofString()).statusCode());
+    }
+
+    private HttpResponse<String> postAsInjectedAgent(String path, String token) throws Exception {
+        return postAsInjectedAgent(path, token, "initialize");
+    }
+
+    private HttpResponse<String> postAsInjectedAgent(String path, String token, String method) throws Exception {
+        String body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + method + "\",\"params\":{}}";
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + path))
+                .timeout(RESPONSE_TIMEOUT)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .header("X-Pyloros-Injected-View", "acp")
+                .header("X-Pyloros-Injected-View-Token", token)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> get(String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + path))
@@ -180,9 +249,19 @@ class McpTransportConformanceTest {
         public String mcpProtocolVersion() {
             return "2025-03-26";
         }
+
+        @Override
+        public String mcpInjectedViewToken() {
+            return "test-injected-token";
+        }
     }
 
     private static final class EchoToolProvider implements ToolProvider {
+
+        @Override
+        public ProviderType providerType() {
+            return ProviderType.MCP;
+        }
 
         @Override
         public String providerId() {

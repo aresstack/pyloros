@@ -36,6 +36,7 @@ import com.aresstack.pyloros.tool.ToolCatalog;
 import com.aresstack.pyloros.tool.ToolNameFormatter;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.aresstack.pyloros.tool.ToolRouter;
+import com.aresstack.pyloros.tool.ToolView;
 import com.aresstack.pyloros.upstream.github.GitHubToolProvider;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpClient;
 import com.aresstack.pyloros.upstream.idea.IdeaMcpConfig;
@@ -108,11 +109,12 @@ public final class PylorosApplication extends AbstractVerticle {
         registerAcpRegistryProviders(providers, config);
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter);
+        Set<ToolView> agentToolViews = managedAgentToolViews(providers);
+        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter, agentToolViews);
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog,
                 config.enforceToolScopes());
 
-        Router router = createRouter(config, securityModule, toolCatalog, toolRouter);
+        Router router = createRouter(config, securityModule, toolCatalog, toolRouter, agentToolViews);
 
         vertx.createHttpServer()
                 .requestHandler(router)
@@ -125,13 +127,22 @@ public final class PylorosApplication extends AbstractVerticle {
                 .onFailure(error -> log.error("Could not start HTTP server", error));
     }
 
-    private Router createRouter(PylorosConfig config, SecurityModule securityModule, ToolCatalog toolCatalog, ToolRouter toolRouter) {
+    private Set<ToolView> managedAgentToolViews(List<ToolProvider> providers) {
+        return providers.stream()
+                .filter(AcpVirtualToolProvider.class::isInstance)
+                .map(AcpVirtualToolProvider.class::cast)
+                .map(AcpVirtualToolProvider::agentToolView)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private Router createRouter(PylorosConfig config, SecurityModule securityModule,
+                                ToolCatalog toolCatalog, ToolRouter toolRouter, Set<ToolView> agentToolViews) {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
 
         new HealthRoutes().mount(router);
         securityModule.mountRoutes(router);
-        new McpRoutes(config, securityModule.authenticator(), toolCatalog, toolRouter).mount(router);
+        new McpRoutes(config, securityModule.authenticator(), toolCatalog, toolRouter, agentToolViews).mount(router);
         return router;
     }
 
@@ -237,8 +248,8 @@ public final class PylorosApplication extends AbstractVerticle {
                     store.listAll(),
                     collectAcpProviderIds(externalAcpProviders),
                     collectAcpProviderIdsByExposedView(externalAcpProviders),
-                    config.publicOrigin() + "/",
-                    config.mcpInjectedViewToken()
+                    config.localAgentMcpUrl(),
+                    null
             );
         } catch (InstalledAgentStoreException exception) {
             log.warn("[ACP-REGISTRY-PROVIDER] skipped installed registry agents because the installed-agent store could not be read: {}",

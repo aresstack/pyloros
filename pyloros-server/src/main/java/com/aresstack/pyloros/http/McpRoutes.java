@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 public final class McpRoutes {
 
@@ -34,12 +36,22 @@ public final class McpRoutes {
     private final RequestAuthenticator authenticator;
     private final ToolCatalog toolCatalog;
     private final ToolRouter toolRouter;
+    private final Set<ToolView> managedAgentViews;
 
     public McpRoutes(ServerConfig config, RequestAuthenticator authenticator, ToolCatalog toolCatalog, ToolRouter toolRouter) {
-        this.config = config;
-        this.authenticator = authenticator;
-        this.toolCatalog = toolCatalog;
-        this.toolRouter = toolRouter;
+        this(config, authenticator, toolCatalog, toolRouter, Set.of());
+    }
+
+    public McpRoutes(ServerConfig config, RequestAuthenticator authenticator,
+                     ToolCatalog toolCatalog, ToolRouter toolRouter, Set<ToolView> managedAgentViews) {
+        this.config = Objects.requireNonNull(config, "config must not be null");
+        this.authenticator = Objects.requireNonNull(authenticator, "authenticator must not be null");
+        this.toolCatalog = Objects.requireNonNull(toolCatalog, "toolCatalog must not be null");
+        this.toolRouter = Objects.requireNonNull(toolRouter, "toolRouter must not be null");
+        this.managedAgentViews = Set.copyOf(Objects.requireNonNull(managedAgentViews, "managedAgentViews must not be null"));
+        if (this.managedAgentViews.contains(ToolView.PUBLIC)) {
+            throw new IllegalArgumentException("The public tool view cannot be a managed agent view");
+        }
     }
 
     public void mount(Router router) {
@@ -59,7 +71,7 @@ public final class McpRoutes {
      * broken stream. Answering 405 tells the client unambiguously that there is no GET stream.
      */
     private void mcpGet(RoutingContext context) {
-        AuthenticationResult authentication = authenticator.authenticate(authenticationRequest(context));
+        AuthenticationResult authentication = authenticateMcpRequest(context);
         if (!authentication.isAuthenticated()) {
             unauthorized(context, authentication);
             return;
@@ -70,7 +82,7 @@ public final class McpRoutes {
     }
 
     private void mcpPost(RoutingContext context) {
-        AuthenticationResult authentication = authenticator.authenticate(authenticationRequest(context));
+        AuthenticationResult authentication = authenticateMcpRequest(context);
         if (!authentication.isAuthenticated()) {
             unauthorized(context, authentication);
             return;
@@ -155,7 +167,7 @@ public final class McpRoutes {
         if (requestedView == null || requestedView.isBlank()) {
             return ToolView.PUBLIC;
         }
-        if (!isTrustedInjectedViewRequest(context)) {
+        if (!isManagedAgentView(requestedView) || !isTrustedInjectedViewRequest(context)) {
             return ToolView.PUBLIC;
         }
         return ToolView.named(requestedView.trim());
@@ -252,6 +264,20 @@ public final class McpRoutes {
         return keys;
     }
 
+
+    private boolean isManagedAgentView(String requestedView) {
+        return requestedView != null
+                && !requestedView.isBlank()
+                && managedAgentViews.contains(ToolView.named(requestedView.trim()));
+    }
+
+    private AuthenticationResult authenticateMcpRequest(RoutingContext context) {
+        String requestedView = context.request().getParam(TOOL_VIEW_QUERY_PARAM);
+        if (isManagedAgentView(requestedView) && isTrustedInjectedViewRequest(context)) {
+            return AuthenticationResult.authenticated("local-acp-agent");
+        }
+        return authenticator.authenticate(authenticationRequest(context));
+    }
 
     private AuthenticationRequest authenticationRequest(RoutingContext context) {
         Map<String, String> headers = new java.util.LinkedHashMap<>();

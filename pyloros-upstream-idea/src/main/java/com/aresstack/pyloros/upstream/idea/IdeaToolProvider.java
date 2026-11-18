@@ -1,5 +1,6 @@
 package com.aresstack.pyloros.upstream.idea;
 
+import com.aresstack.pyloros.provider.ProviderType;
 import com.aresstack.pyloros.tool.ToolProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Future;
@@ -26,6 +27,11 @@ public final class IdeaToolProvider implements ToolProvider {
     public IdeaToolProvider(IdeaMcpConfig config, IdeaMcpClient client) {
         this.config = config == null ? new IdeaMcpConfig(null, Map.of(), 3000, 100000) : config;
         this.client = client;
+    }
+
+    @Override
+    public ProviderType providerType() {
+        return ProviderType.MCP;
     }
 
     @Override

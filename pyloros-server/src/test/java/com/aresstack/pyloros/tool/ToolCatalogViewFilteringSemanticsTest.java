@@ -49,6 +49,35 @@ class ToolCatalogViewFilteringSemanticsTest {
         assertEquals(List.of("plugin-tools__plugin_tools_public"), publicNames.stream().toList());
     }
 
+    @Test
+    void managedAgentViewExposesPublicMcpToolsButNotAgentOrAdministrativeTools() {
+        ToolView managedView = ToolView.named("antigravity-acp-agent-view");
+        ToolProvider idea = new ViewAwareProvider("intellij", ProviderType.MCP, List.of(ToolView.PUBLIC));
+        ToolProvider github = new ViewAwareProvider("github", ProviderType.MCP, List.of(ToolView.PUBLIC));
+        ToolProvider agent = new ViewAwareProvider("antigravity-acp", ProviderType.ACP, List.of(ToolView.PUBLIC));
+        ToolProvider management = new ViewAwareProvider("acp_registry", ProviderType.NATIVE, List.of(ToolView.PUBLIC));
+        ToolProvider unknown = new ViewAwareProvider("unknown-provider", ProviderType.UNKNOWN, List.of(ToolView.PUBLIC));
+
+        ToolCatalog toolCatalog = new ToolCatalog(
+                new ProviderRegistry(List.of(idea, github, agent, management, unknown)),
+                ToolNameFormatter.defaultFormatter(),
+                Set.of(managedView)
+        );
+
+        assertEquals(Set.of("intellij__intellij_public", "github__github_public"),
+                toolNames(await(toolCatalog.listTools(managedView))));
+        assertTrue(await(toolCatalog.listTools(ToolView.named("unregistered-agent-view"))).isEmpty());
+        assertTrue(toolNames(await(toolCatalog.listTools(ToolView.PUBLIC)))
+                .contains("antigravity-acp__antigravity_acp_public"));
+    }
+
+    @Test
+    void publicViewCannotBeRegisteredAsManagedAgentView() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new ToolCatalog(new ProviderRegistry(List.of()),
+                        ToolNameFormatter.defaultFormatter(), Set.of(ToolView.PUBLIC)));
+    }
+
     private static Set<String> toolNames(List<Map<String, Object>> tools) {
         return tools.stream().map(tool -> (String) tool.get("name")).collect(java.util.stream.Collectors.toSet());
     }

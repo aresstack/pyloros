@@ -1,6 +1,8 @@
 package com.aresstack.pyloros.tool;
 
+import com.aresstack.pyloros.provider.ProviderDescriptor;
 import com.aresstack.pyloros.provider.ProviderRegistry;
+import com.aresstack.pyloros.provider.ProviderType;
 import io.vertx.core.Future;
 
 import java.util.ArrayList;
@@ -9,11 +11,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 public final class ToolCatalog {
 
     private final ProviderRegistry providerRegistry;
     private final ToolNameFormatter toolNameFormatter;
+    private final Set<ToolView> managedAgentViews;
     private volatile ToolCatalogSnapshot snapshot = ToolCatalogSnapshot.empty();
     private final Map<ToolView, ToolCatalogSnapshot> snapshotsByView = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -22,8 +26,17 @@ public final class ToolCatalog {
     }
 
     public ToolCatalog(ProviderRegistry providerRegistry, ToolNameFormatter toolNameFormatter) {
+        this(providerRegistry, toolNameFormatter, Set.of());
+    }
+
+    public ToolCatalog(ProviderRegistry providerRegistry, ToolNameFormatter toolNameFormatter,
+                       Set<ToolView> managedAgentViews) {
         this.providerRegistry = Objects.requireNonNull(providerRegistry, "providerRegistry must not be null");
         this.toolNameFormatter = Objects.requireNonNull(toolNameFormatter, "toolNameFormatter must not be null");
+        this.managedAgentViews = Set.copyOf(Objects.requireNonNull(managedAgentViews, "managedAgentViews must not be null"));
+        if (this.managedAgentViews.contains(ToolView.PUBLIC)) {
+            throw new IllegalArgumentException("The public tool view cannot be a managed agent view");
+        }
     }
 
     public Future<List<Map<String, Object>>> listTools() {
@@ -68,8 +81,8 @@ public final class ToolCatalog {
     private Future<ToolCatalogSnapshot> refresh(ToolView toolView) {
         List<ToolProvider> providers = providerRegistry.providers().stream()
                 .filter(provider -> providerRegistry.findDescriptorById(provider.providerId())
-                        .map(descriptor -> descriptor.isExposedIn(toolView))
-                        .orElse(true))
+                        .map(descriptor -> isVisibleInView(descriptor, toolView))
+                        .orElse(false))
                 .toList();
         if (providers.isEmpty()) {
             ToolCatalogSnapshot emptySnapshot = ToolCatalogSnapshot.empty();
@@ -80,7 +93,7 @@ public final class ToolCatalog {
 
         List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();
         for (ToolProvider provider : providers) {
-            futures.add(provider.listTools(toolView));
+            futures.add(provider.listTools(managedAgentViews.contains(toolView) ? ToolView.PUBLIC : toolView));
         }
 
         return Future.all(new ArrayList<>(futures)).map(composite -> {
@@ -128,6 +141,13 @@ public final class ToolCatalog {
             snapshotsByView.put(toolView, refreshed);
             return refreshed;
         });
+    }
+
+    private boolean isVisibleInView(ProviderDescriptor descriptor, ToolView toolView) {
+        if (!managedAgentViews.contains(toolView)) {
+            return descriptor.isExposedIn(toolView);
+        }
+        return descriptor.providerType() == ProviderType.MCP && descriptor.isExposedIn(ToolView.PUBLIC);
     }
 
     private ToolCatalogEntry toEntry(ToolProvider provider, String providerId, Map<String, Object> tool) {

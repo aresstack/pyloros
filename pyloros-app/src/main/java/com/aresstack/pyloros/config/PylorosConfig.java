@@ -19,6 +19,10 @@ public record PylorosConfig(
         String mcpInjectedViewToken
 ) implements ServerConfig, OAuthConfig {
 
+    public String localAgentMcpUrl() {
+        return "http://127.0.0.1:" + serverPort + "/";
+    }
+
     public static PylorosConfig load() {
         Properties properties = loadProperties();
 
