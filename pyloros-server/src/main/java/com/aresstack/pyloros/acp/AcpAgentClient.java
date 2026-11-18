@@ -27,6 +27,14 @@ public final class AcpAgentClient implements AutoCloseable {
         pumpIncomingMessages();
     }
 
+    public CompletableFuture<Void> initialize() {
+        return sendRequest("initialize", Map.of(
+                "protocolVersion", 1,
+                "clientCapabilities", Map.of(),
+                "clientInfo", Map.of("name", "pyloros", "version", "0.1.0")
+        )).thenAccept(this::validateInitialization);
+    }
+
     public CompletableFuture<String> createSession(String cwd) {
         return createSession(cwd, List.of());
     }
@@ -165,6 +173,13 @@ public final class AcpAgentClient implements AutoCloseable {
         CompletableFuture<JsonNode> waiter;
         while ((waiter = eventWaiters.poll()) != null) {
             waiter.completeExceptionally(failure);
+        }
+    }
+
+    private void validateInitialization(JsonNode response) {
+        JsonNode result = response.path("result");
+        if (result.path("protocolVersion").asInt(-1) != 1) {
+            throw new IllegalStateException("ACP agent does not support protocol version 1");
         }
     }
 

@@ -196,6 +196,12 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                 if (isTerminal(task.state())) {
                     return;
                 }
+                client.initialize()
+                        .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
+                        .join();
+                if (isTerminal(task.state())) {
+                    return;
+                }
                 String sessionId = client.createSession(resolveSessionCwd(request.cwd()), injectedMcpServers())
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();

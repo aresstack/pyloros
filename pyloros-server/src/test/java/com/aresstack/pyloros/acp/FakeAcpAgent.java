@@ -35,6 +35,8 @@ public final class FakeAcpAgent implements AutoCloseable {
     private final ObjectMapper mapper = new ObjectMapper();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicReference<JsonNode> lastSessionNewParams = new AtomicReference<>();
+    private final AtomicReference<JsonNode> lastInitializeParams = new AtomicReference<>();
+    private final AtomicBoolean initialized = new AtomicBoolean(false);
     private volatile String behavior = "success";
 
     public FakeAcpAgent() throws IOException {
@@ -73,6 +75,10 @@ public final class FakeAcpAgent implements AutoCloseable {
         return lastSessionNewParams.get();
     }
 
+    public JsonNode lastInitializeParams() {
+        return lastInitializeParams.get();
+    }
+
     private void agentLoop() {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(agentReadsFrom, StandardCharsets.UTF_8));
              BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(agentWritesTo, StandardCharsets.UTF_8))) {
@@ -84,7 +90,16 @@ public final class FakeAcpAgent implements AutoCloseable {
                     // Intentionally do not respond to any requests
                     continue;
                 }
-                if ("session/new".equals(method)) {
+                if ("initialize".equals(method)) {
+                    lastInitializeParams.set(request.get("params"));
+                    initialized.set(true);
+                    sendResult(writer, request.get("id").asText(),
+                            mapper.createObjectNode().put("protocolVersion", 1));
+                } else if ("session/new".equals(method)) {
+                    if (!initialized.get()) {
+                        sendError(writer, request.get("id").asText(), "ACP initialize required before session/new");
+                        continue;
+                    }
                     lastSessionNewParams.set(request.get("params"));
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {
@@ -160,6 +175,16 @@ public final class FakeAcpAgent implements AutoCloseable {
         response.put("jsonrpc", "2.0");
         response.put("id", id);
         response.set("result", result);
+        writer.write(mapper.writeValueAsString(response));
+        writer.newLine();
+        writer.flush();
+    }
+
+    private void sendError(BufferedWriter writer, String id, String message) throws IOException {
+        ObjectNode response = mapper.createObjectNode();
+        response.put("jsonrpc", "2.0");
+        response.put("id", id);
+        response.set("error", mapper.createObjectNode().put("code", -32600).put("message", message));
         writer.write(mapper.writeValueAsString(response));
         writer.newLine();
         writer.flush();

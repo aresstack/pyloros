@@ -21,6 +21,7 @@ class AcpIntegrationTest {
             agent.start();
 
             AgentTask task = newTask(100);
+            clientContext.client().initialize().get(5, TimeUnit.SECONDS);
             String sessionId = clientContext.client().createSession("/workspace").get(5, TimeUnit.SECONDS);
             clientContext.client().sendPrompt(sessionId, "hello").get(5, TimeUnit.SECONDS);
 
@@ -42,6 +43,7 @@ class AcpIntegrationTest {
             agent.start();
 
             AgentTask task = newTask(10);
+            clientContext.client().initialize().get(5, TimeUnit.SECONDS);
             String sessionId = clientContext.client().createSession("/workspace").get(5, TimeUnit.SECONDS);
             clientContext.client().sendPrompt(sessionId, "hello").get(5, TimeUnit.SECONDS);
 
@@ -60,6 +62,7 @@ class AcpIntegrationTest {
             agent.start();
 
             AgentTask task = newTask(10);
+            clientContext.client().initialize().get(5, TimeUnit.SECONDS);
             String sessionId = clientContext.client().createSession("/workspace").get(5, TimeUnit.SECONDS);
             clientContext.client().sendPrompt(sessionId, "hello").get(5, TimeUnit.SECONDS);
 
@@ -80,6 +83,7 @@ class AcpIntegrationTest {
             agent.start();
 
             AgentTask task = newTask(100);
+            clientContext.client().initialize().get(5, TimeUnit.SECONDS);
             String sessionId = clientContext.client().createSession("/workspace").get(5, TimeUnit.SECONDS);
             clientContext.client().sendPrompt(sessionId, "hello").get(5, TimeUnit.SECONDS);
 

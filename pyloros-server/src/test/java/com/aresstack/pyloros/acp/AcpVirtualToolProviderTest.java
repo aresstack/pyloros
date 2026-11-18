@@ -55,6 +55,23 @@ class AcpVirtualToolProviderTest {
     }
 
     @Test
+    void initializesAcpBeforeCreatingSession() throws Exception {
+        try (ProviderContext context = newProvider("success")) {
+            JsonNode response = responsePayload(call(context.provider(), "run_task",
+                    objectNode().put("prompt", "Test prompt")));
+
+            assertEquals("COMPLETED", response.path("state").asText());
+
+            JsonNode initializeParams = context.agent().lastInitializeParams();
+            assertNotNull(initializeParams);
+            assertEquals(1, initializeParams.path("protocolVersion").asInt());
+            assertEquals("pyloros", initializeParams.path("clientInfo").path("name").asText());
+            assertTrue(initializeParams.path("clientCapabilities").isObject());
+            assertNotNull(context.agent().lastSessionNewParams());
+        }
+    }
+
+    @Test
     void testRunTaskCreatesTask() throws Exception {
         try (ProviderContext context = newProvider("success")) {
             JsonNode response = responsePayload(call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt")));
