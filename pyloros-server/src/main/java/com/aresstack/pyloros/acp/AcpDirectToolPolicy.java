@@ -15,8 +15,8 @@ public final class AcpDirectToolPolicy {
             "intellij__find_files_by_name_keyword",
             "intellij_index__ide_project_status",
             "intellij_index__ide_diagnostics",
-            "github__search",
-            "github__fetch_file"
+            "github__search_code",
+            "github__get_file_contents"
     );
 
     private static final Set<String> MUTATING = Set.of(
