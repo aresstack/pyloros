@@ -1,5 +1,6 @@
 package com.aresstack.pyloros;
 
+import com.aresstack.pyloros.acp.AcpDirectToolPolicy;
 import com.aresstack.pyloros.acp.AcpProviderConfiguration;
 import com.aresstack.pyloros.acp.AcpVirtualToolProvider;
 import com.aresstack.pyloros.acp.InMemoryAgentTaskRepository;
@@ -110,7 +111,9 @@ public final class PylorosApplication extends AbstractVerticle {
 
         ProviderRegistry providerRegistry = new ProviderRegistry(providers);
         Set<ToolView> agentToolViews = managedAgentToolViews(providers);
-        ToolCatalog toolCatalog = new ToolCatalog(providerRegistry, toolNameFormatter, agentToolViews);
+        ToolCatalog toolCatalog = new ToolCatalog(
+                providerRegistry, toolNameFormatter, agentToolViews,
+                AcpDirectToolPolicy.directToolNames(), antigravityToolViews(providers));
         ToolRouter toolRouter = new ToolRouter(providerRegistry, toolCatalog,
                 config.enforceToolScopes());
 
@@ -131,6 +134,15 @@ public final class PylorosApplication extends AbstractVerticle {
         return providers.stream()
                 .filter(AcpVirtualToolProvider.class::isInstance)
                 .map(AcpVirtualToolProvider.class::cast)
+                .map(AcpVirtualToolProvider::agentToolView)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private Set<ToolView> antigravityToolViews(List<ToolProvider> providers) {
+        return providers.stream()
+                .filter(AcpVirtualToolProvider.class::isInstance)
+                .map(AcpVirtualToolProvider.class::cast)
+                .filter(provider -> "antigravity-acp".equals(provider.providerId()))
                 .map(AcpVirtualToolProvider::agentToolView)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
