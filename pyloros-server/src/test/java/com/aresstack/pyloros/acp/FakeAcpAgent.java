@@ -103,7 +103,7 @@ public final class FakeAcpAgent implements AutoCloseable {
                     lastSessionNewParams.set(request.get("params"));
                     sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("sessionId", SESSION_ID));
                 } else if ("session/prompt".equals(method)) {
-                    if ("acp17".equals(behavior)) {
+                    if ("acp17".equals(behavior) || "split_response".equals(behavior)) {
                         sendBehaviorEvents(writer, promptText(request.path("params").path("prompt")));
                         sendResult(writer, request.get("id").asText(), mapper.createObjectNode().put("stopReason", "end_turn"));
                     } else {
@@ -155,6 +155,23 @@ public final class FakeAcpAgent implements AutoCloseable {
                 sendSessionEvent(writer, mapper.createObjectNode()
                         .put("type", "completion")
                         .put("result", "large-output-complete"));
+            }
+            case "split_response" -> {
+                sendNestedSessionUpdate(writer, mapper.createObjectNode()
+                        .put("sessionUpdate", "agent_message_chunk")
+                        .set("content", mapper.createObjectNode()
+                                .put("type", "text").put("text", "Das Repository ")));
+                sendNestedSessionUpdate(writer, mapper.createObjectNode()
+                        .put("sessionUpdate", "tool_call_update")
+                        .put("toolCallId", "test-tool")
+                        .put("status", "completed"));
+                sendNestedSessionUpdate(writer, mapper.createObjectNode()
+                        .put("sessionUpdate", "agent_message_chunk")
+                        .set("content", mapper.createObjectNode()
+                                .put("type", "text").put("text", "heißt pyloros.")));
+                sendNestedSessionUpdate(writer, mapper.createObjectNode()
+                        .put("sessionUpdate", "usage_update")
+                        .put("used", 42));
             }
             case "acp17" -> {
                 ObjectNode content = mapper.createObjectNode()

@@ -100,6 +100,23 @@ class AcpVirtualToolProviderTest {
     }
 
     @Test
+    void getTaskResultReturnsAllAgentMessageFragmentsNotTheLastEvent() throws Exception {
+        try (ProviderContext context = newProvider("split_response")) {
+            JsonNode completed = responsePayload(call(context.provider(), "run_task",
+                    objectNode().put("prompt", "Describe the repository")));
+            String taskId = completed.path("taskId").asText();
+
+            assertEquals("COMPLETED", completed.path("state").asText());
+            assertEquals("Das Repository heißt pyloros.", completed.path("result").asText());
+
+            JsonNode retrieved = responsePayload(call(context.provider(), "get_task_result",
+                    objectNode().put("taskId", taskId)));
+            assertEquals("COMPLETED", retrieved.path("state").asText());
+            assertEquals("Das Repository heißt pyloros.", retrieved.path("result").asText());
+        }
+    }
+
+    @Test
     void testRunTaskReturnsErrorPayloadOnFailure() throws Exception {
         try (ProviderContext context = newProvider("error")) {
             Map<String, Object> result = call(context.provider(), "run_task", objectNode().put("prompt", "Test prompt"));

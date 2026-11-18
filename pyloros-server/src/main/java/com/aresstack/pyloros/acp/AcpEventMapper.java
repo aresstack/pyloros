@@ -10,10 +10,14 @@ import java.util.UUID;
 public final class AcpEventMapper {
 
     public void applyEvent(AgentTask task, JsonNode event, int maxEventTextChars) {
+        applyEvent(task, event, maxEventTextChars, maxEventTextChars);
+    }
+
+    public void applyEvent(AgentTask task, JsonNode event, int maxEventTextChars, int maxResultTextChars) {
         Objects.requireNonNull(task, "task must not be null");
         Objects.requireNonNull(event, "event must not be null");
-        if (maxEventTextChars <= 0) {
-            throw new IllegalArgumentException("maxEventTextChars must be greater than 0");
+        if (maxEventTextChars <= 0 || maxResultTextChars <= 0) {
+            throw new IllegalArgumentException("Text limits must be greater than 0");
         }
 
         if (!"session/update".equals(text(event, "method"))) {
@@ -27,14 +31,14 @@ public final class AcpEventMapper {
 
         JsonNode update = params.get("update");
         if (update != null && !update.isNull()) {
-            applyNestedUpdate(task, update, maxEventTextChars);
+            applyNestedUpdate(task, update, maxEventTextChars, maxResultTextChars);
             return;
         }
 
         // Handle stopReason-only events (e.g., permission_required, end_turn)
         String stopReason = text(params, "stopReason");
         if (stopReason != null) {
-            handleStopReason(task, stopReason, params, maxEventTextChars);
+            handleStopReason(task, stopReason, params, maxResultTextChars);
             return;
         }
 
@@ -47,11 +51,13 @@ public final class AcpEventMapper {
         switch (type) {
             case "text" -> {
                 markRunning(task);
-                task.addEvent(truncate(textValue(params, "text", "content", "value"), maxEventTextChars));
+                String chunk = textValue(params, "text", "content", "value");
+                task.appendAgentResponse(chunk, maxResultTextChars);
+                task.addEvent(truncate(chunk, maxEventTextChars));
             }
             case "completion" -> {
                 markRunning(task);
-                task.complete(truncate(textValue(params, "result", "text", "content"), maxEventTextChars));
+                task.complete(truncate(textValue(params, "result", "text", "content"), maxResultTextChars));
             }
             case "error" -> {
                 markRunning(task);
@@ -72,10 +78,14 @@ public final class AcpEventMapper {
     }
 
     public void applyPromptResponse(AgentTask task, JsonNode response, int maxEventTextChars) {
+        applyPromptResponse(task, response, maxEventTextChars, maxEventTextChars);
+    }
+
+    public void applyPromptResponse(AgentTask task, JsonNode response, int maxEventTextChars, int maxResultTextChars) {
         Objects.requireNonNull(task, "task must not be null");
         Objects.requireNonNull(response, "response must not be null");
-        if (maxEventTextChars <= 0) {
-            throw new IllegalArgumentException("maxEventTextChars must be greater than 0");
+        if (maxEventTextChars <= 0 || maxResultTextChars <= 0) {
+            throw new IllegalArgumentException("Text limits must be greater than 0");
         }
 
         JsonNode result = response.get("result");
@@ -88,10 +98,11 @@ public final class AcpEventMapper {
             return;
         }
 
-        handleStopReason(task, stopReason, result, maxEventTextChars);
+        handleStopReason(task, stopReason, result, maxResultTextChars);
     }
 
-    private static void applyNestedUpdate(AgentTask task, JsonNode update, int maxEventTextChars) {
+    private static void applyNestedUpdate(AgentTask task, JsonNode update,
+                                          int maxEventTextChars, int maxResultTextChars) {
         String sessionUpdate = text(update, "sessionUpdate");
         if (sessionUpdate == null) {
             task.addEvent(truncate(update.toString(), maxEventTextChars));
@@ -99,7 +110,13 @@ public final class AcpEventMapper {
         }
 
         switch (sessionUpdate) {
-            case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk" -> {
+            case "agent_message_chunk" -> {
+                markRunning(task);
+                String chunk = textValue(update.path("content"), "text", "content", "value");
+                task.appendAgentResponse(chunk, maxResultTextChars);
+                task.addEvent(truncate(chunk, maxEventTextChars));
+            }
+            case "agent_thought_chunk", "user_message_chunk" -> {
                 markRunning(task);
                 task.addEvent(truncate(textValue(update.path("content"), "text", "content", "value"), maxEventTextChars));
             }
@@ -145,6 +162,9 @@ public final class AcpEventMapper {
                 String result = text(params, "result");
                 if (result == null) {
                     result = text(params, "text");
+                }
+                if (result == null && !task.agentResponse().isEmpty()) {
+                    result = task.agentResponse();
                 }
                 if (result == null) {
                     result = lastEvent(task);

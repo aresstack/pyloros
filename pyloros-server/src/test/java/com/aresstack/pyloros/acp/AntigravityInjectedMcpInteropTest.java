@@ -233,6 +233,12 @@ final class AntigravityInjectedMcpInteropTest {
             System.out.println("Read-only direct tool result: " + result);
             assertEquals("COMPLETED", result.path("state").asText(), result.toString());
             assertEquals(1, READ_ONLY_CALLS.get(), "Known read-only MCP tools must execute without approval");
+            JsonNode fetched = toolPayload(provider.callTool("get_task_result",
+                    new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of(
+                            "taskId", result.path("taskId").asText())))
+                    .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+            assertEquals(result.path("result").asText(), fetched.path("result").asText());
+            assertTrue(fetched.path("result").asText().contains("pyloros"), fetched.toString());
         } finally {
             if (server != null) {
                 server.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);

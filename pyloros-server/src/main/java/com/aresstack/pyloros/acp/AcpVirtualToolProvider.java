@@ -222,7 +222,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
                         .orTimeout(request.timeoutSeconds(), TimeUnit.SECONDS)
                         .join();
                 drainAvailableEvents(task, client);
-                eventMapper.applyPromptResponse(task, promptResponse, config.execution().maxEventTextChars());
+                eventMapper.applyPromptResponse(task, promptResponse,
+                        config.execution().maxEventTextChars(), config.execution().maxResultTextChars());
                 agentTaskRepository.save(task);
 
                 waitForTerminalState(task, client, processHandle);
@@ -263,7 +264,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
         while (!isTerminal(task.state())) {
             try {
                 JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
-                eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());
+                eventMapper.applyEvent(task, event,
+                        config.execution().maxEventTextChars(), config.execution().maxResultTextChars());
                 agentTaskRepository.save(task);
             } catch (TimeoutException ignored) {
                 return;
@@ -283,7 +285,8 @@ public final class AcpVirtualToolProvider implements ToolProvider {
             }
             try {
                 JsonNode event = client.receiveEvent().get(EVENT_POLL_MILLIS, TimeUnit.MILLISECONDS);
-                eventMapper.applyEvent(task, event, config.execution().maxEventTextChars());
+                eventMapper.applyEvent(task, event,
+                        config.execution().maxEventTextChars(), config.execution().maxResultTextChars());
                 agentTaskRepository.save(task);
             } catch (TimeoutException ignored) {
                 if (isTerminal(task.state())) {

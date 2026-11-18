@@ -26,6 +26,7 @@ public final class AgentTask {
     private Instant completedAt;
     private final List<String> events;
     private final List<PendingPermission> pendingPermissions;
+    private final StringBuilder agentResponse = new StringBuilder();
     private String result;
     private String error;
     private volatile boolean cancellationRequested;
@@ -113,6 +114,21 @@ public final class AgentTask {
 
     public synchronized String result() {
         return result;
+    }
+
+    public synchronized void appendAgentResponse(String chunk, int maximumLength) {
+        Objects.requireNonNull(chunk, "chunk must not be null");
+        if (maximumLength <= 0) {
+            throw new IllegalArgumentException("maximumLength must be positive");
+        }
+        int remaining = maximumLength - agentResponse.length();
+        if (remaining > 0) {
+            agentResponse.append(chunk, 0, Math.min(remaining, chunk.length()));
+        }
+    }
+
+    public synchronized String agentResponse() {
+        return agentResponse.toString();
     }
 
     public synchronized String error() {
