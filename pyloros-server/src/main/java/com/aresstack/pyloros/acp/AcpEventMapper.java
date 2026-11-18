@@ -115,6 +115,9 @@ public final class AcpEventMapper {
                 markRunning(task);
                 task.addEvent(truncate(update.toString(), maxEventTextChars));
             }
+            case "usage_update", "available_commands_update" -> {
+                // Ignore metadata notifications when collecting the final agent response.
+            }
             default -> task.addEvent(truncate(update.toString(), maxEventTextChars));
         }
     }
